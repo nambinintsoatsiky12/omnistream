@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}OmniStream{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2">
+</head>
+<body class="{{ 'body-landing' if not tab else '' }}">
+<header class="topbar {{ 'topbar-landing' if not tab else '' }}">
+  <div class="topbar-inner" id="topbar-inner">
+    <a href="{{ url_for('index') }}" class="logo logo-mark">
+      <span class="logo-icon">
+        <svg viewBox="0 0 40 40" width="30" height="30">
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#ff8c00"/>
+              <stop offset="100%" stop-color="#ff3d7f"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="36" height="36" rx="10" fill="url(#logoGrad)"/>
+          <path d="M16 13l13 7-13 7z" fill="#0d0d16"/>
+        </svg>
+      </span>
+      OMNI<span>STREAM</span>
+    </a>
+
+    {% if tab %}
+    <form class="searchbar" id="searchbar" action="{{ url_for('index') }}" method="get">
+      <input type="hidden" name="tab" value="{{ tab|default('films') }}">
+      <input type="text" name="q" id="search-input" placeholder="Rechercher..." value="{{ query|default('') }}">
+      <button type="submit">OK</button>
+    </form>
+
+    <button class="icon-btn" id="search-toggle" aria-label="Rechercher">
+      <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+    </button>
+    {% endif %}
+
+    <button class="icon-btn" id="burger-btn" aria-label="Menu">
+      <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </button>
+  </div>
+
+  {% if tab %}
+  <nav class="tabs">
+    <a href="{{ url_for('index', tab='films') }}" class="{{ 'active' if tab=='films' or not tab else '' }}">Films</a>
+    <a href="{{ url_for('index', tab='animes') }}" class="{{ 'active' if tab=='animes' else '' }}">Animes (Manga)</a>
+    <a href="{{ url_for('index', tab='series') }}" class="{{ 'active' if tab=='series' else '' }}">Séries</a>
+    <a href="{{ url_for('index', tab='animation_occidentale') }}" class="{{ 'active' if tab=='animation_occidentale' else '' }}">Animation Occidentale</a>
+  </nav>
+  {% endif %}
+
+  <div class="burger-panel" id="burger-panel">
+    <a href="{{ url_for('index', tab='films') }}">Accueil</a>
+    <a href="{{ url_for('index', tab='nouveautes') }}">Nouveautés à venir</a>
+    <a href="{{ url_for('index', tab='legendes') }}">Les Légendes (note ≥ 8,5)</a>
+    <a href="#" onclick="openAdultSection(); return false;" style="color:#ff0055; font-weight:bold;">🔥 Plus pertinent 🔥</a>
+    {% if session.get('user_first_name') %}
+      <a href="{{ url_for('logout') }}" class="burger-divider">Déconnexion ({{ session.get('user_first_name') }})</a>
+      <a href="{{ url_for('delete_account') }}" style="color:#e0334d;">Supprimer mon compte</a>
+    {% else %}
+      <a href="{{ url_for('login') }}" class="burger-divider">Connexion</a>
+    {% endif %}
+  </div>
+</header>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="site-footer">
+  <div>Propulsé par TMDB &amp; Gemini</div>
+  <div class="creator">Créateur : NAMBININTSOA Tsiky Fandresena</div>
+</footer>
+
+<script>
+(function () {
+  const burgerBtn = document.getElementById("burger-btn");
+  const burgerPanel = document.getElementById("burger-panel");
+  if (burgerBtn && burgerPanel) {
+    burgerBtn.addEventListener("click", () => burgerPanel.classList.toggle("open"));
+  }
+
+  const topbarInner = document.getElementById("topbar-inner");
+  const searchToggle = document.getElementById("search-toggle");
+  const searchInput = document.getElementById("search-input");
+  if (searchToggle && topbarInner) {
+    searchToggle.addEventListener("click", () => {
+      const isOpen = topbarInner.classList.toggle("search-open");
+      if (isOpen && searchInput) searchInput.focus();
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (burgerPanel && burgerBtn && !burgerPanel.contains(e.target) && e.target !== burgerBtn && !burgerBtn.contains(e.target)) {
+      burgerPanel.classList.remove("open");
+    }
+  });
+
+  const header = document.querySelector(".topbar");
+  function updateHeaderHeight() {
+    if (header) {
+      document.documentElement.style.setProperty("--header-h", header.offsetHeight + "px");
+    }
+  }
+  updateHeaderHeight();
+  window.addEventListener("resize", updateHeaderHeight);
+})();
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

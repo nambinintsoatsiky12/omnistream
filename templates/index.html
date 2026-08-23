@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}OmniStream{% endblock %}
+{% block content %}
+
+{% if query %}
+  <h2 class="search-title">Résultats pour « {{ query }} »</h2>
+  <div class="grid">
+    {% for item in items %}
+      <a class="card" href="{{ url_for('details', media_type=item.media_type, item_id=item.id, tab=tab) }}">
+        <div class="poster" style="background-image:url('{{ item.poster }}')">
+          <span class="rating-badge"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>{{ item.rating }}</span>
+        </div>
+        <div class="card-info">
+          <div class="card-title">{{ item.title }}</div>
+        </div>
+      </a>
+    {% else %}
+      <p class="empty">Aucun résultat pour le moment.</p>
+    {% endfor %}
+  </div>
+
+{% else %}
+  <div id="app-root" data-tab="{{ tab }}">
+    {% if tab == 'nouveautes' %}
+      <h2 class="search-title">Nouveautés à venir</h2>
+    {% elif tab == 'legendes' %}
+      <h2 class="search-title">Les Légendes (note ≥ 8,5)</h2>
+    {% endif %}
+
+    <!-- BANDEAU DÉROULANT (HERO) -->
+    <section class="hero" id="hero">
+      <div class="hero-track" id="hero-track"></div>
+      <div class="hero-dots" id="hero-dots"></div>
+    </section>
+
+    <!-- PASTILLES DE GENRES -->
+    <nav class="pills" id="pills"></nav>
+
+    <!-- GRILLE D'ANIMES / FILMS -->
+    <div class="grid" id="grid"></div>
+    <div id="sentinel" class="sentinel"></div>
+    <p id="grid-empty" class="empty" hidden>Aucun titre dans cette catégorie pour le moment.</p>
+  </div>
+{% endif %}
+
+<!-- Modal VIP -->
+<div id="vipModal" class="modal" style="display:none; position:fixed; z-index:9999; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); text-align:center; padding-top:100px;">
+  <div style="background:#1e1e2e; color:#fff; display:inline-block; padding:25px; border-radius:12px; max-width:90%; width:400px; border:1px solid #ff0055;">
+    <h3 style="color:#ff0055; margin-top:0;">🔥 Bienvenue dans la Sainte ARÈNE 🔥</h3>
+    <p style="font-size:14px; line-height:1.5;">Veuillez contacter l'admin pour obtenir le code d'accès :</p>
+    <p style="font-size:14px;">
+      📘 Facebook : <a href="https://www.facebook.com/Seiki.Satsurai.Eternals" target="_blank" style="color:#00d2ff; font-weight:bold;">Seïkī Satsurai Eternals</a><br><br>
+      💬 WhatsApp : <a href="https://wa.me/261334989048" target="_blank" style="color:#25D366; font-weight:bold;">+261 33 49 890 48</a>
+    </p>
+    <hr style="border:0.5px solid #333; margin:15px 0;">
+    <div>
+      <input type="password" id="vipPinInput" placeholder="Entrez le code PIN..." style="padding:10px; width:65%; border-radius:6px; border:1px solid #444; background:#111; color:#fff;">
+      <button onclick="submitVipPin()" style="padding:10px 15px; background:#ff0055; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold;">Valider</button>
+    </div>
+    <br>
+    <button onclick="closeVipModal()" style="background:transparent; color:#888; border:none; cursor:pointer;">Fermer</button>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{% if not query %}
+  <script src="{{ url_for('static', filename='js/home.js') }}?v=VIP"></script>
+{% endif %}
+{% endblock %}

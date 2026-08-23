@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Vérifiez votre adresse e-mail — OmniStream{% endblock %}
+{% block content %}
+<div class="auth-box">
+  <div class="auth-header">
+    <span class="auth-logo">OMNI<span>STREAM</span></span>
+    <h1>Vérifiez votre adresse e-mail</h1>
+  </div>
+  <p class="auth-body-text">Un e-mail de confirmation a été envoyé à <strong>{{ email }}</strong>.</p>
+  <p class="auth-body-text">Veuillez cliquer sur le lien qu'il contient pour activer votre compte.</p>
+  <p class="auth-hint-block">Vous ne le trouvez pas ? Pensez à vérifier le dossier <strong>Spam / Courriers indésirables</strong> de votre messagerie — les e-mails automatiques y sont parfois classés par erreur.</p>
+  <p class="auth-switch"><a href="{{ url_for('login') }}">Retour à la connexion</a></p>
+</div>
+{% endblock %}

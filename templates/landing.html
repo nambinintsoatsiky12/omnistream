@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}OmniStream — Films, séries et animés en un seul endroit{% endblock %}
+{% block content %}
+
+<section class="landing-hero">
+  <div class="poster-wall" aria-hidden="true">
+    <div class="poster-col poster-col-up">
+      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+    </div>
+    <div class="poster-col poster-col-down">
+      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+    </div>
+    <div class="poster-col poster-col-up">
+      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+    </div>
+    <div class="poster-col poster-col-down">
+      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+    </div>
+  </div>
+  <div class="poster-wall-overlay"></div>
+
+  <div class="landing-hero-inner reveal">
+    <span class="landing-eyebrow">Catalogue Films · Séries · Animés</span>
+    <h1>Tout ce que vous regardez,<br>au même endroit.</h1>
+    <p class="landing-lead">
+      OmniStream rassemble un catalogue complet de films, séries et animés,
+      avec des notes fiables, des sorties à venir et une sélection des œuvres
+      les mieux notées — mis à jour en continu.
+    </p>
+    <div class="landing-cta">
+      <a href="{{ url_for('signup') }}" class="landing-btn-primary">Créer un compte gratuit</a>
+      <a href="{{ url_for('login') }}" class="landing-btn-secondary">Se connecter</a>
+    </div>
+  </div>
+</section>
+
+<section class="landing-stats-band">
+  <div class="landing-stats-inner">
+    <div class="mini-stat reveal">
+      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+      <span class="mini-stat-number">{{ members }}</span>
+      <span class="mini-stat-label">Membres inscrits</span>
+    </div>
+    <div class="mini-stat reveal">
+      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+      <span class="mini-stat-number">{{ visits }}</span>
+      <span class="mini-stat-label">Visites cumulées</span>
+    </div>
+    <div class="mini-stat reveal">
+      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
+      <span class="mini-stat-number">4</span>
+      <span class="mini-stat-label">Catégories de contenu</span>
+    </div>
+  </div>
+</section>
+
+<section class="landing-features">
+  <h2 class="reveal">Ce que vous trouverez sur OmniStream</h2>
+  <div class="landing-feature-grid">
+    <div class="landing-feature reveal">
+      <h3>Un catalogue complet</h3>
+      <p>Films, séries, animés et animation occidentale, avec fiches détaillées, casting et synopsis.</p>
+    </div>
+    <div class="landing-feature reveal">
+      <h3>Sorties à venir</h3>
+      <p>Une section dédiée aux prochaines sorties, classées par date réelle de disponibilité.</p>
+    </div>
+    <div class="landing-feature reveal">
+      <h3>Les mieux notés</h3>
+      <p>Une sélection stricte des œuvres les mieux notées, tous genres confondus.</p>
+    </div>
+    <div class="landing-feature reveal">
+      <h3>Assistant intégré</h3>
+      <p>Posez vos questions sur n'importe quelle œuvre du catalogue directement depuis sa fiche.</p>
+    </div>
+  </div>
+</section>
+
+<section class="landing-about">
+  <div class="landing-about-inner reveal">
+    <h2>À propos d'OmniStream</h2>
+    <p>
+      OmniStream est un projet indépendant conçu et développé par
+      <strong>NAMBININTSOA Tsiky Fandresena</strong>, pensé pour offrir une
+      expérience de découverte simple et centralisée pour les amateurs de
+      films, séries et animés.
+    </p>
+    <blockquote class="landing-quote">
+      "Un site pensé par un passionné, pour les passionnés."
+    </blockquote>
+  </div>
+</section>
+
+<section class="landing-final-cta reveal">
+  <h2>Envie de découvrir votre prochain coup de cœur ?</h2>
+  <p class="landing-final-lead">Rejoignez les {{ members }} membres qui explorent déjà le catalogue OmniStream.</p>
+  <div class="landing-cta">
+    <a href="{{ url_for('signup') }}" class="landing-btn-primary">Commencer maintenant</a>
+  </div>
+</section>
+
+<script>
+(function () {
+  const els = document.querySelectorAll(".reveal");
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        e.target.classList.add("in-view");
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.15 });
+  els.forEach((el) => io.observe(el));
+})();
+</script>
+{% endblock %}

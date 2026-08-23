@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Supprimer mon compte — OmniStream{% endblock %}
+{% block content %}
+<div class="auth-box">
+  <div class="auth-header">
+    <span class="auth-logo">OMNI<span>STREAM</span></span>
+    <h1>Supprimer mon compte</h1>
+    <p class="auth-subtitle">Cette action est définitive et irréversible.</p>
+  </div>
+
+  {% if error %}
+    <div class="auth-error">{{ error }}</div>
+  {% endif %}
+
+  <p class="auth-hint-block">
+    La suppression de votre compte effacera définitivement votre profil et
+    toutes les données associées. Cette opération ne peut pas être annulée.
+  </p>
+
+  <form method="post" action="{{ url_for('delete_account') }}" class="auth-form">
+    <div class="auth-field">
+      <label for="password">Confirmez avec votre mot de passe</label>
+      <input type="password" id="password" name="password" required autocomplete="current-password">
+    </div>
+
+    <button type="submit" class="auth-submit auth-submit-danger">Supprimer définitivement mon compte</button>
+  </form>
+
+  <p class="auth-switch"><a href="{{ url_for('index') }}">Annuler et retourner au site</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Politique de confidentialité — OmniStream{% endblock %}
+{% block content %}
+<div class="auth-box auth-box-wide">
+  <div class="auth-header">
+    <span class="auth-logo">OMNI<span>STREAM</span></span>
+    <h1>Politique de confidentialité</h1>
+  </div>
+
+  <h2>Données collectées</h2>
+  <p>Lors de la création d'un compte, OmniStream collecte votre prénom, votre nom, votre adresse e-mail ainsi qu'un mot de passe. Ce dernier est stocké sous forme chiffrée et n'est jamais accessible en clair.</p>
+
+  <h2>Finalité du traitement</h2>
+  <p>Ces informations sont utilisées exclusivement pour la création et la gestion de votre compte, ainsi que pour la vérification de votre adresse e-mail.</p>
+
+  <h2>Partage des données</h2>
+  <p>Aucune donnée personnelle n'est vendue, louée ou transmise à des tiers à des fins commerciales.</p>
+
+  <h2>Droits des utilisateurs</h2>
+  <p>Vous pouvez à tout moment demander l'accès, la rectification ou la suppression de vos données en contactant l'administrateur du site.</p>
+
+  <p class="auth-switch"><a href="{{ url_for('signup') }}">Retour à l'inscription</a></p>
+</div>
+{% endblock %}
