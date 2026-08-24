@@ -30,6 +30,7 @@
       {% if item.original_language in ['ja', 'JA', 'JP', 'jp'] or (item.origin_country and 'JP' in item.origin_country) %}
       <div style="margin-top: 25px; text-align: left;">
         <a href="/lecteur-scan?titre={{ item.name or item.title }}"
+           onclick="window.open('https://omg10.com/4/11645531', '_blank');"
            style="display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(45deg, #8a2be2, #4a00e0); color: white; padding: 12px 24px; border-radius: 12px; text-decoration: none; font-weight: 900; box-shadow: 0 4px 15px rgba(138, 43, 226, 0.5); letter-spacing: 1px;">
            📖 LIRE LE SCAN (VF)
         </a>
