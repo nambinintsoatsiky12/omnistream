@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Panel Admin — OmniStream{% endblock %}
+{% block content %}
+<div style="max-width: 900px; margin: 0 auto; padding: 20px;">
+  <h1 style="margin-bottom: 24px;">Panel Admin — OmniStream</h1>
+
+  <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px;">
+    <div style="flex: 1; min-width: 160px; background: #16332b; color: #fff; border-radius: 12px; padding: 20px; text-align: center;">
+      <div style="font-size: 32px; font-weight: bold;">{{ total_members }}</div>
+      <div>Membres inscrits</div>
+    </div>
+    <div style="flex: 1; min-width: 160px; background: #16332b; color: #fff; border-radius: 12px; padding: 20px; text-align: center;">
+      <div style="font-size: 32px; font-weight: bold;">{{ total_visits }}</div>
+      <div>Visites cumulées</div>
+    </div>
+  </div>
+
+  <h2 style="margin-bottom: 12px;">Évolution des visites (30 derniers jours)</h2>
+  <canvas id="visitsChart" style="max-width: 100%; margin-bottom: 32px;"></canvas>
+
+  <h2 style="margin-bottom: 12px;">Évolution des inscriptions (30 derniers jours)</h2>
+  <canvas id="signupsChart" style="max-width: 100%; margin-bottom: 32px;"></canvas>
+
+  <h2 style="margin-bottom: 12px;">Liste des membres</h2>
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+      <thead>
+        <tr style="text-align: left; border-bottom: 2px solid #ccc;">
+          <th style="padding: 8px;">Nom</th>
+          <th style="padding: 8px;">E-mail</th>
+          <th style="padding: 8px;">Vérifié</th>
+          <th style="padding: 8px;">Inscrit le</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for member in members %}
+        <tr style="border-bottom: 1px solid #eee;">
+          <td style="padding: 8px;">{{ member.first_name }} {{ member.last_name }}</td>
+          <td style="padding: 8px;">{{ member.email }}</td>
+          <td style="padding: 8px;">{{ "✅" if member.verified else "⏳" }}</td>
+          <td style="padding: 8px;">{{ member.created_at[:10] }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="padding: 8px;">Aucun membre inscrit pour l'instant.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  const visitsLabels = {{ visits_series | map(attribute='date') | list | tojson }};
+  const visitsData = {{ visits_series | map(attribute='count') | list | tojson }};
+  new Chart(document.getElementById('visitsChart'), {
+    type: 'line',
+    data: {
+      labels: visitsLabels,
+      datasets: [{ label: 'Visites', data: visitsData, borderColor: '#f97316', tension: 0.3 }]
+    }
+  });
+
+  const signupsLabels = {{ signups_series | map(attribute='day') | list | tojson }};
+  const signupsData = {{ signups_series | map(attribute='count') | list | tojson }};
+  new Chart(document.getElementById('signupsChart'), {
+    type: 'bar',
+    data: {
+      labels: signupsLabels,
+      datasets: [{ label: 'Nouvelles inscriptions', data: signupsData, backgroundColor: '#16332b' }]
+    }
+  });
+</script>
+{% endblock %}
