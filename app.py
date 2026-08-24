@@ -176,7 +176,33 @@ def delete_account():
     return render_template("delete_account.html")
 
 
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "").lower().strip()
 
+
+def admin_required(view):
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        user_id = session.get("user_id")
+        if not user_id:
+            return redirect(url_for("login"))
+        user = auth_db.get_user_by_id(user_id)
+        if not user or user["email"].lower() != ADMIN_EMAIL:
+            return redirect(url_for("index"))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    return render_template(
+        "admin.html",
+        total_members=auth_db.count_users(),
+        total_visits=auth_db.get_total_visits(),
+        members=auth_db.get_all_users(),
+        visits_series=auth_db.get_daily_visits(30),
+        signups_series=auth_db.get_signups_per_day(30),
+    )
 def tmdb_get(path, params=None):
     params = dict(params or {})
     params["api_key"] = TMDB_API_KEY
