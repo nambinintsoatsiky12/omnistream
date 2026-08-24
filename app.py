@@ -8,7 +8,7 @@ import requests
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 
 import auth_db
-from mailer import send_verification_email
+from mailer import send_verification_email, send_password_reset_email
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-moi-en-production-1234567890")
@@ -106,6 +106,49 @@ def login():
 
     return render_template("login.html")
 
+@app.route("/mot-de-passe-oublie", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        user = auth_db.get_user_by_email(email)
+        if user:
+            token = auth_db.create_password_reset_token(email)
+            reset_url = url_for("reset_password", token=token, _external=True)
+            send_password_reset_email(email, reset_url, user["first_name"])
+        # Même message qu'un compte existe ou non, pour ne pas révéler
+        # quels e-mails sont inscrits sur le site.
+        return render_template(
+            "forgot_password.html",
+            message="Si un compte existe avec cette adresse, un e-mail de réinitialisation vient d'être envoyé.",
+        )
+    return render_template("forgot_password.html")
+
+
+@app.route("/reinitialiser-mot-de-passe/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    user = auth_db.get_user_by_reset_token(token)
+    if not user:
+        return render_template(
+            "login.html",
+            error="Ce lien de réinitialisation est invalide ou a expiré. Merci de refaire une demande.",
+        )
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        password_confirm = request.form.get("password_confirm", "")
+        if len(password) < 8:
+            return render_template("reset_password.html", token=token, error="Le mot de passe doit contenir au moins 8 caractères.")
+        if password != password_confirm:
+            return render_template("reset_password.html", token=token, error="Les mots de passe ne correspondent pas.")
+
+        new_hash = generate_password_hash(password)
+        auth_db.update_password_and_clear_token(user["id"], new_hash)
+        return render_template(
+            "login.html",
+            error="Votre mot de passe a été changé avec succès. Vous pouvez maintenant vous connecter.",
+        )
+
+    return render_template("reset_password.html", token=token)    
 
 @app.route("/logout")
 def logout():
