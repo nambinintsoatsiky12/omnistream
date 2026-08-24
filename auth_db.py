@@ -1,27 +1,50 @@
 """
-Gestion des comptes utilisateurs : inscription, connexion, vérification
-par e-mail, acceptation de la politique de confidentialité.
+Gestion des comptes utilisateurs et des statistiques du site, connectée à
+Turso (base SQLite distante et persistante) au lieu d'un fichier local —
+car Render efface le système de fichiers local à chaque redéploiement.
 
-Stockage : SQLite (fichier local users.db) — pas besoin de MySQL,
-compatible avec n'importe quel compte PythonAnywhere, gratuit ou payant.
+Nécessite deux variables d'environnement :
+  TURSO_DATABASE_URL : l'URL libsql://... de ta base Turso
+  TURSO_AUTH_TOKEN     : le token généré dans le tableau de bord Turso
 """
 import os
 import secrets
-import sqlite3
 import datetime
+import libsql_client
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.db")
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+
+_client = None
 
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _get_client():
+    global _client
+    if _client is None:
+        _client = libsql_client.create_client_sync(
+            url=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN
+        )
+    return _client
+
+
+def _row_to_dict(result_set, index=0):
+    """Convertit une ligne de résultat Turso en dict, comme sqlite3.Row."""
+    if not result_set.rows or index >= len(result_set.rows):
+        return None
+    row = result_set.rows[index]
+    return {col: row[i] for i, col in enumerate(result_set.columns)}
+
+
+def _rows_to_dicts(result_set):
+    return [
+        {col: row[i] for i, col in enumerate(result_set.columns)}
+        for row in result_set.rows
+    ]
 
 
 def init_db():
-    conn = get_db()
-    conn.execute("""
+    client = _get_client()
+    client.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             first_name TEXT NOT NULL,
@@ -30,167 +53,161 @@ def init_db():
             password_hash TEXT NOT NULL,
             verified INTEGER NOT NULL DEFAULT 0,
             verify_token TEXT,
+            reset_token TEXT,
+            reset_token_expiry TEXT,
             privacy_accepted_at TEXT NOT NULL,
             created_at TEXT NOT NULL
         )
     """)
-    conn.commit()
-    conn.close()
+    client.execute("""
+        CREATE TABLE IF NOT EXISTS daily_visits (
+            date TEXT PRIMARY KEY,
+            count INTEGER NOT NULL DEFAULT 0
+        )
+    """)
 
 
 def create_user(first_name, last_name, email, password_hash):
+    email = email.lower().strip()
+    if get_user_by_email(email):
+        return None  # e-mail déjà utilisé
+
     token = secrets.token_urlsafe(32)
     now = datetime.datetime.utcnow().isoformat()
-    conn = get_db()
-    try:
-        conn.execute(
-            """INSERT INTO users (first_name, last_name, email, password_hash,
-               verified, verify_token, privacy_accepted_at, created_at)
-               VALUES (?, ?, ?, ?, 0, ?, ?, ?)""",
-            (first_name.strip(), last_name.strip(), email.lower().strip(),
-             password_hash, token, now, now),
-        )
-        conn.commit()
-        return token
-    except sqlite3.IntegrityError:
-        return None  # e-mail déjà utilisé
-    finally:
-        conn.close()
+    client = _get_client()
+    client.execute(
+        """INSERT INTO users (first_name, last_name, email, password_hash,
+           verified, verify_token, privacy_accepted_at, created_at)
+           VALUES (?, ?, ?, ?, 0, ?, ?, ?)""",
+        [first_name.strip(), last_name.strip(), email, password_hash, token, now, now],
+    )
+    return token
 
 
 def get_user_by_email(email):
-    conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM users WHERE email = ?", (email.lower().strip(),)
-    ).fetchone()
-    conn.close()
-    return row
+    client = _get_client()
+    rs = client.execute(
+        "SELECT * FROM users WHERE email = ?", [email.lower().strip()]
+    )
+    return _row_to_dict(rs)
 
 
 def get_user_by_id(user_id):
-    conn = get_db()
-    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
-    return row
+    client = _get_client()
+    rs = client.execute("SELECT * FROM users WHERE id = ?", [user_id])
+    return _row_to_dict(rs)
 
 
 def verify_user_by_token(token):
-    conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM users WHERE verify_token = ?", (token,)
-    ).fetchone()
-    if row:
-        conn.execute(
+    client = _get_client()
+    rs = client.execute("SELECT * FROM users WHERE verify_token = ?", [token])
+    user = _row_to_dict(rs)
+    if user:
+        client.execute(
             "UPDATE users SET verified = 1, verify_token = NULL WHERE id = ?",
-            (row["id"],),
+            [user["id"]],
         )
-        conn.commit()
-    conn.close()
-    return row is not None
+    return user is not None
 
 
 def delete_user(user_id):
-    conn = get_db()
-    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    client = _get_client()
+    client.execute("DELETE FROM users WHERE id = ?", [user_id])
 
 
 def count_users():
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS site_stats (
-            key TEXT PRIMARY KEY,
-            value INTEGER NOT NULL DEFAULT 0
-        )
-    """)
-    row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE verified = 1").fetchone()
-    conn.close()
+    client = _get_client()
+    rs = client.execute("SELECT COUNT(*) AS c FROM users WHERE verified = 1")
+    row = _row_to_dict(rs)
     return row["c"] if row else 0
 
 
-def increment_and_get_visit_counter():
-    """Compteur cumulé de visites de la page d'accueil (comme un compteur
-    de vues classique), pas un nombre de gens connectés en temps réel."""
-    conn = get_db()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS site_stats (
-            key TEXT PRIMARY KEY,
-            value INTEGER NOT NULL DEFAULT 0
-        )
-    """)
-    conn.execute(
-        "INSERT INTO site_stats (key, value) VALUES ('landing_visits', 1) "
-        "ON CONFLICT(key) DO UPDATE SET value = value + 1"
+def get_all_users():
+    """Liste complète des membres, pour le panel admin."""
+    client = _get_client()
+    rs = client.execute(
+        "SELECT id, first_name, last_name, email, verified, created_at "
+        "FROM users ORDER BY created_at DESC"
     )
-    conn.commit()
-    row = conn.execute(
-        "SELECT value FROM site_stats WHERE key = 'landing_visits'"
-    ).fetchone()
-    conn.close()
-    return row["value"] if row else 0
+    return _rows_to_dicts(rs)
+
+
+def increment_and_get_visit_counter():
+    """Incrémente le compteur du jour et retourne le total cumulé depuis
+    le début (toutes les dates confondues)."""
+    client = _get_client()
+    today = datetime.date.today().isoformat()
+    client.execute(
+        "INSERT INTO daily_visits (date, count) VALUES (?, 1) "
+        "ON CONFLICT(date) DO UPDATE SET count = count + 1",
+        [today],
+    )
+    rs = client.execute("SELECT COALESCE(SUM(count), 0) AS total FROM daily_visits")
+    row = _row_to_dict(rs)
+    return row["total"] if row else 0
+
+
+def get_total_visits():
+    client = _get_client()
+    rs = client.execute("SELECT COALESCE(SUM(count), 0) AS total FROM daily_visits")
+    row = _row_to_dict(rs)
+    return row["total"] if row else 0
+
+
+def get_daily_visits(days=30):
+    """Visites par jour sur les N derniers jours, pour le graphique."""
+    client = _get_client()
+    rs = client.execute(
+        "SELECT date, count FROM daily_visits ORDER BY date DESC LIMIT ?", [days]
+    )
+    return list(reversed(_rows_to_dicts(rs)))
+
+
+def get_signups_per_day(days=30):
+    """Nouvelles inscriptions par jour sur les N derniers jours, pour le graphique."""
+    client = _get_client()
+    rs = client.execute(
+        "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS count "
+        "FROM users GROUP BY day ORDER BY day DESC LIMIT ?",
+        [days],
+    )
+    return list(reversed(_rows_to_dicts(rs)))
 
 
 # ---- Réinitialisation de mot de passe (mot de passe oublié) ----
 
-def _ensure_reset_columns():
-    """Ajoute les colonnes reset_token / reset_token_expiry si elles
-    n'existent pas encore (compte déjà créé avant cette fonctionnalité)."""
-    conn = get_db()
-    try:
-        conn.execute("ALTER TABLE users ADD COLUMN reset_token TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE users ADD COLUMN reset_token_expiry TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    conn.close()
-
-
 def create_password_reset_token(email):
-    """Génère un token de réinitialisation valable 1 heure.
-    Retourne None si aucun compte n'existe pour cet e-mail."""
-    _ensure_reset_columns()
+    email = email.lower().strip()
+    if not get_user_by_email(email):
+        return None
     token = secrets.token_urlsafe(32)
     expiry = (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat()
-    conn = get_db()
-    cur = conn.execute(
+    client = _get_client()
+    client.execute(
         "UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE email = ?",
-        (token, expiry, email.lower().strip()),
+        [token, expiry, email],
     )
-    conn.commit()
-    updated = cur.rowcount > 0
-    conn.close()
-    return token if updated else None
+    return token
 
 
 def get_user_by_reset_token(token):
-    """Retourne l'utilisateur si le token est valide et pas expiré, sinon None."""
-    _ensure_reset_columns()
-    conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM users WHERE reset_token = ?", (token,)
-    ).fetchone()
-    conn.close()
-    if not row or not row["reset_token_expiry"]:
+    client = _get_client()
+    rs = client.execute("SELECT * FROM users WHERE reset_token = ?", [token])
+    user = _row_to_dict(rs)
+    if not user or not user["reset_token_expiry"]:
         return None
     try:
-        expiry = datetime.datetime.fromisoformat(row["reset_token_expiry"])
+        expiry = datetime.datetime.fromisoformat(user["reset_token_expiry"])
     except ValueError:
         return None
     if datetime.datetime.utcnow() > expiry:
         return None
-    return row
+    return user
 
 
 def update_password_and_clear_token(user_id, new_password_hash):
-    """Change le mot de passe et invalide le token utilisé."""
-    conn = get_db()
-    conn.execute(
+    client = _get_client()
+    client.execute(
         "UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?",
-        (new_password_hash, user_id),
+        [new_password_hash, user_id],
     )
-    conn.commit()
-    conn.close()
