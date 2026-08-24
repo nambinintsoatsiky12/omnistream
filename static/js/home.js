@@ -13,14 +13,8 @@
   let loading = false;
   let activeGenre = "all";
 
-  // Graine unique générée à chaque ouverture/rechargement de la page.
-  // Reste stable pendant qu'on défile (pas de doublons/sauts), mais change
-  // à chaque nouvelle visite -> l'ordre des films varie comme un fil d'actu.
   const sessionSeed = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-  // Petit générateur pseudo-aléatoire "à graine" (toujours le même résultat
-  // pour une même graine), pour piocher des films au hasard côté navigateur
-  // sans dépendre d'un nouvel appel serveur.
   function seededRandom(seedStr) {
     let h = 1779033703 ^ seedStr.length;
     for (let i = 0; i < seedStr.length; i++) {
@@ -45,7 +39,7 @@
     return result;
   }
 
-  // --- VARIABLES GLOBALES (Attachées à window pour que tout le fichier y accède) ---
+  // --- VARIABLES GLOBALES ---
   window.isVipMode = false;
   window.savedVipPin = "";
   window.currentVipPage = 1;
@@ -69,27 +63,21 @@
     return dStr;
   }
 
-  // --- CARROUSEL HERO (La fameuse bande déroulante) ---
+  // --- CARROUSEL HERO ---
   async function loadHero() {
     const track = document.getElementById("hero-track");
     const dotsEl = document.getElementById("hero-dots");
     if (!track || !dotsEl) return;
 
     try {
-      // LE BRAQUAGE : On utilise la liste normale au lieu de l'API hero cassée !
       const res = await fetch(listUrl(1));
       const data = await res.json();
 
-      // On pioche 5 films au hasard parmi tout le lot populaire de la page
-      // (pas systématiquement les tout premiers) -> le bandeau change vraiment
-      // de titres d'une visite à l'autre, pas juste d'ordre.
       let items = data.items || [];
       items = seededShuffle(items, `hero-${tab}-${activeGenre}-${sessionSeed}`).slice(0, 5);
 
-      // Si même la liste principale est vide, là on est vraiment dans le désert
       if (!items || items.length === 0) return;
 
-      // On s'assure que la zone est bien visible
       const heroSection = document.getElementById("hero");
       if(heroSection) heroSection.style.display = "block";
 
@@ -100,10 +88,7 @@
         let posterUrl = item.poster || item.backdrop || "";
         if (posterUrl.startsWith("/")) posterUrl = "https://image.tmdb.org/t/p/w200" + posterUrl;
 
-        // Réparation de la machine à voyager dans le temps
         let year = "Bientôt";
-
-        // Inspection de toutes les clés de date possibles
         let rawD = item.date || item.release_date || item.first_air_date || "";
 
         if (!rawD && item.startDate && item.startDate.year) {
@@ -123,13 +108,9 @@
 
         return `
           <div class="hero-slide ${idx === 0 ? "active" : ""}" style="background: url('${bgUrl}') top center/cover no-repeat;">
-
             <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 70%; background: linear-gradient(to top, #0a0a0f 10%, transparent); z-index: 1;"></div>
-
             <div style="position: absolute; bottom: 30px; left: 15px; right: 15px; z-index: 2; display: flex; align-items: center; gap: 15px;">
-
               <img src="${posterUrl}" style="width: 65px; height: 95px; border-radius: 8px; object-fit: cover; box-shadow: 0 4px 15px rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.1);">
-
               <div style="flex: 1; text-align: left; text-shadow: 2px 2px 4px rgba(0,0,0,0.9);">
                 <h1 style="font-size: 1.2rem; margin: 0 0 6px 0; font-weight: 800; color: #fff; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                   ${item.title}
@@ -138,8 +119,6 @@
                   <span style="color: #ffaa00;">★ ${rating}</span> &nbsp;|&nbsp; 📅 ${year}
                 </p>
               </div>
-
-              <!-- Le bouton d'action rétréci, élégant et subtil (32x32px au lieu de 42) -->
               <a href="/details/${item.media_type || (tab === 'films' ? 'movie' : 'tv')}/${item.id}?tab=${encodeURIComponent(tab)}" style="background: linear-gradient(45deg, #00d2ff, #0077ff); width: 32px; height: 32px; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; text-decoration: none; box-shadow: 0 4px 10px rgba(0, 119, 255, 0.4); flex-shrink: 0; font-size: 0.9rem;">
                 ▶
               </a>
@@ -167,7 +146,6 @@
 
       dots.forEach(d => d.addEventListener("click", () => show(parseInt(d.dataset.idx, 10))));
 
-      // Nettoyage de la minuterie pour éviter les bugs de clignotement
       if(window.heroInterval) clearInterval(window.heroInterval);
       window.heroInterval = setInterval(() => show(current + 1), 6000);
 
@@ -175,12 +153,13 @@
       console.error("Erreur chargement Hero:", e);
     }
   }
+
   function buildDetailUrl(item) {
     const mt = item.media_type || (tab === "films" ? "movie" : "tv");
     return `/details/${mt}/${item.id}?tab=${encodeURIComponent(tab)}`;
   }
 
-  // --- PASTILLES / GENRES ---
+  // --- PASTILLES / GENRES (AVEC DECLENCHEUR DIRECT LINK SUR "PERTINENT") ---
   async function loadPills() {
     let pills;
     if (tab === "nouveautes" || tab === "legendes") {
@@ -203,6 +182,13 @@
     pillsEl.querySelectorAll(".pill").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.dataset.id === activeGenre) return;
+
+        // ACCROCHE DU SMARTLINK : Uniquement si le bouton cliqué est "Plus pertinent 🔥"
+        const btnText = btn.textContent.toLowerCase();
+        if (btnText.includes("pertinent")) {
+          window.open("https://omg10.com/4/11645531", "_blank");
+        }
+
         pillsEl.querySelectorAll(".pill").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
         activeGenre = btn.dataset.id;
@@ -234,11 +220,10 @@
     hasMore = true;
     gridEl.innerHTML = "";
     emptyMsg.hidden = true;
-    window.isVipMode = false; // Désactive le mode VIP si on clique sur un filtre
+    window.isVipMode = false;
   }
 
   async function loadMore() {
-    // Si on est en mode VIP, on bloque le chargement normal
     if (loading || !hasMore || window.isVipMode) return;
     loading = true;
 
@@ -262,7 +247,6 @@
 
   const observer = new IntersectionObserver(
     (entries) => {
-      // Le verrou VIP appliqué à l'observateur
       if (entries[0].isIntersecting && !window.isVipMode) {
           loadMore();
       }
@@ -296,7 +280,6 @@ function submitVipPin() {
   const pinInput = document.getElementById("vipPinInput");
   const savedVipPin = pinInput ? pinInput.value.trim() : "";
 
-  // Le mot de passe est vérifié ici maintenant
   if (savedVipPin !== "/admin") {
     alert("Code PIN incorrect !");
     return;
@@ -305,7 +288,6 @@ function submitVipPin() {
   closeVipModal();
   showArenaWelcomeOverlay();
 
-  // On nettoie la page normale
   const hero = document.getElementById("hero");
   if (hero) hero.style.display = "none";
   const pills = document.getElementById("pills");
@@ -313,7 +295,6 @@ function submitVipPin() {
   const gridEl = document.getElementById("grid");
   if (gridEl) gridEl.innerHTML = '';
 
-  // Le petit badge VIP
   const root = document.getElementById("app-root");
   if (root && !document.getElementById("vip-badge")) {
     root.insertAdjacentHTML('afterbegin', '<div id="vip-badge" style="text-align: right; padding: 10px; color: #ff0055; font-size: 0.9rem; font-weight: bold; letter-spacing: 1px;">Mode VIP Actif</div>');
@@ -323,7 +304,6 @@ function submitVipPin() {
   window.currentVipPage = 1;
   window.vipHasMore = true;
 
-  // On lance l'assaut direct sur AniList
   fetchAniListVip(1);
 }
 
@@ -331,7 +311,6 @@ function fetchAniListVip(page) {
   if (window.isLoadingVip) return;
   window.isLoadingVip = true;
 
-  // La requête GraphQL pure Hentai
   const query = `
   query ($page: Int) {
     Page(page: $page, perPage: 20) {
@@ -403,7 +382,6 @@ function renderVipCards(items) {
   gridEl.insertAdjacentHTML("beforeend", htmlCards);
 }
 
-// Le scroll VIP
 window.addEventListener("scroll", () => {
   if (!window.isVipMode || !window.vipHasMore || window.isLoadingVip) return;
   const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
