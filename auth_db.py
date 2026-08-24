@@ -1,50 +1,77 @@
 """
 Gestion des comptes utilisateurs et des statistiques du site, connectée à
-Turso (base SQLite distante et persistante) au lieu d'un fichier local —
-car Render efface le système de fichiers local à chaque redéploiement.
+Turso via son API HTTP directe (au lieu de la librairie libsql-client qui
+a un bug de connexion WebSocket sur certains hébergeurs comme Render).
 
 Nécessite deux variables d'environnement :
-  TURSO_DATABASE_URL : l'URL libsql://... de ta base Turso
+  TURSO_DATABASE_URL : l'URL de ta base Turso (libsql://... ou https://...)
   TURSO_AUTH_TOKEN     : le token généré dans le tableau de bord Turso
 """
 import os
 import secrets
 import datetime
-import libsql_client
+import requests
 
-TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "")
+_raw_url = os.environ.get("TURSO_DATABASE_URL", "")
+TURSO_HTTP_URL = _raw_url.replace("libsql://", "https://").rstrip("/")
 TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
 
-_client = None
+
+def _to_hrana_value(value):
+    if value is None:
+        return {"type": "null"}
+    if isinstance(value, bool):
+        return {"type": "integer", "value": str(int(value))}
+    if isinstance(value, int):
+        return {"type": "integer", "value": str(value)}
+    if isinstance(value, float):
+        return {"type": "float", "value": value}
+    return {"type": "text", "value": str(value)}
 
 
-def _get_client():
-    global _client
-    if _client is None:
-        _client = libsql_client.create_client_sync(
-            url=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN
-        )
-    return _client
-
-
-def _row_to_dict(result_set, index=0):
-    """Convertit une ligne de résultat Turso en dict, comme sqlite3.Row."""
-    if not result_set.rows or index >= len(result_set.rows):
+def _from_hrana_value(cell):
+    t = cell.get("type")
+    v = cell.get("value")
+    if t == "null":
         return None
-    row = result_set.rows[index]
-    return {col: row[i] for i, col in enumerate(result_set.columns)}
+    if t == "integer":
+        return int(v)
+    if t == "float":
+        return float(v)
+    return v
 
 
-def _rows_to_dicts(result_set):
-    return [
-        {col: row[i] for i, col in enumerate(result_set.columns)}
-        for row in result_set.rows
-    ]
+def _execute(sql, args=None):
+    """Exécute une requête SQL sur Turso via l'API HTTP et retourne une
+    liste de dicts (une par ligne de résultat)."""
+    args = args or []
+    payload = {
+        "requests": [
+            {"type": "execute", "stmt": {"sql": sql, "args": [_to_hrana_value(a) for a in args]}},
+            {"type": "close"},
+        ]
+    }
+    headers = {
+        "Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    resp = requests.post(f"{TURSO_HTTP_URL}/v2/pipeline", json=payload, headers=headers, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    result = data["results"][0]
+    if result["type"] == "error":
+        raise RuntimeError(f"Erreur Turso : {result.get('error')}")
+
+    exec_result = result["response"]["result"]
+    cols = [c["name"] for c in exec_result.get("cols", [])]
+    rows = []
+    for raw_row in exec_result.get("rows", []):
+        rows.append({cols[i]: _from_hrana_value(cell) for i, cell in enumerate(raw_row)})
+    return rows
 
 
 def init_db():
-    client = _get_client()
-    client.execute("""
+    _execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             first_name TEXT NOT NULL,
@@ -59,7 +86,7 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
-    client.execute("""
+    _execute("""
         CREATE TABLE IF NOT EXISTS daily_visits (
             date TEXT PRIMARY KEY,
             count INTEGER NOT NULL DEFAULT 0
@@ -74,8 +101,7 @@ def create_user(first_name, last_name, email, password_hash):
 
     token = secrets.token_urlsafe(32)
     now = datetime.datetime.utcnow().isoformat()
-    client = _get_client()
-    client.execute(
+    _execute(
         """INSERT INTO users (first_name, last_name, email, password_hash,
            verified, verify_token, privacy_accepted_at, created_at)
            VALUES (?, ?, ?, ?, 0, ?, ?, ?)""",
@@ -85,93 +111,72 @@ def create_user(first_name, last_name, email, password_hash):
 
 
 def get_user_by_email(email):
-    client = _get_client()
-    rs = client.execute(
-        "SELECT * FROM users WHERE email = ?", [email.lower().strip()]
-    )
-    return _row_to_dict(rs)
+    rows = _execute("SELECT * FROM users WHERE email = ?", [email.lower().strip()])
+    return rows[0] if rows else None
 
 
 def get_user_by_id(user_id):
-    client = _get_client()
-    rs = client.execute("SELECT * FROM users WHERE id = ?", [user_id])
-    return _row_to_dict(rs)
+    rows = _execute("SELECT * FROM users WHERE id = ?", [user_id])
+    return rows[0] if rows else None
 
 
 def verify_user_by_token(token):
-    client = _get_client()
-    rs = client.execute("SELECT * FROM users WHERE verify_token = ?", [token])
-    user = _row_to_dict(rs)
-    if user:
-        client.execute(
-            "UPDATE users SET verified = 1, verify_token = NULL WHERE id = ?",
-            [user["id"]],
-        )
-    return user is not None
+    rows = _execute("SELECT * FROM users WHERE verify_token = ?", [token])
+    if not rows:
+        return False
+    _execute(
+        "UPDATE users SET verified = 1, verify_token = NULL WHERE id = ?",
+        [rows[0]["id"]],
+    )
+    return True
 
 
 def delete_user(user_id):
-    client = _get_client()
-    client.execute("DELETE FROM users WHERE id = ?", [user_id])
+    _execute("DELETE FROM users WHERE id = ?", [user_id])
 
 
 def count_users():
-    client = _get_client()
-    rs = client.execute("SELECT COUNT(*) AS c FROM users WHERE verified = 1")
-    row = _row_to_dict(rs)
-    return row["c"] if row else 0
+    rows = _execute("SELECT COUNT(*) AS c FROM users WHERE verified = 1")
+    return rows[0]["c"] if rows else 0
 
 
 def get_all_users():
-    """Liste complète des membres, pour le panel admin."""
-    client = _get_client()
-    rs = client.execute(
+    return _execute(
         "SELECT id, first_name, last_name, email, verified, created_at "
         "FROM users ORDER BY created_at DESC"
     )
-    return _rows_to_dicts(rs)
 
 
 def increment_and_get_visit_counter():
-    """Incrémente le compteur du jour et retourne le total cumulé depuis
-    le début (toutes les dates confondues)."""
-    client = _get_client()
     today = datetime.date.today().isoformat()
-    client.execute(
+    _execute(
         "INSERT INTO daily_visits (date, count) VALUES (?, 1) "
         "ON CONFLICT(date) DO UPDATE SET count = count + 1",
         [today],
     )
-    rs = client.execute("SELECT COALESCE(SUM(count), 0) AS total FROM daily_visits")
-    row = _row_to_dict(rs)
-    return row["total"] if row else 0
+    rows = _execute("SELECT COALESCE(SUM(count), 0) AS total FROM daily_visits")
+    return rows[0]["total"] if rows else 0
 
 
 def get_total_visits():
-    client = _get_client()
-    rs = client.execute("SELECT COALESCE(SUM(count), 0) AS total FROM daily_visits")
-    row = _row_to_dict(rs)
-    return row["total"] if row else 0
+    rows = _execute("SELECT COALESCE(SUM(count), 0) AS total FROM daily_visits")
+    return rows[0]["total"] if rows else 0
 
 
 def get_daily_visits(days=30):
-    """Visites par jour sur les N derniers jours, pour le graphique."""
-    client = _get_client()
-    rs = client.execute(
+    rows = _execute(
         "SELECT date, count FROM daily_visits ORDER BY date DESC LIMIT ?", [days]
     )
-    return list(reversed(_rows_to_dicts(rs)))
+    return list(reversed(rows))
 
 
 def get_signups_per_day(days=30):
-    """Nouvelles inscriptions par jour sur les N derniers jours, pour le graphique."""
-    client = _get_client()
-    rs = client.execute(
+    rows = _execute(
         "SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS count "
         "FROM users GROUP BY day ORDER BY day DESC LIMIT ?",
         [days],
     )
-    return list(reversed(_rows_to_dicts(rs)))
+    return list(reversed(rows))
 
 
 # ---- Réinitialisation de mot de passe (mot de passe oublié) ----
@@ -182,8 +187,7 @@ def create_password_reset_token(email):
         return None
     token = secrets.token_urlsafe(32)
     expiry = (datetime.datetime.utcnow() + datetime.timedelta(hours=1)).isoformat()
-    client = _get_client()
-    client.execute(
+    _execute(
         "UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE email = ?",
         [token, expiry, email],
     )
@@ -191,10 +195,11 @@ def create_password_reset_token(email):
 
 
 def get_user_by_reset_token(token):
-    client = _get_client()
-    rs = client.execute("SELECT * FROM users WHERE reset_token = ?", [token])
-    user = _row_to_dict(rs)
-    if not user or not user["reset_token_expiry"]:
+    rows = _execute("SELECT * FROM users WHERE reset_token = ?", [token])
+    if not rows:
+        return None
+    user = rows[0]
+    if not user.get("reset_token_expiry"):
         return None
     try:
         expiry = datetime.datetime.fromisoformat(user["reset_token_expiry"])
@@ -206,8 +211,7 @@ def get_user_by_reset_token(token):
 
 
 def update_password_and_clear_token(user_id, new_password_hash):
-    client = _get_client()
-    client.execute(
+    _execute(
         "UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?",
         [new_password_hash, user_id],
     )
