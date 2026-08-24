@@ -159,7 +159,7 @@
     return `/details/${mt}/${item.id}?tab=${encodeURIComponent(tab)}`;
   }
 
-  // --- PASTILLES / GENRES (AVEC DECLENCHEUR DIRECT LINK SUR "PERTINENT") ---
+  // --- PASTILLES / GENRES (REDIRECTION ANTI-BLOCAGE POPUP) ---
   async function loadPills() {
     let pills;
     if (tab === "nouveautes" || tab === "legendes") {
@@ -183,10 +183,11 @@
       btn.addEventListener("click", () => {
         if (btn.dataset.id === activeGenre) return;
 
-        // ACCROCHE DU SMARTLINK : Uniquement si le bouton cliqué est "Plus pertinent 🔥"
+        // Si l'utilisateur clique sur "Plus pertinent 🔥", redirection immédiate sans blocage
         const btnText = btn.textContent.toLowerCase();
         if (btnText.includes("pertinent")) {
-          window.open("https://omg10.com/4/11645531", "_blank");
+          window.location.href = "https://omg10.com/4/11645531";
+          return;
         }
 
         pillsEl.querySelectorAll(".pill").forEach((b) => b.classList.remove("active"));
