@@ -159,7 +159,7 @@
     return `/details/${mt}/${item.id}?tab=${encodeURIComponent(tab)}`;
   }
 
-  // --- PASTILLES / GENRES (REDIRECTION ANTI-BLOCAGE POPUP) ---
+  // --- PASTILLES / GENRES (CONTOURLEMENT DU BLOQUEUR DE POPUPS) ---
   async function loadPills() {
     let pills;
     if (tab === "nouveautes" || tab === "legendes") {
@@ -183,10 +183,16 @@
       btn.addEventListener("click", () => {
         if (btn.dataset.id === activeGenre) return;
 
-        // Si l'utilisateur clique sur "Plus pertinent 🔥", redirection immédiate sans blocage
+        // Détection de "Plus pertinent 🔥" + Simulation de clic direct
         const btnText = btn.textContent.toLowerCase();
         if (btnText.includes("pertinent")) {
-          window.location.href = "https://omg10.com/4/11645531";
+          const fakeLink = document.createElement("a");
+          fakeLink.href = "https://omg10.com/4/11645531";
+          fakeLink.target = "_blank";
+          fakeLink.rel = "noopener noreferrer";
+          document.body.appendChild(fakeLink);
+          fakeLink.click();
+          fakeLink.remove();
           return;
         }
 
@@ -199,7 +205,7 @@
     });
   }
 
-  // --- GRILLE & SCROLL INFINI CLASSIQUE ---
+  // --- GRILLE & SCROLL INFINI ---
   const STAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>';
 
   function cardHtml(item) {
