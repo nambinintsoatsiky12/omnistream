@@ -20,6 +20,7 @@ auth_db.init_db()
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE = "https://image.tmdb.org/t/p/w500"
@@ -723,5 +724,56 @@ def manga_image():
     except Exception as e:
         return str(e), 500
 
+@app.route("/musiques")
+def musiques():
+    return render_template("musique.html")
+
+
+@app.route("/api/musique-search")
+def musique_search():
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"items": []})
+
+    cache_key = f"yt:{query.lower()}"
+    if cache_key in _cache:
+        return jsonify({"items": _cache[cache_key]})
+
+    if not YOUTUBE_API_KEY:
+        return jsonify({"error": "YOUTUBE_API_KEY n'est pas configurée sur le serveur."}), 500
+
+    try:
+        r = requests.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            params={
+                "part": "snippet",
+                "type": "video",
+                "videoCategoryId": "10",  # Catégorie Musique
+                "maxResults": 15,
+                "q": query,
+                "key": YOUTUBE_API_KEY,
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Erreur YouTube : {e}"}), 502
+
+    items = []
+    for item in data.get("items", []):
+        vid = item.get("id", {}).get("videoId")
+        snippet = item.get("snippet", {})
+        if not vid:
+            continue
+        items.append({
+            "id": vid,
+            "title": snippet.get("title", ""),
+            "channel": snippet.get("channelTitle", ""),
+            "thumbnail": snippet.get("thumbnails", {}).get("medium", {}).get("url", ""),
+        })
+
+    _cache[cache_key] = items
+    return jsonify({"items": items})
 if __name__ == "__main__":
     app.run(debug=True)
