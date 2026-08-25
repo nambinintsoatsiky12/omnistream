@@ -723,10 +723,41 @@ def manga_image():
         return (r.content, r.status_code, {"Content-Type": r.headers.get("Content-Type", "image/jpeg")})
     except Exception as e:
         return str(e), 500
-
 @app.route("/musiques")
 def musiques():
     return render_template("musique.html")
+
+
+@app.route("/api/musique-trending")
+def musique_trending():
+    cache_key = "yt:trending"
+    if cache_key in _cache:
+        return jsonify({"items": _cache[cache_key]})
+
+    if not YOUTUBE_API_KEY:
+        return jsonify({"error": "YOUTUBE_API_KEY n'est pas configurée sur le serveur."}), 500
+
+    try:
+        r = requests.get(
+            "https://www.googleapis.com/youtube/v3/videos",
+            params={
+                "part": "snippet",
+                "chart": "mostPopular",
+                "videoCategoryId": "10",  # Musique
+                "regionCode": "FR",
+                "maxResults": 20,
+                "key": YOUTUBE_API_KEY,
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Erreur YouTube : {e}"}), 502
+
+    items = _format_youtube_items(data.get("items", []), id_is_object=False)
+    _cache[cache_key] = items
+    return jsonify({"items": items})
 
 
 @app.route("/api/musique-search")
@@ -748,9 +779,8 @@ def musique_search():
             params={
                 "part": "snippet",
                 "type": "video",
-                "videoCategoryId": "10",  # Catégorie Musique
-                "maxResults": 15,
-                "q": query,
+                "maxResults": 20,
+                "q": f"{query} music",
                 "key": YOUTUBE_API_KEY,
             },
             timeout=10,
@@ -760,9 +790,15 @@ def musique_search():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Erreur YouTube : {e}"}), 502
 
+    items = _format_youtube_items(data.get("items", []), id_is_object=True)
+    _cache[cache_key] = items
+    return jsonify({"items": items})
+
+
+def _format_youtube_items(raw_items, id_is_object):
     items = []
-    for item in data.get("items", []):
-        vid = item.get("id", {}).get("videoId")
+    for item in raw_items:
+        vid = item.get("id", {}).get("videoId") if id_is_object else item.get("id")
         snippet = item.get("snippet", {})
         if not vid:
             continue
@@ -772,8 +808,7 @@ def musique_search():
             "channel": snippet.get("channelTitle", ""),
             "thumbnail": snippet.get("thumbnails", {}).get("medium", {}).get("url", ""),
         })
+    return items
 
-    _cache[cache_key] = items
-    return jsonify({"items": items})
 if __name__ == "__main__":
     app.run(debug=True)
