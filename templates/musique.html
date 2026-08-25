@@ -2,7 +2,7 @@
 {% block title %}Musique — OmniStream{% endblock %}
 {% block content %}
 
-<div style="max-width: 900px; margin: 0 auto; padding: 20px;">
+<div style="max-width: 1000px; margin: 0 auto; padding: 20px;">
   <h1 class="search-title" style="margin-bottom: 6px;">🎧 Musique</h1>
   <p style="color: #999; margin-bottom: 20px;">Cherchez un artiste ou un titre, écoutez directement ici.</p>
 
@@ -19,9 +19,10 @@
     </div>
   </div>
 
+  <h2 id="musique-section-title" class="search-title" style="font-size: 1.1rem; margin-bottom: 12px;"></h2>
   <div id="musique-results" class="grid"></div>
   <p id="musique-empty" class="empty" hidden>Aucun résultat trouvé.</p>
-  <p id="musique-loading" class="empty" hidden>Recherche en cours...</p>
+  <p id="musique-loading" class="empty" hidden>Chargement...</p>
 </div>
 
 {% endblock %}
