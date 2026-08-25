@@ -32,8 +32,8 @@
       les mieux notées — mis à jour en continu.
     </p>
     <div class="landing-cta">
-      <a href="{{ url_for('signup') }}" class="landing-btn-primary">Créer un compte gratuit</a>
-      <a href="{{ url_for('login') }}" class="landing-btn-secondary">Se connecter</a>
+      <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">🎬 Explorer le catalogue</a>
+      <a href="{{ url_for('index', tab='films') }}" class="landing-btn-secondary">🎧 Découvrir la musique</a>
     </div>
   </div>
 </section>
@@ -97,9 +97,9 @@
 
 <section class="landing-final-cta reveal">
   <h2>Envie de découvrir votre prochain coup de cœur ?</h2>
-  <p class="landing-final-lead">Rejoignez les {{ members }} membres qui explorent déjà le catalogue OmniStream.</p>
+  <p class="landing-final-lead">Des centaines de films, séries et animés vous attendent sur OmniStream.</p>
   <div class="landing-cta">
-    <a href="{{ url_for('signup') }}" class="landing-btn-primary">Commencer maintenant</a>
+    <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">🎬 Explorer maintenant</a>
   </div>
 </section>
 
