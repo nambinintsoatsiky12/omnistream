@@ -649,7 +649,7 @@ def chat():
             # Désactive la "réflexion" interne du modèle : pour un chat
             # simple comme celui-ci, ça évite plusieurs secondes d'attente
             # inutiles sans perte de qualité notable sur la réponse.
-            "thinkingConfig": {"thinkingLevel": "minimal"},
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
