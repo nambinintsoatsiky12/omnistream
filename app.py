@@ -723,25 +723,5 @@ def manga_image():
     except Exception as e:
         return str(e), 500
 
-@app.route('/details-vip')
-def details_vip():
-    titre = request.args.get('titre', 'Anime VIP')
-    poster = request.args.get('poster', '')
-
-    item = {
-        "id": 0,
-        "title": titre,
-        "media_type": "anime",
-        "overview": f"Bienvenue sur la fiche VIP de {titre}. Lancez la lecture des scans ci-dessous ou discutez directement avec Gemini !",
-        "poster": poster,
-        "backdrop": poster,
-        "rating": 9.5,
-        "year": "VIP",
-        "genres": ["Animation", "18+"],
-        "original_language": "ja",  # <--- ON AJOUTE JUSTE CETTE LIGNE !
-        "cast": []
-    }
-    return render_template("detail.html", item=item)
-
 if __name__ == "__main__":
     app.run(debug=True)
