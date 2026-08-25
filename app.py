@@ -331,12 +331,14 @@ def search_by_tab(tab, query):
 
 @app.route("/")
 def index():
-    if not session.get("user_id"):
+    tab = request.args.get("tab")
+    query = request.args.get("q", "").strip()
+
+    if not tab and not query:
+        # Page d'accueil marketing (mur d'affiches, présentation du site)
         visits = auth_db.increment_and_get_visit_counter()
         members = auth_db.count_users()
 
-        # Affiches populaires (films + animés) pour le mur d'affiches animé
-        # en arrière-plan de la page d'accueil.
         posters = []
         try:
             movies = tmdb_get("/discover/movie", {"sort_by": "popularity.desc"})
@@ -352,15 +354,13 @@ def index():
             "landing.html", visits=visits, members=members, posters=posters
         )
 
-    tab = request.args.get("tab", "films")
-    query = request.args.get("q", "").strip()
+    tab = tab or "films"
 
     if query:
         results = search_by_tab(tab, query)
         return render_template("index.html", tab=tab, items=results, query=query)
 
     return render_template("index.html", tab=tab, items=None, query="")
-
 
 @app.route("/details/<media_type>/<int:item_id>")
 @login_required
