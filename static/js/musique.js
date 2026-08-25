@@ -6,6 +6,7 @@
   const loadingMsg = document.getElementById("musique-loading");
   const playerWrap = document.getElementById("musique-player-wrap");
   const player = document.getElementById("musique-player");
+  const sectionTitle = document.getElementById("musique-section-title");
 
   if (!form) return;
 
@@ -20,32 +21,42 @@
       </a>`;
   }
 
-  async function search(query) {
+  function renderItems(items) {
+    if (items.length === 0) {
+      emptyMsg.hidden = false;
+      return;
+    }
+    resultsEl.innerHTML = items.map(cardHtml).join("");
+    resultsEl.querySelectorAll(".musique-card").forEach((card) => {
+      card.addEventListener("click", (e) => {
+        e.preventDefault();
+        playVideo(card.dataset.id);
+      });
+    });
+  }
+
+  async function fetchAndRender(url, titleText) {
     resultsEl.innerHTML = "";
     emptyMsg.hidden = true;
     loadingMsg.hidden = false;
+    if (sectionTitle) sectionTitle.textContent = titleText;
 
     try {
-      const res = await fetch(`/api/musique-search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(url);
       const data = await res.json();
       loadingMsg.hidden = true;
 
-      const items = data.items || [];
-      if (items.length === 0) {
+      if (data.error) {
         emptyMsg.hidden = false;
+        emptyMsg.textContent = "Une erreur est survenue, réessaie dans un instant.";
+        console.error("Erreur API musique:", data.error);
         return;
       }
 
-      resultsEl.innerHTML = items.map(cardHtml).join("");
-
-      resultsEl.querySelectorAll(".musique-card").forEach((card) => {
-        card.addEventListener("click", (e) => {
-          e.preventDefault();
-          playVideo(card.dataset.id);
-        });
-      });
+      renderItems(data.items || []);
     } catch (e) {
       loadingMsg.hidden = true;
+      emptyMsg.hidden = false;
       console.error("Erreur recherche musique:", e);
     }
   }
@@ -59,6 +70,11 @@
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const q = input.value.trim();
-    if (q) search(q);
+    if (q) {
+      fetchAndRender(`/api/musique-search?q=${encodeURIComponent(q)}`, `Résultats pour « ${q} »`);
+    }
   });
+
+  // Chargement initial : les tendances musicales du moment
+  fetchAndRender("/api/musique-trending", "🔥 Tendances du moment");
 })();
