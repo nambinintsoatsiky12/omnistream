@@ -58,12 +58,9 @@
     <a href="{{ url_for('index', tab='films') }}">Accueil</a>
     <a href="{{ url_for('index', tab='nouveautes') }}">Nouveautés à venir</a>
     <a href="{{ url_for('index', tab='legendes') }}">Les Légendes (note ≥ 8,5)</a>
-    <a href="#" onclick="openAdultSection(); return false;" style="color:#ff0055; font-weight:bold;">🔥 Plus pertinent 🔥</a>
+    <a href="{{ url_for('index', tab='legendes') }}">🏆 Top de la semaine</a>
     {% if session.get('user_first_name') %}
-      <a href="{{ url_for('logout') }}" class="burger-divider">Déconnexion ({{ session.get('user_first_name') }})</a>
-      <a href="{{ url_for('delete_account') }}" style="color:#e0334d;">Supprimer mon compte</a>
-    {% else %}
-      <a href="{{ url_for('login') }}" class="burger-divider">Connexion</a>
+      <a href="{{ url_for('logout') }}" class="burger-divider">Déconnexion</a>
     {% endif %}
   </div>
 </header>
