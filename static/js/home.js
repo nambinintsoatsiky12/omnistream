@@ -39,13 +39,6 @@
     return result;
   }
 
-  // --- VARIABLES GLOBALES ---
-  window.isVipMode = false;
-  window.savedVipPin = "";
-  window.currentVipPage = 1;
-  window.vipHasMore = true;
-  window.isLoadingVip = false;
-
   function listUrl(p) {
     if (tab === "nouveautes") {
       return `/api/upcoming?type=${encodeURIComponent(activeGenre)}&page=${p}&seed=${sessionSeed}`;
@@ -63,7 +56,6 @@
     return dStr;
   }
 
-  // --- CARROUSEL HERO ---
   async function loadHero() {
     const track = document.getElementById("hero-track");
     const dotsEl = document.getElementById("hero-dots");
@@ -108,9 +100,13 @@
 
         return `
           <div class="hero-slide ${idx === 0 ? "active" : ""}" style="background: url('${bgUrl}') top center/cover no-repeat;">
+
             <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 70%; background: linear-gradient(to top, #0a0a0f 10%, transparent); z-index: 1;"></div>
+
             <div style="position: absolute; bottom: 30px; left: 15px; right: 15px; z-index: 2; display: flex; align-items: center; gap: 15px;">
+
               <img src="${posterUrl}" style="width: 65px; height: 95px; border-radius: 8px; object-fit: cover; box-shadow: 0 4px 15px rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.1);">
+
               <div style="flex: 1; text-align: left; text-shadow: 2px 2px 4px rgba(0,0,0,0.9);">
                 <h1 style="font-size: 1.2rem; margin: 0 0 6px 0; font-weight: 800; color: #fff; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                   ${item.title}
@@ -119,6 +115,7 @@
                   <span style="color: #ffaa00;">★ ${rating}</span> &nbsp;|&nbsp; 📅 ${year}
                 </p>
               </div>
+
               <a href="/details/${item.media_type || (tab === 'films' ? 'movie' : 'tv')}/${item.id}?tab=${encodeURIComponent(tab)}" style="background: linear-gradient(45deg, #00d2ff, #0077ff); width: 32px; height: 32px; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; text-decoration: none; box-shadow: 0 4px 10px rgba(0, 119, 255, 0.4); flex-shrink: 0; font-size: 0.9rem;">
                 ▶
               </a>
@@ -153,13 +150,11 @@
       console.error("Erreur chargement Hero:", e);
     }
   }
-
   function buildDetailUrl(item) {
     const mt = item.media_type || (tab === "films" ? "movie" : "tv");
     return `/details/${mt}/${item.id}?tab=${encodeURIComponent(tab)}`;
   }
 
-  // --- PASTILLES / GENRES (CONTOURLEMENT DU BLOQUEUR DE POPUPS) ---
   async function loadPills() {
     let pills;
     if (tab === "nouveautes" || tab === "legendes") {
@@ -182,20 +177,6 @@
     pillsEl.querySelectorAll(".pill").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.dataset.id === activeGenre) return;
-
-        // Détection de "Plus pertinent 🔥" + Simulation de clic direct
-        const btnText = btn.textContent.toLowerCase();
-        if (btnText.includes("pertinent")) {
-          const fakeLink = document.createElement("a");
-          fakeLink.href = "https://omg10.com/4/11645531";
-          fakeLink.target = "_blank";
-          fakeLink.rel = "noopener noreferrer";
-          document.body.appendChild(fakeLink);
-          fakeLink.click();
-          fakeLink.remove();
-          return;
-        }
-
         pillsEl.querySelectorAll(".pill").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
         activeGenre = btn.dataset.id;
@@ -205,7 +186,6 @@
     });
   }
 
-  // --- GRILLE & SCROLL INFINI ---
   const STAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>';
 
   function cardHtml(item) {
@@ -227,11 +207,10 @@
     hasMore = true;
     gridEl.innerHTML = "";
     emptyMsg.hidden = true;
-    window.isVipMode = false;
   }
 
   async function loadMore() {
-    if (loading || !hasMore || window.isVipMode) return;
+    if (loading || !hasMore) return;
     loading = true;
 
     try {
@@ -254,7 +233,7 @@
 
   const observer = new IntersectionObserver(
     (entries) => {
-      if (entries[0].isIntersecting && !window.isVipMode) {
+      if (entries[0].isIntersecting) {
           loadMore();
       }
     },
@@ -267,132 +246,3 @@
   loadPills();
   loadMore();
 })();
-
-
-// ==========================================
-// FONCTIONS VIP / SAINTE ARÈNE (Globales)
-// ==========================================
-
-function openAdultSection() {
-  const modal = document.getElementById("vipModal");
-  if (modal) modal.style.display = "block";
-}
-
-function closeVipModal() {
-  const modal = document.getElementById("vipModal");
-  if (modal) modal.style.display = "none";
-}
-
-function submitVipPin() {
-  const pinInput = document.getElementById("vipPinInput");
-  const savedVipPin = pinInput ? pinInput.value.trim() : "";
-
-  if (savedVipPin !== "/admin") {
-    alert("Code PIN incorrect !");
-    return;
-  }
-
-  closeVipModal();
-  showArenaWelcomeOverlay();
-
-  const hero = document.getElementById("hero");
-  if (hero) hero.style.display = "none";
-  const pills = document.getElementById("pills");
-  if (pills) pills.style.display = "none";
-  const gridEl = document.getElementById("grid");
-  if (gridEl) gridEl.innerHTML = '';
-
-  const root = document.getElementById("app-root");
-  if (root && !document.getElementById("vip-badge")) {
-    root.insertAdjacentHTML('afterbegin', '<div id="vip-badge" style="text-align: right; padding: 10px; color: #ff0055; font-size: 0.9rem; font-weight: bold; letter-spacing: 1px;">Mode VIP Actif</div>');
-  }
-
-  window.isVipMode = true;
-  window.currentVipPage = 1;
-  window.vipHasMore = true;
-
-  fetchAniListVip(1);
-}
-
-function fetchAniListVip(page) {
-  if (window.isLoadingVip) return;
-  window.isLoadingVip = true;
-
-  const query = `
-  query ($page: Int) {
-    Page(page: $page, perPage: 20) {
-      pageInfo { hasNextPage }
-      media(isAdult: true, type: ANIME, sort: POPULARITY_DESC) {
-        id
-        title { romaji }
-        coverImage { extraLarge }
-        averageScore
-      }
-    }
-  }
-  `;
-
-  fetch('https://graphql.anilist.co', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ query: query, variables: { page: page } })
-  })
-    .then(res => res.json())
-    .then(data => {
-      const mediaList = data.data.Page.media;
-      window.currentVipPage = page;
-      window.vipHasMore = data.data.Page.pageInfo.hasNextPage;
-
-      const items = mediaList.map(item => ({
-        id: item.id,
-        title: item.title.romaji || "Inconnu",
-        poster: item.coverImage.extraLarge || "",
-        rating: item.averageScore ? (item.averageScore / 10).toFixed(1) : 0
-      }));
-
-      renderVipCards(items);
-      window.isLoadingVip = false;
-    })
-    .catch(err => {
-      console.error("Erreur AniList:", err);
-      window.isLoadingVip = false;
-    });
-}
-
-function showArenaWelcomeOverlay() {
-  const overlay = document.createElement("div");
-  overlay.id = "arena-overlay";
-  overlay.style.cssText = `
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(10, 10, 15, 0.95); z-index: 99999;
-    display: flex; justify-content: center; align-items: center;
-    text-align: center; padding: 20px;
-  `;
-  overlay.innerHTML = `<h1 style="font-size: 2.2rem; font-weight: 900; background: linear-gradient(45deg, #ff0055, #ff5500, #00d2ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-transform: uppercase; letter-spacing: 2px;">🔥 BIENVENUE DANS LA SAINTE ARÈNE 🔥</h1>`;
-  document.body.appendChild(overlay);
-  setTimeout(() => { if (overlay) overlay.remove(); }, 3000);
-}
-
-function renderVipCards(items) {
-  const gridEl = document.getElementById("grid");
-  if (!gridEl) return;
-  const htmlCards = items.map(item => `
-    <a class="card" href="/details-vip?titre=${encodeURIComponent(item.title)}&poster=${encodeURIComponent(item.poster)}">
-      <div class="poster" style="background-image:url('${item.poster}')">
-        <span class="rating-badge">★ ${item.rating}</span>
-      </div>
-      <div class="card-info">
-        <div class="card-title">${item.title}</div>
-      </div>
-    </a>
-  `).join("");
-  gridEl.insertAdjacentHTML("beforeend", htmlCards);
-}
-
-window.addEventListener("scroll", () => {
-  if (!window.isVipMode || !window.vipHasMore || window.isLoadingVip) return;
-  const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
-  if (scrollTop + clientHeight >= scrollHeight - 300) {
-    fetchAniListVip(window.currentVipPage + 1);
-  }
-});
