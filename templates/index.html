@@ -23,21 +23,21 @@
 {% else %}
   <div id="app-root" data-tab="{{ tab }}">
     {% if tab == 'nouveautes' %}
-      <h2 class="search-title">Nouveautés à venir</h2>
+      <h2 class="search-title">🆕 Nouveautés à venir</h2>
     {% elif tab == 'legendes' %}
-      <h2 class="search-title">Les Légendes (note ≥ 8,5)</h2>
+      <h2 class="search-title">🏆 Les Légendes (note ≥ 8.5)</h2>
     {% endif %}
 
-    <!-- BANDEAU DÉROULANT (HERO) -->
+    <!-- HERO CAROUSEL -->
     <section class="hero" id="hero" aria-label="Sélection à la une" hidden>
       <div class="hero-track" id="hero-track"></div>
       <div class="hero-dots" id="hero-dots"></div>
     </section>
 
-    <!-- PASTILLES DE GENRES -->
+    <!-- GENRE PILLS -->
     <nav class="pills" id="pills"></nav>
 
-    <!-- GRILLE D'ANIMES / FILMS -->
+    <!-- CONTENT GRID -->
     <div class="grid" id="grid"></div>
     <div id="sentinel" class="sentinel"></div>
     <p id="grid-empty" class="empty" hidden>Aucun titre dans cette catégorie pour le moment.</p>
@@ -48,6 +48,6 @@
 
 {% block scripts %}
 {% if not query %}
-  <script src="{{ url_for('static', filename='js/home.js') }}?v=4"></script>
+  <script src="{{ url_for('static', filename='js/home.js') }}?v=5"></script>
 {% endif %}
 {% endblock %}

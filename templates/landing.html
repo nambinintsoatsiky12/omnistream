@@ -29,7 +29,7 @@
     <p class="landing-lead">
       OmniStream rassemble un catalogue complet de films, séries et animés,
       avec des notes fiables, des sorties à venir et une sélection des œuvres
-      les mieux notées — mis à jour en continu.
+      les mieux notées — accessible sans inscription.
     </p>
     <div class="landing-cta">
       <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">🎬 Explorer le catalogue</a>
@@ -41,19 +41,19 @@
 <section class="landing-stats-band">
   <div class="landing-stats-inner">
     <div class="mini-stat reveal">
-      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-      <span class="mini-stat-number">{{ members }}</span>
-      <span class="mini-stat-label">Membres inscrits</span>
-    </div>
-    <div class="mini-stat reveal">
-      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
       <span class="mini-stat-number">{{ visits }}</span>
-      <span class="mini-stat-label">Visites cumulées</span>
+      <span class="mini-stat-label">Visiteurs uniques</span>
     </div>
     <div class="mini-stat reveal">
-      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
+      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
       <span class="mini-stat-number">4</span>
       <span class="mini-stat-label">Catégories de contenu</span>
+    </div>
+    <div class="mini-stat reveal">
+      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>
+      <span class="mini-stat-number">∞</span>
+      <span class="mini-stat-label">Accès libre et gratuit</span>
     </div>
   </div>
 </section>
@@ -62,20 +62,28 @@
   <h2 class="reveal">Ce que vous trouverez sur OmniStream</h2>
   <div class="landing-feature-grid">
     <div class="landing-feature reveal">
-      <h3>Un catalogue complet</h3>
-      <p>Films, séries, animés et animation occidentale, avec fiches détaillées, casting et synopsis.</p>
+      <h3>🎬 Un catalogue complet</h3>
+      <p>Films, séries, animés et animation occidentale, avec fiches détaillées, casting et synopsis — sans inscription requise.</p>
     </div>
     <div class="landing-feature reveal">
-      <h3>Sorties à venir</h3>
+      <h3>🆕 Sorties à venir</h3>
       <p>Une section dédiée aux prochaines sorties, classées par date réelle de disponibilité.</p>
     </div>
     <div class="landing-feature reveal">
-      <h3>Les mieux notés</h3>
-      <p>Une sélection stricte des œuvres les mieux notées, tous genres confondus.</p>
+      <h3>🏆 Les mieux notés</h3>
+      <p>Une sélection stricte des œuvres les mieux notées (note ≥ 8.5), tous genres confondus.</p>
     </div>
     <div class="landing-feature reveal">
-      <h3>Assistant intégré</h3>
-      <p>Posez vos questions sur n'importe quelle œuvre du catalogue directement depuis sa fiche.</p>
+      <h3>🤖 Assistant Gemini intégré</h3>
+      <p>Posez vos questions sur n'importe quelle œuvre du catalogue directement depuis sa fiche — acteurs, anecdotes, suites.</p>
+    </div>
+    <div class="landing-feature reveal">
+      <h3>📖 Lecteur de scans</h3>
+      <p>Lisez vos mangas préférés directement en VF grâce à l'intégration MangaDex.</p>
+    </div>
+    <div class="landing-feature reveal">
+      <h3>🎧 Musique &amp; Vidéo</h3>
+      <p>Écoutez et regardez les tendances musicales avec les modes Audio et Vidéo plein écran.</p>
     </div>
   </div>
 </section>
@@ -97,7 +105,7 @@
 
 <section class="landing-final-cta reveal">
   <h2>Envie de découvrir votre prochain coup de cœur ?</h2>
-  <p class="landing-final-lead">Des centaines de films, séries et animés vous attendent sur OmniStream.</p>
+  <p class="landing-final-lead">Des centaines de films, séries et animés vous attendent — sans compte, sans inscription.</p>
   <div class="landing-cta">
     <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">🎬 Explorer maintenant</a>
   </div>
@@ -117,7 +125,7 @@
         io.unobserve(e.target);
       }
     });
-  }, { threshold: 0.15 });
+  }, { threshold: 0.12 });
   els.forEach((el) => io.observe(el));
 })();
 </script>

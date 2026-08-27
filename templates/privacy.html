@@ -1,24 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Politique de confidentialité — OmniStream{% endblock %}
+{% block title %}Confidentialité — OmniStream{% endblock %}
 {% block content %}
-<div class="auth-box auth-box-wide">
-  <div class="auth-header">
-    <span class="auth-logo">OMNI<span>STREAM</span></span>
-    <h1>Politique de confidentialité</h1>
-  </div>
+<div class="privacy-box">
+  <h1>Politique de confidentialité</h1>
+  <p>OmniStream respecte votre vie privée. Ce site ne collecte aucune donnée personnelle identifiable.</p>
+
+  <h2>Cookies</h2>
+  <p>OmniStream utilise uniquement un cookie de session technique pour mémoriser vos préférences de navigation. Aucun cookie publicitaire ou de traçage n'est utilisé.</p>
 
   <h2>Données collectées</h2>
-  <p>Lors de la création d'un compte, OmniStream collecte votre prénom, votre nom, votre adresse e-mail ainsi qu'un mot de passe. Ce dernier est stocké sous forme hachée et n'est jamais accessible en clair.</p>
+  <p>Un compteur de visiteurs uniques anonymes est utilisé pour mesurer la fréquentation du site. Aucune adresse IP, aucun identifiant personnel ni aucune donnée de navigation n'est stockée.</p>
 
-  <h2>Finalité du traitement</h2>
-  <p>Ces informations sont utilisées exclusivement pour la création et la gestion de votre compte, ainsi que pour la vérification de votre adresse e-mail.</p>
+  <h2>Services tiers</h2>
+  <p>OmniStream utilise les API de TMDB, YouTube et MangaDex pour afficher du contenu. Ces services peuvent collecter des données conformément à leurs propres politiques de confidentialité.</p>
 
-  <h2>Partage des données</h2>
-  <p>Aucune donnée personnelle n'est vendue, louée ou transmise à des tiers à des fins commerciales.</p>
-
-  <h2>Droits des utilisateurs</h2>
-  <p>Vous pouvez à tout moment demander l'accès, la rectification ou la suppression de vos données en contactant l'administrateur du site.</p>
-
-  <p class="auth-switch"><a href="{{ url_for('signup') }}">Retour à l'inscription</a></p>
+  <h2>Contact</h2>
+  <p>Pour toute question concernant la confidentialité, vous pouvez contacter le créateur du site.</p>
 </div>
 {% endblock %}

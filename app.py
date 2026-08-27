@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime
-import functools
 import html
 import logging
 import os
@@ -13,26 +12,21 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import quote, urlsplit
 
 import requests
 from flask import (
     Flask,
     abort,
     jsonify,
-    redirect,
     render_template,
     request,
     send_from_directory,
     session,
-    url_for,
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
-from werkzeug.security import check_password_hash, generate_password_hash
 
 import auth_db
-import mailer
-from mailer import send_password_reset_email, send_verification_email
 
 
 def _env_flag(name, default=False):
@@ -47,8 +41,6 @@ def _load_secret_key():
     if configured:
         return configured
 
-    # Une clé persistante locale évite le secret codé en dur tout en gardant
-    # les sessions valides entre deux redémarrages (et entre workers Gunicorn).
     key_file = Path(
         os.environ.get(
             "SECRET_KEY_FILE",
@@ -74,7 +66,7 @@ def _load_secret_key():
                 with contextlib.suppress(OSError):
                     key_file.chmod(0o600)
                 return generated
-            except FileExistsError:  # Un autre worker vient de la créer.
+            except FileExistsError:
                 existing = key_file.read_text(encoding="utf-8").strip()
                 if len(existing) < 32:
                     raise RuntimeError(
@@ -121,34 +113,6 @@ TRUSTED_HOSTS = [
 ]
 if TRUSTED_HOSTS:
     app.config["TRUSTED_HOSTS"] = TRUSTED_HOSTS
-if PUBLIC_BASE_URL:
-    try:
-        public_url_parts = urlsplit(PUBLIC_BASE_URL)
-        _ = public_url_parts.port  # Déclenche la validation des ports mal formés.
-    except ValueError as exc:
-        raise RuntimeError("PUBLIC_BASE_URL est invalide.") from exc
-    if (
-        public_url_parts.scheme not in {"http", "https"}
-        or not public_url_parts.hostname
-        or public_url_parts.username
-        or public_url_parts.password
-        or public_url_parts.query
-        or public_url_parts.fragment
-    ):
-        raise RuntimeError("PUBLIC_BASE_URL est invalide.")
-if SPONSOR_SMARTLINK_URL:
-    try:
-        smartlink_parts = urlsplit(SPONSOR_SMARTLINK_URL)
-        _ = smartlink_parts.port
-    except ValueError as exc:
-        raise RuntimeError("SPONSOR_SMARTLINK_URL est invalide.") from exc
-    if (
-        smartlink_parts.scheme != "https"
-        or not smartlink_parts.hostname
-        or smartlink_parts.username
-        or smartlink_parts.password
-    ):
-        raise RuntimeError("SPONSOR_SMARTLINK_URL est invalide.")
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE = "https://image.tmdb.org/t/p/w500"
@@ -160,8 +124,6 @@ CATALOG_TABS = {"films", "series", "animes", "animation_occidentale"}
 SPECIAL_TABS = {"nouveautes", "legendes"}
 ALL_TABS = CATALOG_TABS | SPECIAL_TABS
 MEDIA_FILTERS = {"all", "movie", "tv", "anime"}
-EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-AUTH_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{40,64}$")
 MANGADEX_UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -203,47 +165,13 @@ def _cache_set(key, value, ttl=900):
     return value
 
 
-def _csrf_token():
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["_csrf_token"] = token
-    return token
-
-
-app.jinja_env.globals["csrf_token"] = _csrf_token
-
-
 @app.context_processor
 def template_promotional_context():
-    # Le Smartlink est uniquement un lien volontaire : aucun script publicitaire
-    # ni demande de notification n'est chargé dans la page.
     return {
         "show_sponsor_gift": bool(SPONSOR_SMARTLINK_URL)
         and request.endpoint in {"index", "details", "musiques"},
         "sponsor_smartlink_url": SPONSOR_SMARTLINK_URL,
     }
-
-
-@app.before_request
-def protect_against_csrf():
-    if request.method in {"GET", "HEAD", "OPTIONS", "TRACE"}:
-        return None
-    # Une requête anonyme vers une API protégée sera refusée par le décorateur
-    # d'authentification ; elle ne possède pas encore de session à protéger.
-    if _is_api_request() and session.get("user_id") is None:
-        return None
-    expected = session.get("_csrf_token", "")
-    supplied = request.headers.get("X-CSRF-Token", "") or request.form.get(
-        "csrf_token", ""
-    )
-    if not expected or not supplied or not secrets.compare_digest(expected, supplied):
-        if request.path.startswith("/api/"):
-            return jsonify(
-                {"error": "Jeton de sécurité invalide. Rechargez la page."}
-            ), 400
-        abort(400, description="Jeton de sécurité invalide. Rechargez la page.")
-    return None
 
 
 @app.after_request
@@ -254,15 +182,6 @@ def add_security_headers(response):
     response.headers.setdefault(
         "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
     )
-    if request.endpoint in {
-        "login",
-        "signup",
-        "forgot_password",
-        "reset_password",
-        "delete_account",
-        "admin_dashboard",
-    }:
-        response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -347,33 +266,6 @@ def handle_internal_error(error):
     return render_template("error.html", title="Erreur interne", message=message), 500
 
 
-def _public_links_configured():
-    return bool(PUBLIC_BASE_URL) or app.testing or mailer.MAIL_BACKEND == "console"
-
-
-def _public_url(endpoint, **values):
-    path = url_for(endpoint, **values)
-    if PUBLIC_BASE_URL:
-        return urljoin(f"{PUBLIC_BASE_URL}/", path.lstrip("/"))
-    if _public_links_configured():
-        return url_for(endpoint, _external=True, **values)
-    raise UpstreamServiceError(
-        "PUBLIC_BASE_URL doit être configurée pour envoyer des liens sécurisés.",
-        503,
-    )
-
-
-def _safe_next_url(value):
-    if not value or "\\" in value or any(ord(char) < 32 for char in value):
-        return None
-    parsed = urlsplit(value)
-    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
-        return None
-    if parsed.path.startswith("//"):
-        return None
-    return value
-
-
 def _page_arg():
     try:
         value = int(request.args.get("page", "1"))
@@ -390,10 +282,6 @@ def _limited_arg(name, default="", max_length=200):
     if len(value) > max_length:
         abort(400, description=f"Le paramètre {name} est trop long.")
     return value
-
-
-def _valid_email(value):
-    return len(value) <= 254 and bool(EMAIL_RE.fullmatch(value))
 
 
 def _catalog_tab_arg():
@@ -418,349 +306,8 @@ def _total_pages(data):
 
 
 # ---------------------------------------------------------------------------
-# Authentification : inscription, connexion, vérification e-mail
+# TMDB helpers
 # ---------------------------------------------------------------------------
-
-
-def login_required(view):
-    @functools.wraps(view)
-    def wrapped(*args, **kwargs):
-        user_id = session.get("user_id")
-        user = auth_db.get_user_by_id(user_id) if isinstance(user_id, int) else None
-        if (
-            not user
-            or not user["verified"]
-            or session.get("session_version") != int(user.get("session_version") or 0)
-        ):
-            session.clear()
-            if _is_api_request():
-                return jsonify({"error": "Authentification requise."}), 401
-            next_url = request.full_path.rstrip("?")
-            return redirect(url_for("login", next=next_url))
-        return view(*args, **kwargs)
-
-    return wrapped
-
-
-@app.route("/signup", methods=["GET", "POST"])
-def signup():
-    if request.method == "POST":
-        first_name = request.form.get("first_name", "").strip()
-        last_name = request.form.get("last_name", "").strip()
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        accept = request.form.get("accept_privacy")
-        form_state = {"first_name": first_name, "last_name": last_name, "email": email}
-
-        if not first_name or not last_name:
-            return render_template(
-                "signup.html",
-                error="Merci de renseigner votre prénom et votre nom.",
-                **form_state,
-            )
-        if len(first_name) > 80 or len(last_name) > 80:
-            return render_template(
-                "signup.html",
-                error="Le prénom et le nom sont trop longs.",
-                **form_state,
-            )
-        if not _valid_email(email):
-            return render_template(
-                "signup.html", error="L'adresse e-mail est invalide.", **form_state
-            )
-        if not accept:
-            return render_template(
-                "signup.html",
-                error=(
-                    "Vous devez accepter la politique de confidentialité pour "
-                    "continuer."
-                ),
-                **form_state,
-            )
-        if len(password) < 8:
-            return render_template(
-                "signup.html",
-                error="Le mot de passe doit contenir au moins 8 caractères.",
-                **form_state,
-            )
-        if len(password) > 128:
-            return render_template(
-                "signup.html",
-                error="Le mot de passe ne peut pas dépasser 128 caractères.",
-                **form_state,
-            )
-        if not _public_links_configured():
-            return render_template(
-                "signup.html",
-                error="Le service d'e-mail n'est pas encore correctement configuré.",
-                **form_state,
-            )
-        existing_user = auth_db.get_user_by_email(email)
-        created_new_user = existing_user is None
-        email_first_name = first_name
-        if existing_user:
-            if existing_user["verified"]:
-                return render_template(
-                    "signup.html",
-                    error="Un compte existe déjà avec cette adresse e-mail.",
-                    **form_state,
-                )
-            # Un lien perdu ou expiré ne doit pas bloquer définitivement le compte.
-            token = auth_db.refresh_verification_token(existing_user["id"])
-            email_first_name = existing_user["first_name"]
-        else:
-            token = auth_db.create_user(
-                first_name, last_name, email, generate_password_hash(password)
-            )
-        if not token:
-            return render_template(
-                "signup.html",
-                error="Impossible de préparer l'e-mail de confirmation.",
-                **form_state,
-            )
-
-        verify_url = _public_url("verify_email", token=token)
-        if not send_verification_email(email, verify_url, email_first_name):
-            # Sans e-mail, un nouveau compte serait inutilisable. Le retirer permet
-            # de réessayer lorsque le service revient. Un ancien compte est gardé.
-            created_user = auth_db.get_user_by_email(email)
-            if created_new_user and created_user and not created_user["verified"]:
-                auth_db.delete_user(created_user["id"])
-            return render_template(
-                "signup.html",
-                error=(
-                    "L'e-mail de confirmation n'a pas pu être envoyé. "
-                    "Veuillez réessayer dans quelques instants."
-                ),
-                **form_state,
-            )
-
-        return render_template("check_email.html", email=email)
-
-    return render_template("signup.html")
-
-
-@app.route("/verify/<token>")
-def verify_email(token):
-    if AUTH_TOKEN_RE.fullmatch(token) and auth_db.verify_user_by_token(token):
-        return render_template(
-            "login.html",
-            message=(
-                "Votre compte a été confirmé avec succès. "
-                "Vous pouvez maintenant vous connecter."
-            ),
-        )
-    return render_template(
-        "login.html",
-        error="Ce lien de confirmation est invalide, expiré ou déjà utilisé.",
-    )
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    next_url = _safe_next_url(request.values.get("next"))
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-
-        user = (
-            auth_db.get_user_by_email(email)
-            if _valid_email(email) and len(password) <= 128
-            else None
-        )
-        if not user or not check_password_hash(user["password_hash"], password):
-            return render_template(
-                "login.html",
-                error="E-mail ou mot de passe incorrect.",
-                email=email,
-                next_url=next_url,
-            )
-        if not user["verified"]:
-            return render_template(
-                "login.html",
-                error=(
-                    "Veuillez confirmer votre adresse e-mail avant de vous connecter "
-                    "(consultez votre boîte de réception)."
-                ),
-                email=email,
-                next_url=next_url,
-            )
-
-        session.clear()  # Empêche la fixation de session après authentification.
-        session["user_id"] = user["id"]
-        session["user_email"] = user["email"]
-        session["user_first_name"] = user["first_name"]
-        session["session_version"] = int(user.get("session_version") or 0)
-        session.permanent = bool(request.form.get("remember"))
-        return redirect(next_url or url_for("index", tab="films"))
-
-    return render_template("login.html", next_url=next_url)
-
-
-@app.route("/mot-de-passe-oublie", methods=["GET", "POST"])
-def forgot_password():
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        user = auth_db.get_user_by_email(email) if _valid_email(email) else None
-        if user and _public_links_configured():
-            token = auth_db.create_password_reset_token(email)
-            if token:
-                reset_url = _public_url("reset_password", token=token)
-                send_password_reset_email(email, reset_url, user["first_name"])
-        # Même message qu'un compte existe ou non, pour ne pas révéler les
-        # adresses inscrites sur le site.
-        return render_template(
-            "forgot_password.html",
-            email=email,
-            message=(
-                "Si un compte existe avec cette adresse, un e-mail de "
-                "réinitialisation vient d'être envoyé."
-            ),
-        )
-    return render_template("forgot_password.html")
-
-
-@app.route("/reinitialiser-mot-de-passe/<token>", methods=["GET", "POST"])
-def reset_password(token):
-    user = (
-        auth_db.get_user_by_reset_token(token)
-        if AUTH_TOKEN_RE.fullmatch(token)
-        else None
-    )
-    if not user:
-        return render_template(
-            "login.html",
-            error=(
-                "Ce lien de réinitialisation est invalide ou a expiré. "
-                "Merci de refaire une demande."
-            ),
-        )
-
-    if request.method == "POST":
-        password = request.form.get("password", "")
-        password_confirm = request.form.get("password_confirm", "")
-        if len(password) < 8:
-            return render_template(
-                "reset_password.html",
-                token=token,
-                error="Le mot de passe doit contenir au moins 8 caractères.",
-            )
-        if len(password) > 128:
-            return render_template(
-                "reset_password.html",
-                token=token,
-                error="Le mot de passe ne peut pas dépasser 128 caractères.",
-            )
-        if password != password_confirm:
-            return render_template(
-                "reset_password.html",
-                token=token,
-                error="Les mots de passe ne correspondent pas.",
-            )
-
-        changed = auth_db.consume_password_reset_token(
-            user["id"], token, generate_password_hash(password)
-        )
-        if not changed:
-            return render_template(
-                "login.html",
-                error="Ce lien vient d'être utilisé. Merci de refaire une demande.",
-            )
-        session.clear()
-        return render_template(
-            "login.html",
-            message=(
-                "Votre mot de passe a été changé avec succès. "
-                "Vous pouvez maintenant vous connecter."
-            ),
-        )
-
-    return render_template("reset_password.html", token=token)
-
-
-@app.post("/logout")
-@login_required
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-
-@app.route("/confidentialite")
-def privacy():
-    return render_template("privacy.html")
-
-
-@app.get("/sw.js")
-def notification_cleanup_worker():
-    """Remplace l'ancien worker publicitaire et supprime ses abonnements push."""
-    response = send_from_directory(
-        app.root_path,
-        "sw.js",
-        mimetype="application/javascript",
-        max_age=0,
-        conditional=False,
-    )
-    response.headers["Cache-Control"] = "no-store, max-age=0"
-    response.headers["Service-Worker-Allowed"] = "/"
-    return response
-
-
-@app.route("/supprimer-compte", methods=["GET", "POST"])
-@login_required
-def delete_account():
-    if request.method == "POST":
-        password = request.form.get("password", "")
-        user = auth_db.get_user_by_id(session["user_id"])
-        if (
-            len(password) > 128
-            or not user
-            or not check_password_hash(user["password_hash"], password)
-        ):
-            return render_template(
-                "delete_account.html", error="Mot de passe incorrect."
-            )
-        auth_db.delete_user(user["id"])
-        session.clear()
-        return render_template("account_deleted.html")
-
-    return render_template("delete_account.html")
-
-
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "").lower().strip()
-
-
-def admin_required(view):
-    @functools.wraps(view)
-    def wrapped(*args, **kwargs):
-        user_id = session.get("user_id")
-        if user_id is None:
-            return redirect(url_for("login", next=request.path))
-        user = auth_db.get_user_by_id(user_id)
-        if (
-            not user
-            or not user["verified"]
-            or session.get("session_version") != int(user.get("session_version") or 0)
-        ):
-            session.clear()
-            return redirect(url_for("login", next=request.path))
-        if not ADMIN_EMAIL or user["email"].lower() != ADMIN_EMAIL:
-            return redirect(url_for("index", tab="films"))
-        return view(*args, **kwargs)
-
-    return wrapped
-
-
-@app.route("/admin")
-@admin_required
-def admin_dashboard():
-    return render_template(
-        "admin.html",
-        total_members=auth_db.count_users(),
-        total_visits=auth_db.get_total_visits(),
-        members=auth_db.get_all_users(),
-        visits_series=auth_db.get_daily_visits(30),
-        signups_series=auth_db.get_signups_per_day(30),
-    )
 
 
 def tmdb_get(path, params=None):
@@ -903,10 +450,6 @@ FILM_BONUS_PILLS = [
 
 
 def seeded_block_shuffle(items, seed_key, block_size=4):
-    """Mélange les items par petits paquets, avec une graine fixe.
-    Garde l'ordre général (popularité/note) mais varie l'ordre exact
-    à chaque nouvelle graine (donc à chaque nouvelle visite du site)."""
-    # Ce générateur sert uniquement à l'ordre visuel, jamais à la sécurité.
     rng = random.Random(seed_key)  # nosec B311
     result = list(items)
     for i in range(0, len(result), block_size):
@@ -1000,14 +543,14 @@ def index():
     query = _limited_arg("q", max_length=120)
 
     if not requested_tab and not query:
-        # Page d'accueil marketing (mur d'affiches, présentation du site).
-        visits = (
+        # Compteur de visiteurs uniques : une seule incrémentation par session
+        if not session.get("_counted_visit"):
             auth_db.increment_and_get_visit_counter()
-            if request.method == "GET"
-            else auth_db.get_total_visits()
-        )
-        members = auth_db.count_users()
+            session["_counted_visit"] = True
+        visits = auth_db.get_total_visits()
+
         posters = []
+        hero_items = []
         try:
             movies = tmdb_get("/discover/movie", {"sort_by": "popularity.desc"})
             animes = tmdb_get(
@@ -1024,15 +567,21 @@ def index():
                 for item in pool
                 if (image_url := _tmdb_image_url(IMG_BASE, item.get("poster_path")))
             ]
+            # Hero items for the landing page carousel
+            trending = _result_items(tmdb_get("/trending/movie/week"))
+            hero_items = [
+                normalize_card(item, "movie")
+                for item in trending[:8]
+                if item.get("backdrop_path")
+            ]
         except UpstreamServiceError as error:
-            # La vitrine reste utilisable même sans clé TMDB ou pendant une panne.
-            app.logger.info("Mur d'affiches TMDB indisponible : %s", error)
+            app.logger.info("Données TMDB indisponibles : %s", error)
 
         return render_template(
             "landing.html",
             visits=visits,
-            members=members,
             posters=posters,
+            hero_items=hero_items,
             landing_page=True,
         )
 
@@ -1044,7 +593,6 @@ def index():
 
 
 @app.route("/details/<media_type>/<int:item_id>")
-@login_required
 def details(media_type, item_id):
     if media_type not in {"movie", "tv"} or item_id <= 0:
         abort(404)
@@ -1202,7 +750,6 @@ def api_hero():
 
     anchors = candidates[:2]
     pool = candidates[2:]
-    # Mélange d'affichage déterministe, sans usage cryptographique.
     random.Random(  # nosec B311
         f"{int(time.time() // 900)}-{tab}"
     ).shuffle(pool)
@@ -1230,7 +777,6 @@ def api_list():
                 params["with_keywords"] = keyword_id
         elif tab == "films" and film_bonus:
             if "keywords" in film_bonus:
-                # Plusieurs mots-clés combinés en « OU ».
                 keyword_ids = []
                 for keyword in film_bonus["keywords"]:
                     keyword_id = get_keyword_id(keyword)
@@ -1396,12 +942,11 @@ def api_legends():
 
 
 # ---------------------------------------------------------------------------
-# Gemini chat endpoint
+# Gemini chat endpoint (public)
 # ---------------------------------------------------------------------------
 
 
 @app.post("/api/chat")
-@login_required
 def chat():
     if not GEMINI_API_KEY:
         return jsonify(
@@ -1453,7 +998,6 @@ def chat():
             description="La conversation doit commencer et finir par l'utilisateur.",
         )
 
-    # 21 messages conservent l'alternance user/model tout en bornant le coût.
     clean_history = clean_history[-21:]
     genres = ", ".join(genre_items)
     today_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%d/%m/%Y")
@@ -1535,8 +1079,12 @@ def chat():
     return jsonify({"reply": reply})
 
 
+# ---------------------------------------------------------------------------
+# Scan reader (public)
+# ---------------------------------------------------------------------------
+
+
 @app.route("/lecteur-scan")
-@login_required
 def lecteur_scan():
     title = _limited_arg("titre", "Manga inconnu", 200) or "Manga inconnu"
     return render_template("lecteur.html", titre=title)
@@ -1557,7 +1105,6 @@ def _valid_mangadex_endpoint(endpoint):
 
 
 @app.route("/api/mangadex_proxy")
-@login_required
 def mangadex_proxy():
     endpoint = _limited_arg("endpoint", max_length=120)
     if not endpoint or not _valid_mangadex_endpoint(endpoint):
@@ -1627,7 +1174,6 @@ def mangadex_proxy():
 
 
 @app.route("/api/manga_image")
-@login_required
 def manga_image():
     image_url = _limited_arg("url", max_length=2048)
     try:
@@ -1695,6 +1241,11 @@ def manga_image():
             "Cache-Control": "public, max-age=3600",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Musique (YouTube)
+# ---------------------------------------------------------------------------
 
 
 @app.route("/musiques")
@@ -1826,9 +1377,33 @@ def _format_youtube_items(raw_items, id_is_object):
     return items
 
 
+# ---------------------------------------------------------------------------
+# Pages statiques
+# ---------------------------------------------------------------------------
+
+
+@app.route("/confidentialite")
+def privacy():
+    return render_template("privacy.html")
+
+
+@app.get("/sw.js")
+def notification_cleanup_worker():
+    """Remplace l'ancien worker publicitaire et supprime ses abonnements push."""
+    response = send_from_directory(
+        app.root_path,
+        "sw.js",
+        mimetype="application/javascript",
+        max_age=0,
+        conditional=False,
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))
-    # Nécessaire en conteneur ; le serveur de développement reste sans debug par défaut.
     app.run(
         host="0.0.0.0",  # nosec B104
         port=port,
