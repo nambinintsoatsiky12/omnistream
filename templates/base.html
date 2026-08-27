@@ -3,36 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>{% block title %}OmniStream{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=5">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=10">
 <script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v=1" defer></script>
 <meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
 <body class="{{ 'body-landing' if landing_page|default(false) else '' }}">
-<header class="topbar {{ 'topbar-landing' if landing_page|default(false) else '' }}">
+<header class="topbar {{ 'topbar-landing' if landing_page|default(false) else '' }}" id="topbar">
   <div class="topbar-inner" id="topbar-inner">
     <a href="{{ url_for('index') }}" class="logo logo-mark">
       <span class="logo-icon">
-        <svg viewBox="0 0 40 40" width="30" height="30">
+        <svg viewBox="0 0 40 40" width="32" height="32">
           <defs>
             <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#ff8c00"/>
-              <stop offset="100%" stop-color="#ff3d7f"/>
+              <stop offset="0%" stop-color="#e50914"/>
+              <stop offset="100%" stop-color="#ff6b35"/>
             </linearGradient>
           </defs>
           <rect x="2" y="2" width="36" height="36" rx="10" fill="url(#logoGrad)"/>
-          <path d="M16 13l13 7-13 7z" fill="#0d0d16"/>
+          <path d="M16 13l13 7-13 7z" fill="#fff"/>
         </svg>
       </span>
       OMNI<span>STREAM</span>
     </a>
 
-    {% if tab %}
+    {% if tab is defined and tab %}
     <form class="searchbar" id="searchbar" action="{{ url_for('index') }}" method="get">
       <input type="hidden" name="tab" value="{{ tab|default('films') }}">
-      <input type="text" name="q" id="search-input" placeholder="Rechercher..." value="{{ query|default('') }}" maxlength="120" aria-label="Rechercher un titre">
-      <button type="submit">OK</button>
+      <input type="text" name="q" id="search-input" placeholder="Rechercher un titre..." value="{{ query|default('') }}" maxlength="120" aria-label="Rechercher un titre">
+      <button type="submit" aria-label="Rechercher">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+      </button>
     </form>
 
     <button type="button" class="icon-btn" id="search-toggle" aria-label="Rechercher">
@@ -45,30 +49,24 @@
     </button>
   </div>
 
-  {% if tab %}
+  {% if tab is defined and tab %}
   <nav class="tabs">
     <a href="{{ url_for('index', tab='films') }}" class="{{ 'active' if tab=='films' or not tab else '' }}">Films</a>
-    <a href="{{ url_for('index', tab='animes') }}" class="{{ 'active' if tab=='animes' else '' }}">Animes (Manga)</a>
+    <a href="{{ url_for('index', tab='animes') }}" class="{{ 'active' if tab=='animes' else '' }}">Animes</a>
     <a href="{{ url_for('index', tab='series') }}" class="{{ 'active' if tab=='series' else '' }}">Séries</a>
-    <a href="{{ url_for('index', tab='animation_occidentale') }}" class="{{ 'active' if tab=='animation_occidentale' else '' }}">Animation Occidentale</a>
+    <a href="{{ url_for('index', tab='animation_occidentale') }}" class="{{ 'active' if tab=='animation_occidentale' else '' }}">Animation</a>
   </nav>
   {% endif %}
 
   <nav class="burger-panel" id="burger-panel" aria-label="Menu principal">
-    <a href="{{ url_for('index', tab='films') }}">Accueil</a>
-    <a href="{{ url_for('index', tab='nouveautes') }}">Nouveautés à venir</a>
-    <a href="{{ url_for('index', tab='legendes') }}">Les Légendes (note ≥ 8,5)</a>
+    <a href="{{ url_for('index') }}">🏠 Accueil</a>
+    <a href="{{ url_for('index', tab='films') }}">🎬 Catalogue Films</a>
+    <a href="{{ url_for('index', tab='animes') }}">⛩️ Animes</a>
+    <a href="{{ url_for('index', tab='series') }}">📺 Séries</a>
+    <a href="{{ url_for('index', tab='nouveautes') }}">🆕 Nouveautés à venir</a>
+    <a href="{{ url_for('index', tab='legendes') }}">🏆 Les Légendes (≥ 8.5)</a>
     <a href="{{ url_for('musiques') }}">🎧 Musique</a>
-    {% if session.get('user_id') is not none %}
-      <a href="{{ url_for('delete_account') }}" class="burger-divider">Mon compte</a>
-      <form action="{{ url_for('logout') }}" method="post" class="burger-logout-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit">Déconnexion</button>
-      </form>
-    {% else %}
-      <a href="{{ url_for('login') }}" class="burger-divider">Connexion</a>
-      <a href="{{ url_for('signup') }}">Créer un compte</a>
-    {% endif %}
+    <a href="{{ url_for('privacy') }}" class="burger-divider">Confidentialité</a>
   </nav>
 </header>
 
@@ -95,6 +93,7 @@
 
 <script>
 (function () {
+  /* Burger menu */
   const burgerBtn = document.getElementById("burger-btn");
   const burgerPanel = document.getElementById("burger-panel");
   function setMenuOpen(open) {
@@ -108,6 +107,7 @@
     });
   }
 
+  /* Search toggle (mobile) */
   const topbarInner = document.getElementById("topbar-inner");
   const searchToggle = document.getElementById("search-toggle");
   const searchInput = document.getElementById("search-input");
@@ -118,6 +118,7 @@
     });
   }
 
+  /* Close menu on outside click / Escape */
   document.addEventListener("click", (e) => {
     if (burgerPanel && burgerBtn && !burgerPanel.contains(e.target) && !burgerBtn.contains(e.target)) {
       setMenuOpen(false);
@@ -127,7 +128,15 @@
     if (e.key === "Escape") setMenuOpen(false);
   });
 
-  const header = document.querySelector(".topbar");
+  /* Header scroll effect */
+  const header = document.getElementById("topbar");
+  function onScroll() {
+    if (header) header.classList.toggle("scrolled", window.scrollY > 40);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  /* Header height CSS variable */
   function updateHeaderHeight() {
     if (header) {
       document.documentElement.style.setProperty("--header-h", header.offsetHeight + "px");

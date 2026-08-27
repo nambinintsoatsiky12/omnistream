@@ -2,7 +2,7 @@
 {% block title %}{{ item.title }} — OmniStream{% endblock %}
 
 {% block content %}
-<div class="detail-hero" {% if item.backdrop %}style="background-image:linear-gradient(180deg, rgba(11,13,18,0.3), rgba(11,13,18,1)), url('{{ item.backdrop }}')"{% endif %}>
+<div class="detail-hero" {% if item.backdrop %}style="background-image:url('{{ item.backdrop }}')"{% endif %}>
   <div class="detail-hero-inner">
     {% if item.poster %}
       <img class="detail-poster" src="{{ item.poster }}" alt="Affiche de {{ item.title }}">
@@ -15,7 +15,7 @@
       <div class="detail-tags">
         {% if item.year %}<span>{{ item.year }}</span>{% endif %}
         {% if item.runtime %}<span>{{ item.runtime }} min</span>{% endif %}
-        <span class="detail-rating">&#9733; {{ item.rating }}</span>
+        <span class="detail-rating">★ {{ item.rating }}</span>
       </div>
 
       {% if item.genres %}
@@ -30,16 +30,13 @@
       <p class="cast"><strong>Casting :</strong> {{ item.cast | join(', ') }}</p>
       {% endif %}
 
-      <!-- ZONE DÉTECTEUR DE SCANS -->
       {% if item.original_language in ['ja', 'JA', 'JP', 'jp'] or (item.origin_country and 'JP' in item.origin_country) %}
-      <div style="margin-top: 25px; text-align: left;">
-        <a href="{{ url_for('lecteur_scan', titre=item.title) }}"
-           style="display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(45deg, #8a2be2, #4a00e0); color: white; padding: 12px 24px; border-radius: 12px; text-decoration: none; font-weight: 900; box-shadow: 0 4px 15px rgba(138, 43, 226, 0.5); letter-spacing: 1px;">
+      <div style="margin-top: 24px;">
+        <a href="{{ url_for('lecteur_scan', titre=item.title) }}" class="scan-btn">
            📖 LIRE LE SCAN (VF)
         </a>
       </div>
       {% endif %}
-
     </div>
   </div>
 </div>
@@ -49,7 +46,7 @@
   data-year="{{ item.year }}"
   data-overview="{{ item.overview | e }}"
   data-genres="{{ item.genres | join(',') }}">
-  <div class="chat-header">Demander plus d'infos sur <strong>{{ item.title }}</strong> à Gemini</div>
+  <div class="chat-header">🤖 Demander plus d'infos sur <strong>{{ item.title }}</strong> à Gemini</div>
   <div class="chat-messages" id="chat-messages">
     <div class="msg model">Salut ! Pose-moi une question sur « {{ item.title }} » — acteurs, œuvre originale, suites, anecdotes, avis...</div>
   </div>
@@ -61,5 +58,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=3"></script>
 {% endblock %}

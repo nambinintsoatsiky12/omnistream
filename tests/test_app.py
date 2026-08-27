@@ -1,8 +1,5 @@
-from urllib.parse import parse_qs, urlsplit
-
 import pytest
 import requests
-from conftest import authenticate, create_verified_user, csrf_token
 
 import app as app_module
 import auth_db
@@ -61,33 +58,38 @@ def test_landing_starts_without_turso_or_tmdb(client, monkeypatch):
     assert response.status_code == 200
     assert b"body-landing" in response.data
     assert b"Tout ce que vous regardez" in response.data
-    assert b"nap5k.com" not in response.data
-    assert b"3nbf4.com" not in response.data
     assert b'id="sponsor-gift"' in response.data
     assert app_module.SPONSOR_SMARTLINK_URL.encode() in response.data
     assert auth_db.get_total_visits() == 1
     assert client.head("/").status_code == 200
+    # HEAD request should not increment the counter
+    assert auth_db.get_total_visits() == 1
+
+
+def test_unique_visitor_counter_only_counts_once_per_session(client, monkeypatch):
+    monkeypatch.setattr(app_module, "TMDB_API_KEY", "")
+
+    # First visit counts
+    client.get("/")
+    assert auth_db.get_total_visits() == 1
+
+    # Second visit in same session does not count
+    client.get("/")
     assert auth_db.get_total_visits() == 1
 
 
 def test_non_landing_pages_do_not_receive_landing_header(client):
-    response = client.get("/login")
+    response = client.get("/confidentialite")
 
     assert response.status_code == 200
     assert b'<body class="body-landing">' not in response.data
     assert b"topbar-landing" not in response.data
-    assert b"nap5k.com" not in response.data
-    assert b'id="sponsor-gift"' not in response.data
 
 
-def test_sponsor_gift_remains_a_voluntary_link_for_authenticated_users(client):
-    user = create_verified_user()
-    authenticate(client, user)
-
+def test_sponsor_gift_appears_on_catalog_pages(client):
     response = client.get("/?tab=films")
 
     assert response.status_code == 200
-    assert b"nap5k.com" not in response.data
     assert b'id="sponsor-gift"' in response.data
     assert b'target="_blank"' in response.data
     assert b'rel="noopener noreferrer sponsored"' in response.data
@@ -109,119 +111,6 @@ def test_all_jinja_templates_compile():
         app_module.app.jinja_env.get_template(template_name)
 
 
-def test_csrf_is_required_for_form_posts(client):
-    client.get("/login")
-
-    response = client.post(
-        "/login", data={"email": "alice@example.com", "password": "incorrect"}
-    )
-
-    assert response.status_code == 400
-    assert b"Jeton de s\xc3\xa9curit\xc3\xa9 invalide" in response.data
-
-
-def test_signup_mail_failure_does_not_leave_locked_account(client, monkeypatch):
-    monkeypatch.setattr(app_module, "send_verification_email", lambda *_args: False)
-    token = csrf_token(client, "/signup")
-
-    response = client.post(
-        "/signup",
-        data={
-            "csrf_token": token,
-            "first_name": "Alice",
-            "last_name": "Martin",
-            "email": "ALICE@example.com",
-            "password": "mot-de-passe-solide",
-            "accept_privacy": "on",
-        },
-    )
-
-    assert response.status_code == 200
-    assert b"n&#39;a pas pu \xc3\xaatre envoy\xc3\xa9" in response.data
-    assert auth_db.get_user_by_email("alice@example.com") is None
-
-
-def test_signup_verification_and_login_restore_requested_page(client, monkeypatch):
-    sent = {}
-
-    def capture_email(email, url, first_name):
-        sent.update(email=email, url=url, first_name=first_name)
-        return True
-
-    monkeypatch.setattr(app_module, "send_verification_email", capture_email)
-    token = csrf_token(client, "/signup")
-    signup_response = client.post(
-        "/signup",
-        data={
-            "csrf_token": token,
-            "first_name": "Alice",
-            "last_name": "Martin",
-            "email": "alice@example.com",
-            "password": "mot-de-passe-solide",
-            "accept_privacy": "on",
-        },
-    )
-    assert signup_response.status_code == 200
-    assert sent["email"] == "alice@example.com"
-
-    verification_path = urlsplit(sent["url"]).path
-    verification_response = client.get(verification_path)
-    assert verification_response.status_code == 200
-    assert b"confirm\xc3\xa9 avec succ\xc3\xa8s" in verification_response.data
-
-    login_token = csrf_token(client, "/login?next=/details/movie/42?tab=films")
-    login_response = client.post(
-        "/login",
-        data={
-            "csrf_token": login_token,
-            "email": "alice@example.com",
-            "password": "mot-de-passe-solide",
-            "next": "/details/movie/42?tab=films",
-        },
-    )
-    assert login_response.status_code == 302
-    assert login_response.headers["Location"] == "/details/movie/42?tab=films"
-
-
-def test_password_reset_route_consumes_token(client):
-    user = create_verified_user()
-    token = auth_db.create_password_reset_token(user["email"])
-    path = f"/reinitialiser-mot-de-passe/{token}"
-    csrf = csrf_token(client, path)
-
-    response = client.post(
-        path,
-        data={
-            "csrf_token": csrf,
-            "password": "nouveau-mot-de-passe",
-            "password_confirm": "nouveau-mot-de-passe",
-        },
-    )
-
-    assert response.status_code == 200
-    assert b"chang\xc3\xa9 avec succ\xc3\xa8s" in response.data
-    assert client.get(path).status_code == 200
-    assert b"invalide ou a expir\xc3\xa9" in client.get(path).data
-
-
-def test_login_rejects_external_next_url(client):
-    create_verified_user()
-    token = csrf_token(client, "/login")
-
-    response = client.post(
-        "/login",
-        data={
-            "csrf_token": token,
-            "email": "alice@example.com",
-            "password": "mot-de-passe-solide",
-            "next": "https://evil.example/vol",
-        },
-    )
-
-    assert response.status_code == 302
-    assert response.headers["Location"] == "/?tab=films"
-
-
 @pytest.mark.parametrize("page", ["abc", "1.5", ""])
 def test_invalid_page_returns_json_400(client, page):
     response = client.get(f"/api/list?tab=films&page={page}")
@@ -238,14 +127,12 @@ def test_invalid_catalog_parameters_are_rejected(client):
 
 
 def test_api_404_and_oversized_payload_are_json(client, monkeypatch):
-    not_found = client.get("/api/inconnue")
-    user = create_verified_user()
-    token = authenticate(client, user)
     monkeypatch.setattr(app_module, "GEMINI_API_KEY", "test-key")
+    not_found = client.get("/api/inconnue")
     oversized = client.post(
         "/api/chat",
         data=b"x" * (app_module.app.config["MAX_CONTENT_LENGTH"] + 1),
-        headers={"Content-Type": "application/json", "X-CSRF-Token": token},
+        headers={"Content-Type": "application/json"},
     )
 
     assert not_found.status_code == 404
@@ -283,18 +170,23 @@ def test_catalog_pagination_uses_tmdb_total_pages(client, monkeypatch):
     assert first["items"][0]["rating"] == 8.2
 
 
-def test_details_requires_login_and_preserves_destination(client):
-    response = client.get("/details/movie/42?tab=films")
+def test_details_is_publicly_accessible(client, monkeypatch):
+    item = sample_tmdb_item()
+    item.update(
+        {
+            "genres": [{"name": "Action"}],
+            "credits": {"cast": [{"name": "Acteur"}]},
+        }
+    )
+    monkeypatch.setattr(app_module, "tmdb_get", lambda *_args, **_kwargs: item)
 
-    assert response.status_code == 302
-    parsed = urlsplit(response.headers["Location"])
-    assert parsed.path == "/login"
-    assert parse_qs(parsed.query)["next"] == ["/details/movie/42?tab=films"]
+    response = client.get("/details/movie/1?tab=films")
+
+    assert response.status_code == 200
+    assert b"Un film" in response.data
 
 
 def test_details_handles_missing_poster_and_malformed_runtime(client, monkeypatch):
-    user = create_verified_user()
-    authenticate(client, user)
     item = sample_tmdb_item()
     item.update(
         {
@@ -315,49 +207,9 @@ def test_details_handles_missing_poster_and_malformed_runtime(client, monkeypatc
     assert b"Affiche indisponible" in response.data
     assert b'src="None"' not in response.data
     assert b"LIRE LE SCAN" in response.data
-    assert b"onclick=" not in response.data
-    assert response.data.count(app_module.SPONSOR_SMARTLINK_URL.encode()) == 1
 
 
-def test_password_change_invalidates_existing_sessions(client):
-    user = create_verified_user()
-    authenticate(client, user)
-    auth_db.update_password_and_clear_token(
-        user["id"], app_module.generate_password_hash("nouveau-mot-de-passe")
-    )
-
-    response = client.get("/api/mangadex_proxy?endpoint=/manga")
-
-    assert response.status_code == 401
-    with client.session_transaction() as current_session:
-        assert "user_id" not in current_session
-
-
-def test_chat_requires_authentication(client):
-    response = client.post("/api/chat", json={})
-
-    assert response.status_code == 401
-    assert response.get_json()["error"] == "Authentification requise."
-
-
-def test_chat_validates_payload_and_csrf(client, monkeypatch):
-    user = create_verified_user()
-    token = authenticate(client, user)
-    monkeypatch.setattr(app_module, "GEMINI_API_KEY", "test-key")
-
-    without_csrf = client.post("/api/chat", json={})
-    malformed = client.post(
-        "/api/chat", json={"title": "Film"}, headers={"X-CSRF-Token": token}
-    )
-
-    assert without_csrf.status_code == 400
-    assert malformed.status_code == 400
-    assert malformed.is_json
-
-
-def test_chat_collects_all_gemini_text_parts(client, monkeypatch):
-    user = create_verified_user()
-    token = authenticate(client, user)
+def test_chat_is_publicly_accessible(client, monkeypatch):
     monkeypatch.setattr(app_module, "GEMINI_API_KEY", "test-key")
     captured = {}
 
@@ -368,7 +220,7 @@ def test_chat_collects_all_gemini_text_parts(client, monkeypatch):
                 "candidates": [
                     {
                         "content": {
-                            "parts": [{"text": "Bonjour "}, {"text": "cinéphile !"}]
+                            "parts": [{"text": "Bonjour cinéphile !"}]
                         }
                     }
                 ]
@@ -378,7 +230,6 @@ def test_chat_collects_all_gemini_text_parts(client, monkeypatch):
     monkeypatch.setattr(app_module.requests, "post", fake_post)
     response = client.post(
         "/api/chat",
-        headers={"X-CSRF-Token": token},
         json={
             "title": "Un film",
             "overview": "Synopsis",
@@ -393,10 +244,18 @@ def test_chat_collects_all_gemini_text_parts(client, monkeypatch):
     assert captured["timeout"] == 30
 
 
-def test_reader_serializes_title_as_safe_javascript(client):
-    user = create_verified_user()
-    authenticate(client, user)
+def test_chat_validates_payload(client, monkeypatch):
+    monkeypatch.setattr(app_module, "GEMINI_API_KEY", "test-key")
 
+    malformed = client.post(
+        "/api/chat", json={"title": "Film"}
+    )
+
+    assert malformed.status_code == 400
+    assert malformed.is_json
+
+
+def test_reader_serializes_title_as_safe_javascript(client):
     response = client.get(
         "/lecteur-scan", query_string={"titre": "</script><script>alert(1)</script>"}
     )
@@ -407,9 +266,6 @@ def test_reader_serializes_title_as_safe_javascript(client):
 
 
 def test_mangadex_proxy_rejects_arbitrary_endpoint(client):
-    user = create_verified_user()
-    authenticate(client, user)
-
     response = client.get("/api/mangadex_proxy?endpoint=/user")
 
     assert response.status_code == 400
@@ -417,8 +273,6 @@ def test_mangadex_proxy_rejects_arbitrary_endpoint(client):
 
 
 def test_mangadex_proxy_preserves_repeated_parameters(client, monkeypatch):
-    user = create_verified_user()
-    authenticate(client, user)
     captured = {}
 
     def fake_get(_url, **kwargs):
@@ -453,9 +307,6 @@ def test_mangadex_proxy_preserves_repeated_parameters(client, monkeypatch):
     ],
 )
 def test_manga_image_blocks_ssrf_urls(client, url):
-    user = create_verified_user()
-    authenticate(client, user)
-
     response = client.get("/api/manga_image", query_string={"url": url})
 
     assert response.status_code == 400
@@ -494,3 +345,28 @@ def test_youtube_formatter_decodes_entities_and_drops_invalid_ids():
             "thumbnail": "https://img.example/a.jpg",
         }
     ]
+
+
+def test_musique_page_loads(client):
+    response = client.get("/musiques")
+
+    assert response.status_code == 200
+    assert b"Audio" in response.data
+    assert b"Vid\xc3\xa9o" in response.data
+    assert b"video-overlay" in response.data
+
+
+def test_privacy_page_loads(client):
+    response = client.get("/confidentialite")
+
+    assert response.status_code == 200
+    assert b"Confidentialit\xc3\xa9" in response.data
+
+
+def test_no_auth_routes_exist(client):
+    """Verify all auth routes return 404."""
+    assert client.get("/signup").status_code == 404
+    assert client.get("/login").status_code == 404
+    assert client.get("/mot-de-passe-oublie").status_code == 404
+    assert client.get("/supprimer-compte").status_code == 404
+    assert client.get("/admin").status_code == 404

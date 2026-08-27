@@ -5,7 +5,6 @@
   const messagesEl = document.getElementById("chat-messages");
   const form = document.getElementById("chat-form");
   const input = document.getElementById("chat-input");
-  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   if (!panel || !messagesEl || !form || !input) return;
 
   let history = [];
@@ -72,7 +71,6 @@
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          "X-CSRF-Token": csrfToken,
         },
         body: JSON.stringify({ ...context, messages: history }),
         signal: controller.signal,
@@ -84,10 +82,9 @@
       }
       addMessage("model", data.reply);
       history.push({ role: "model", content: data.reply });
-      // 40 messages + la prochaine question restent sous la limite serveur.
       if (history.length > 40) history = history.slice(-40);
     } catch (error) {
-      history.pop(); // Évite deux messages « user » consécutifs au prochain essai.
+      history.pop();
       const message =
         error.name === "AbortError"
           ? "Gemini met trop de temps à répondre. Réessaie dans un instant."

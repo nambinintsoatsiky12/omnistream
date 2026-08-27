@@ -9,9 +9,85 @@
   const playerWrap = document.getElementById("musique-player-wrap");
   const player = document.getElementById("musique-player");
   const sectionTitle = document.getElementById("musique-section-title");
+  const modeToggle = document.getElementById("mode-toggle");
+  const videoOverlay = document.getElementById("video-overlay");
+  const videoClose = document.getElementById("video-close");
+  const videoPlayer = document.getElementById("video-fullscreen-player");
+  const videoTitle = document.getElementById("video-title");
   if (!form) return;
 
   let requestController = null;
+  let currentMode = "audio"; // "audio" or "video"
+
+  /* Mode toggle */
+  if (modeToggle) {
+    modeToggle.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentMode = btn.dataset.mode;
+        modeToggle.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        // Close any open players when switching modes
+        if (currentMode === "audio") {
+          closeVideoOverlay();
+        } else {
+          if (playerWrap) playerWrap.hidden = true;
+          if (player) player.src = "about:blank";
+        }
+      });
+    });
+  }
+
+  /* Video overlay controls */
+  function openVideoOverlay(videoId, title) {
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return;
+    if (videoPlayer) {
+      videoPlayer.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`;
+    }
+    if (videoTitle) videoTitle.textContent = title || "";
+    if (videoOverlay) {
+      videoOverlay.classList.add("open");
+      document.body.style.overflow = "hidden";
+    }
+  }
+
+  function closeVideoOverlay() {
+    if (videoOverlay) {
+      videoOverlay.classList.remove("open");
+      document.body.style.overflow = "";
+    }
+    if (videoPlayer) videoPlayer.src = "about:blank";
+  }
+
+  if (videoClose) {
+    videoClose.addEventListener("click", closeVideoOverlay);
+  }
+  if (videoOverlay) {
+    videoOverlay.addEventListener("click", (e) => {
+      if (e.target === videoOverlay) closeVideoOverlay();
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && videoOverlay && videoOverlay.classList.contains("open")) {
+      closeVideoOverlay();
+    }
+  });
+
+  /* Play video based on current mode */
+  function playVideo(videoId, title) {
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return;
+    if (currentMode === "video") {
+      openVideoOverlay(videoId, title);
+    } else {
+      // Audio mode: inline player
+      if (player) {
+        player.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`;
+      }
+      if (playerWrap) {
+        playerWrap.hidden = false;
+        playerWrap.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  }
 
   function safeImageUrl(value) {
     if (typeof value !== "string" || !value) return "";
@@ -23,20 +99,12 @@
     }
   }
 
-  function playVideo(videoId) {
-    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return;
-    player.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`;
-    player.title = "Lecteur YouTube";
-    playerWrap.hidden = false;
-    playerWrap.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
   function createCard(item) {
     if (!item || !/^[A-Za-z0-9_-]{11}$/.test(String(item.id || ""))) return null;
     const card = document.createElement("button");
     card.type = "button";
     card.className = "card musique-card";
-    card.addEventListener("click", () => playVideo(String(item.id)));
+    card.addEventListener("click", () => playVideo(String(item.id), String(item.title || "")));
 
     const poster = document.createElement("div");
     poster.className = "poster";

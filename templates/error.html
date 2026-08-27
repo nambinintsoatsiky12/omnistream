@@ -1,12 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} — OmniStream{% endblock %}
 {% block content %}
-<div class="auth-box">
-  <div class="auth-header">
-    <span class="auth-logo">OMNI<span>STREAM</span></span>
-    <h1>{{ title }}</h1>
-  </div>
-  <p class="auth-body-text">{{ message }}</p>
-  <p class="auth-switch"><a href="{{ url_for('index') }}">Retour à l'accueil</a></p>
+<div class="error-box">
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  <a href="{{ url_for('index') }}">Retour à l'accueil</a>
 </div>
 {% endblock %}
