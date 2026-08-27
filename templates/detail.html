@@ -2,61 +2,113 @@
 {% block title %}{{ item.title }} — OmniStream{% endblock %}
 
 {% block content %}
-<div class="detail-hero" {% if item.backdrop %}style="background-image:url('{{ item.backdrop }}')"{% endif %}>
-  <div class="detail-hero-inner">
-    {% if item.poster %}
-      <img class="detail-poster" src="{{ item.poster }}" alt="Affiche de {{ item.title }}">
-    {% else %}
-      <div class="detail-poster detail-poster-placeholder" role="img" aria-label="Affiche indisponible">Affiche indisponible</div>
-    {% endif %}
-    <div class="detail-meta">
-      <h1>{{ item.title }}</h1>
-
-      <div class="detail-tags">
-        {% if item.year %}<span>{{ item.year }}</span>{% endif %}
-        {% if item.runtime %}<span>{{ item.runtime }} min</span>{% endif %}
-        <span class="detail-rating">★ {{ item.rating }}</span>
+<div class="detail-container">
+  <div class="detail-hero" {% if item.backdrop %}style="background-image:url('{{ item.backdrop }}')"{% endif %}>
+    <div class="detail-hero-overlay"></div>
+    <div class="detail-hero-inner">
+      <div class="detail-poster-wrap">
+        {% if item.poster %}
+          <img class="detail-poster" src="{{ item.poster }}" alt="Affiche de {{ item.title }}">
+        {% else %}
+          <div class="detail-poster detail-poster-placeholder" role="img" aria-label="Affiche indisponible">Affiche indisponible</div>
+        {% endif %}
+        <div class="detail-quality-pill">4K ULTRA HD · VF</div>
       </div>
 
-      {% if item.genres %}
-      <div class="genre-list">
-        {% for g in item.genres %}<span class="genre-pill">{{ g }}</span>{% endfor %}
+      <div class="detail-meta">
+        <div class="detail-eyebrow">FICHE OFFICIELLE CINÉMA &amp; SÉRIE</div>
+        <h1>{{ item.title }}</h1>
+
+        <div class="detail-tags">
+          {% if item.year %}
+            <span class="detail-tag-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line></svg>
+              {{ item.year }}
+            </span>
+          {% endif %}
+          {% if item.runtime %}
+            <span class="detail-tag-item">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+              {{ item.runtime }} min
+            </span>
+          {% endif %}
+          <span class="detail-tag-item rating-tag">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>
+            {{ item.rating }} / 10
+          </span>
+        </div>
+
+        {% if item.genres %}
+        <div class="genre-list">
+          {% for g in item.genres %}<span class="genre-pill">{{ g }}</span>{% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="detail-synopsis-box">
+          <h3>Synopsis</h3>
+          <p class="overview">{{ item.overview if item.overview else "Aucun résumé disponible en français pour cette œuvre." }}</p>
+        </div>
+
+        {% if item.cast %}
+        <div class="detail-cast-box">
+          <span class="cast-label">Casting principal :</span>
+          <span class="cast-names">{{ item.cast | join(', ') }}</span>
+        </div>
+        {% endif %}
+
+        <div class="detail-actions-row">
+          {% if item.original_language in ['ja', 'JA', 'JP', 'jp'] or (item.origin_country and 'JP' in item.origin_country) %}
+            <a href="{{ url_for('lecteur_scan', titre=item.title) }}" class="scan-btn">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+              <span>LIRE LE SCAN (VF)</span>
+            </a>
+          {% endif %}
+
+          <a href="#chat-panel" class="ask-ai-btn">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+            <span>Poser une question à l'IA</span>
+          </a>
+        </div>
       </div>
-      {% endif %}
-
-      <p class="overview">{{ item.overview }}</p>
-
-      {% if item.cast %}
-      <p class="cast"><strong>Casting :</strong> {{ item.cast | join(', ') }}</p>
-      {% endif %}
-
-      {% if item.original_language in ['ja', 'JA', 'JP', 'jp'] or (item.origin_country and 'JP' in item.origin_country) %}
-      <div style="margin-top: 24px;">
-        <a href="{{ url_for('lecteur_scan', titre=item.title) }}" class="scan-btn">
-           📖 LIRE LE SCAN (VF)
-        </a>
-      </div>
-      {% endif %}
     </div>
   </div>
-</div>
 
-<section class="chat-panel" id="chat-panel"
-  data-title="{{ item.title }}"
-  data-year="{{ item.year }}"
-  data-overview="{{ item.overview | e }}"
-  data-genres="{{ item.genres | join(',') }}">
-  <div class="chat-header">🤖 Demander plus d'infos sur <strong>{{ item.title }}</strong> à Gemini</div>
-  <div class="chat-messages" id="chat-messages">
-    <div class="msg model">Salut ! Pose-moi une question sur « {{ item.title }} » — acteurs, œuvre originale, suites, anecdotes, avis...</div>
-  </div>
-  <form class="chat-input-row" id="chat-form">
-    <input type="text" id="chat-input" placeholder="Écris ta question..." autocomplete="off" maxlength="2000" required>
-    <button type="submit">Envoyer</button>
-  </form>
-</section>
+  <!-- CHAT PANEL WITH GEMINI 2.5 -->
+  <section class="chat-panel" id="chat-panel"
+    data-title="{{ item.title }}"
+    data-year="{{ item.year }}"
+    data-overview="{{ item.overview | e }}"
+    data-genres="{{ item.genres | join(',') }}">
+    <div class="chat-header">
+      <div class="chat-header-brand">
+        <span class="ai-glow-icon">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        </span>
+        <div>
+          <div class="chat-header-title">Assistant Gemini 2.5 Flash</div>
+          <div class="chat-header-sub">Posez vos questions sur <strong>{{ item.title }}</strong></div>
+        </div>
+      </div>
+      <span class="chat-header-badge">IA Connectée</span>
+    </div>
+    
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg model">
+        <div class="msg-author">Assistant OmniStream</div>
+        <p>Bonjour ! Je connais tout sur « <strong>{{ item.title }}</strong> ». N'hésitez pas à me demander des précisions sur le casting, l'explication de la fin, les anecdotes de tournage ou les éventuelles suites !</p>
+      </div>
+    </div>
+
+    <form class="chat-input-row" id="chat-form">
+      <input type="text" id="chat-input" placeholder="Posez une question sur ce film / série..." autocomplete="off" maxlength="2000" required>
+      <button type="submit" aria-label="Envoyer">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+      </button>
+    </form>
+  </section>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/chat.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='js/chat.js') }}?v=4"></script>
 {% endblock %}

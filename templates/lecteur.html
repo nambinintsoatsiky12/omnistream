@@ -1,25 +1,58 @@
 {% extends "base.html" %}
-{% block title %}Lecteur Scan — {{ titre }} — OmniStream{% endblock %}
+{% block title %}Lecteur de Scan — {{ titre }} — OmniStream{% endblock %}
 {% block content %}
-<div id="scan-reader-root" data-title="{{ titre | tojson }}" style="max-width: 900px; margin: 0 auto; padding: 20px;">
-  <h1 class="search-title" style="padding-left: 0; margin-bottom: 16px;">📖 {{ titre }}</h1>
-  <div id="scan-controls" style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
-    <input type="text" id="scan-search" placeholder="Chapitre..." style="padding: 10px 16px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text-bright); font-size: 0.9rem; max-width: 200px;">
-    <select id="scan-lang" style="padding: 10px 16px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text-bright); font-size: 0.9rem;">
-      <option value="fr">Français</option>
-      <option value="en">English</option>
-    </select>
-    <button id="scan-load" style="padding: 10px 20px; border-radius: 20px; border: none; background: linear-gradient(135deg, #8b5cf6, #ec4899, #fb923c); color: #fff; font-weight: 700; cursor: pointer;">Charger</button>
+<div class="scan-reader-container" id="scan-reader-root" data-title="{{ titre | tojson }}">
+  <div class="scan-header-bar">
+    <div class="scan-title-group">
+      <div class="section-kicker orange">LECTEUR MANGA VF</div>
+      <h1 class="scan-title">{{ titre }}</h1>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="scan-toolbar">
+      <select id="scan-lang" class="scan-select" aria-label="Langue des scans">
+        <option value="fr">🇫🇷 Version Française (VF)</option>
+        <option value="en">🇬🇧 English (VA)</option>
+      </select>
+      <button id="scan-load" class="scan-action-btn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+        <span>Recharger</span>
+      </button>
+    </div>
   </div>
-  <div id="scan-status" style="color: var(--muted); margin-bottom: 16px;"></div>
-  <div id="scan-pages" style="display: flex; flex-direction: column; gap: 8px; align-items: center;"></div>
-  <div id="scan-nav" style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;" hidden>
-    <button id="scan-prev" style="padding: 10px 20px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-weight: 600;">← Précédent</button>
-    <span id="scan-chapter-label" style="display: flex; align-items: center; color: var(--muted); font-weight: 600;"></span>
-    <button id="scan-next" style="padding: 10px 20px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-weight: 600;">Suivant →</button>
+
+  <div id="scan-status" class="scan-status-indicator">Initialisation du lecteur MangaDex...</div>
+
+  <!-- CHAPTER NAVIGATION BAR -->
+  <div id="scan-nav-top" class="scan-nav-bar" hidden>
+    <button id="scan-prev" class="scan-nav-btn">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      <span>Précédent</span>
+    </button>
+    <span id="scan-chapter-label" class="scan-chapter-label"></span>
+    <button id="scan-next" class="scan-nav-btn">
+      <span>Suivant</span>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
+  </div>
+
+  <!-- PAGES CONTAINER -->
+  <div id="scan-pages" class="scan-pages-flow"></div>
+
+  <!-- BOTTOM CHAPTER NAVIGATION -->
+  <div id="scan-nav" class="scan-nav-bar" hidden>
+    <button id="scan-prev-bottom" class="scan-nav-btn">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      <span>Chapitre Précédent</span>
+    </button>
+    <button id="scan-next-bottom" class="scan-nav-btn primary">
+      <span>Chapitre Suivant</span>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
   </div>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script>
 (function(){
@@ -27,14 +60,16 @@
   const root = document.getElementById("scan-reader-root");
   if (!root) return;
   const title = root.dataset.title || "";
-  const searchInput = document.getElementById("scan-search");
   const langSelect = document.getElementById("scan-lang");
   const loadBtn = document.getElementById("scan-load");
   const statusEl = document.getElementById("scan-status");
   const pagesEl = document.getElementById("scan-pages");
-  const navEl = document.getElementById("scan-nav");
+  const navTop = document.getElementById("scan-nav-top");
+  const navBottom = document.getElementById("scan-nav");
   const prevBtn = document.getElementById("scan-prev");
   const nextBtn = document.getElementById("scan-next");
+  const prevBtnBottom = document.getElementById("scan-prev-bottom");
+  const nextBtnBottom = document.getElementById("scan-next-bottom");
   const labelEl = document.getElementById("scan-chapter-label");
 
   let mangaId = null;
@@ -44,25 +79,28 @@
   async function api(endpoint, params) {
     const qs = new URLSearchParams({ endpoint, ...params });
     const r = await fetch(`/api/mangadex_proxy?${qs}`);
-    if (!r.ok) throw new Error("Erreur API");
+    if (!r.ok) throw new Error("Erreur de communication avec MangaDex.");
     return r.json();
   }
 
   async function searchManga() {
-    statusEl.textContent = "Recherche du manga...";
+    statusEl.innerHTML = `<span class="spinner-small"></span> Recherche de l'œuvre originale sur MangaDex...`;
     const data = await api("/manga", { title, "limit": "5", "contentRating[]": "safe" });
     const results = (data.data || []).filter(m => m.attributes && m.attributes.title);
-    if (!results.length) { statusEl.textContent = "Manga introuvable."; return; }
+    if (!results.length) {
+      statusEl.textContent = "Aucun scan trouvé pour ce titre. Essayez avec le nom original du manga.";
+      return;
+    }
     mangaId = results[0].id;
     const mangaTitle = results[0].attributes.title.fr || results[0].attributes.title.en || title;
-    statusEl.textContent = `Trouvé : ${mangaTitle}`;
+    statusEl.textContent = `Manga identifié : ${mangaTitle}`;
     await loadChapters();
   }
 
   async function loadChapters() {
     if (!mangaId) return;
-    const lang = langSelect.value;
-    statusEl.textContent = "Chargement des chapitres...";
+    const lang = langSelect ? langSelect.value : "fr";
+    statusEl.innerHTML = `<span class="spinner-small"></span> Chargement des chapitres disponibles...`;
     const data = await api(`/manga/${mangaId}/feed`, {
       "translatedLanguage[]": lang,
       "order[chapter]": "asc",
@@ -70,9 +108,15 @@
       "contentRating[]": "safe"
     });
     chapters = (data.data || []).filter(c => c.attributes && c.attributes.chapter);
-    if (!chapters.length) { statusEl.textContent = "Aucun chapitre trouvé."; navEl.hidden = true; return; }
+    if (!chapters.length) {
+      statusEl.textContent = "Aucun chapitre disponible dans cette langue.";
+      if (navTop) navTop.hidden = true;
+      if (navBottom) navBottom.hidden = true;
+      return;
+    }
     currentChapter = 0;
-    navEl.hidden = false;
+    if (navTop) navTop.hidden = false;
+    if (navBottom) navBottom.hidden = false;
     await renderChapter();
   }
 
@@ -80,29 +124,66 @@
     const ch = chapters[currentChapter];
     if (!ch) return;
     const chNum = ch.attributes.chapter || "?";
-    labelEl.textContent = `Chapitre ${chNum} / ${chapters.length}`;
-    statusEl.textContent = `Chapitre ${chNum} — Chargement des pages...`;
+    if (labelEl) labelEl.textContent = `Chapitre ${chNum} (${currentChapter + 1} / ${chapters.length})`;
+    statusEl.innerHTML = `<span class="spinner-small"></span> Chargement des planches du Chapitre ${chNum}...`;
     pagesEl.replaceChildren();
 
-    const serverData = await api(`/at-home/server/${ch.id}`);
-    const baseUrl = serverData.baseUrl;
-    const hash = serverData.chapter.hash;
-    const pages = serverData.chapter.data || [];
+    try {
+      const serverData = await api(`/at-home/server/${ch.id}`);
+      const baseUrl = serverData.baseUrl;
+      const hash = serverData.chapter.hash;
+      const pages = serverData.chapter.data || [];
 
-    pagesEl.replaceChildren(...pages.map(filename => {
-      const img = document.createElement("img");
-      img.src = `${baseUrl}/data/${hash}/${filename}`;
-      img.alt = `Page`;
-      img.loading = "lazy";
-      img.style.cssText = "max-width:100%; border-radius:8px;";
-      return img;
-    }));
-    statusEl.textContent = `Chapitre ${chNum} — ${pages.length} pages`;
+      pagesEl.replaceChildren(...pages.map((filename, i) => {
+        const wrap = document.createElement("div");
+        wrap.className = "scan-page-wrap";
+        const img = document.createElement("img");
+        img.src = `${baseUrl}/data/${hash}/${filename}`;
+        img.alt = `Planche ${i + 1}`;
+        img.loading = "lazy";
+        img.className = "scan-page-img";
+        wrap.appendChild(img);
+        return wrap;
+      }));
+      statusEl.textContent = `Chapitre ${chNum} prêt (${pages.length} pages)`;
+    } catch(err) {
+      statusEl.textContent = "Erreur lors du chargement des images de ce chapitre.";
+    }
   }
 
-  loadBtn.addEventListener("click", () => { mangaId = null; chapters = []; pagesEl.replaceChildren(); navEl.hidden = true; searchManga().catch(e => { statusEl.textContent = e.message; }); });
-  prevBtn.addEventListener("click", () => { if (currentChapter > 0) { currentChapter--; renderChapter(); } });
-  nextBtn.addEventListener("click", () => { if (currentChapter < chapters.length - 1) { currentChapter++; renderChapter(); } });
+  function goPrev() {
+    if (currentChapter > 0) {
+      currentChapter--;
+      renderChapter();
+      window.scrollTo({ top: 120, behavior: "smooth" });
+    }
+  }
+
+  function goNext() {
+    if (currentChapter < chapters.length - 1) {
+      currentChapter++;
+      renderChapter();
+      window.scrollTo({ top: 120, behavior: "smooth" });
+    }
+  }
+
+  if (loadBtn) loadBtn.addEventListener("click", () => {
+    mangaId = null;
+    chapters = [];
+    pagesEl.replaceChildren();
+    if (navTop) navTop.hidden = true;
+    if (navBottom) navBottom.hidden = true;
+    searchManga().catch(e => { statusEl.textContent = e.message; });
+  });
+
+  if (langSelect) langSelect.addEventListener("change", () => {
+    loadChapters().catch(e => { statusEl.textContent = e.message; });
+  });
+
+  if (prevBtn) prevBtn.addEventListener("click", goPrev);
+  if (nextBtn) nextBtn.addEventListener("click", goNext);
+  if (prevBtnBottom) prevBtnBottom.addEventListener("click", goPrev);
+  if (nextBtnBottom) nextBtnBottom.addEventListener("click", goNext);
 
   searchManga().catch(e => { statusEl.textContent = e.message; });
 })();

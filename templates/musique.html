@@ -1,67 +1,192 @@
 {% extends "base.html" %}
-{% block title %}Musique — OmniStream{% endblock %}
+{% block title %}Espace Musique MP3 / MP4 — OmniStream{% endblock %}
 {% block content %}
 
-<div style="max-width: 1200px; margin: 0 auto; padding: 20px 0;">
-  <h1 class="search-title" style="padding-left: 0; margin-bottom: 8px;">🎧 Musique</h1>
-  <p style="color: var(--muted); margin-bottom: 20px; font-size: 0.95rem;">Cherchez un artiste ou un titre, écoutez ou regardez en plein écran.</p>
-
-  <!-- Mode Toggle -->
-  <div class="mode-toggle" id="mode-toggle">
-    <button type="button" class="mode-btn active" data-mode="audio">
-      <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-      Audio
-    </button>
-    <button type="button" class="mode-btn" data-mode="video">
-      <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
-      Vidéo
-    </button>
+<div class="musique-container">
+  <!-- PAGE HEADER -->
+  <div class="musique-header-wrap">
+    <div class="section-kicker pink">STREAMING AUDIO &amp; VIDÉO</div>
+    <h1 class="search-title">Espace Musique</h1>
+    <p class="musique-subtitle">Écoutez vos morceaux favoris en audio haute fidélité (économiseur de Mo) ou regardez les clips en vrai plein écran.</p>
   </div>
 
-  <!-- Search -->
-  <form id="musique-search-form" style="display: flex; gap: 10px; margin-bottom: 28px;">
-    <input type="text" id="musique-search-input" placeholder="Rechercher un artiste, un titre..." maxlength="120" aria-label="Artiste ou titre"
-           style="flex: 1; padding: 14px 20px; border-radius: 28px; border: 1px solid var(--border); background: var(--surface); color: var(--text-bright); font-size: 0.95rem; transition: border-color 0.2s;">
-    <button type="submit" style="padding: 14px 28px; border-radius: 28px; border: none; background: linear-gradient(135deg, #8b5cf6, #ec4899, #fb923c); color: #fff; font-weight: 800; cursor: pointer; font-size: 0.9rem; letter-spacing: 0.3px; transition: all 0.2s;">Rechercher</button>
+  <!-- MODE SELECTOR (MP3 vs MP4) -->
+  <div class="musique-mode-selector-wrap">
+    <div class="mode-toggle" id="mode-toggle" role="radiogroup" aria-label="Mode de lecture">
+      <button type="button" class="mode-btn active" data-mode="audio" role="radio" aria-checked="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        <span class="mode-btn-text">
+          <strong>Mode Audio (MP3)</strong>
+          <small>Économiseur de Mo · Bas débit</small>
+        </span>
+      </button>
+
+      <button type="button" class="mode-btn" data-mode="video" role="radio" aria-checked="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+        <span class="mode-btn-text">
+          <strong>Mode Vidéo (MP4)</strong>
+          <small>Cinéma plein écran</small>
+        </span>
+      </button>
+    </div>
+
+    <div class="data-saver-notice" id="data-saver-notice">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+      <span><strong>Protection Forfait Internet :</strong> Le mode Audio ne charge aucune vidéo lourde pour économiser vos Mégaoctets (Mo).</span>
+    </div>
+  </div>
+
+  <!-- SEARCH INPUT -->
+  <form id="musique-search-form" class="musique-search-form" role="search">
+    <div class="musique-input-wrap">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="text" id="musique-search-input" placeholder="Rechercher un artiste, une chanson, un album..." maxlength="120" aria-label="Recherche musicale">
+    </div>
+    <button type="submit" class="musique-search-btn">
+      <span>Rechercher</span>
+    </button>
   </form>
 
-  <!-- Audio mode : iframe YouTube caché (1px) + barre de lecteur -->
+  <!-- HIDDEN 1PX AUDIO FRAME FOR ZERO-VIDEO-BANDWIDTH PLAYBACK -->
   <div class="audio-hidden-frame" aria-hidden="true">
-    <iframe id="musique-player" src="about:blank" title="Lecteur audio" tabindex="-1"
+    <iframe id="musique-player" src="about:blank" title="Flux audio discret" tabindex="-1"
       referrerpolicy="strict-origin-when-cross-origin"
       allow="autoplay; encrypted-media"></iframe>
   </div>
 
-  <h2 id="musique-section-title" class="search-title" style="font-size: 1.15rem; padding-left: 0; margin-bottom: 16px;"></h2>
-  <div id="musique-results" class="grid"></div>
-  <p id="musique-empty" class="empty" hidden>Aucun résultat trouvé.</p>
-  <p id="musique-loading" class="empty" hidden>Chargement...</p>
+  <!-- SECTION TITLE & RESULTS -->
+  <div class="musique-section-header">
+    <h2 id="musique-section-title" class="musique-grid-title">🔥 Tendances du moment</h2>
+  </div>
+
+  <div id="musique-results" class="grid musique-grid"></div>
+
+  <div id="musique-empty" class="empty-state" hidden>
+    <div class="empty-icon">
+      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+    </div>
+    <h3>Aucun titre trouvé</h3>
+    <p>Essayez avec le nom d'un autre artiste ou un titre différent.</p>
+  </div>
+
+  <div id="musique-loading" class="empty-state" hidden>
+    <div class="music-loading-spinner"></div>
+    <p>Recherche des meilleurs flux audio...</p>
+  </div>
 </div>
 
-<!-- Barre de lecteur audio (mode Audio) -->
+<!-- FLOATING BOTTOM AUDIO PLAYER (VRAI LECTEUR PRO MP3) -->
 <div id="audio-bar" class="audio-bar" hidden>
-  <div class="audio-bar-disc" id="audio-bar-disc" aria-hidden="true">
-    <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+  <div class="audio-bar-inner">
+    <!-- DISC / COVER ART -->
+    <div class="audio-bar-cover-wrap">
+      <div class="audio-bar-disc" id="audio-bar-disc">
+        <img id="audio-bar-img" src="" alt="" class="audio-bar-thumb" hidden>
+        <svg id="audio-bar-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+      </div>
+      <div class="audio-pulse-ring"></div>
+    </div>
+
+    <!-- META -->
+    <div class="audio-bar-meta">
+      <div class="audio-bar-title" id="audio-bar-title">Sélectionnez une musique</div>
+      <div class="audio-bar-subline">
+        <span class="audio-bar-channel" id="audio-bar-channel">OmniStream Player</span>
+        <span class="audio-bar-badge">MP3 Bas Débit</span>
+      </div>
+      <!-- PROGRESS LINE -->
+      <div class="audio-progress-bar">
+        <div class="audio-progress-fill" id="audio-progress-fill"></div>
+      </div>
+    </div>
+
+    <!-- EQUALIZER VISUALIZER -->
+    <div class="audio-bar-eq" id="audio-bar-eq" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <!-- ACTION CONTROLS -->
+    <div class="audio-bar-controls">
+      <button type="button" class="audio-ctrl-btn" id="audio-bar-expand" title="Agrandir le lecteur" aria-label="Agrandir le lecteur">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+      </button>
+
+      <button type="button" class="audio-ctrl-btn stop-btn" id="audio-bar-stop" title="Arrêter" aria-label="Arrêter la lecture">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+    </div>
   </div>
-  <div class="audio-bar-meta">
-    <div class="audio-bar-title" id="audio-bar-title">—</div>
-    <div class="audio-bar-channel" id="audio-bar-channel"></div>
-  </div>
-  <div class="audio-bar-eq" id="audio-bar-eq" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
-  <button type="button" class="audio-bar-stop" id="audio-bar-stop" aria-label="Arrêter la lecture">
-    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 6h12v12H6z"/></svg>
-  </button>
 </div>
 
-<!-- Overlay vidéo vrai plein écran (mode Vidéo) -->
-<div id="video-overlay" class="video-overlay">
-  <button type="button" class="video-close" id="video-close" aria-label="Fermer">&times;</button>
-  <iframe id="video-fullscreen-player" class="video-fullscreen-frame" src="about:blank" title="Lecteur vidéo" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-  <div class="video-title" id="video-title"></div>
+<!-- FULL-SCREEN EXPANDED AUDIO MODAL (GRAND LECTEUR MUSIQUE PRO) -->
+<div id="expanded-audio-modal" class="expanded-audio-modal" aria-hidden="true">
+  <div class="modal-backdrop-blur"></div>
+  <div class="expanded-modal-content">
+    <button type="button" class="modal-close-btn" id="modal-close-btn" aria-label="Réduire le lecteur">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    </button>
+
+    <div class="expanded-vinyl-container">
+      <div class="vinyl-record" id="modal-vinyl">
+        <div class="vinyl-grooves"></div>
+        <img id="modal-cover-img" src="" alt="Pochette" class="vinyl-center-img">
+      </div>
+    </div>
+
+    <div class="expanded-track-info">
+      <span class="expanded-status-badge">LECTURE AUDIO HAUTE QUALITÉ · BAS DÉBIT</span>
+      <h2 class="expanded-track-title" id="modal-track-title">Titre du morceau</h2>
+      <p class="expanded-track-artist" id="modal-track-artist">Artiste / Chaîne</p>
+    </div>
+
+    <!-- WAVE VISUALIZER -->
+    <div class="expanded-wave-visualizer" id="expanded-wave">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <!-- DATA SAVER INFO CARD -->
+    <div class="modal-saver-card">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      <div>
+        <strong>Économiseur de Mégaoctets (Mo) actif</strong>
+        <p>Ce lecteur diffuse la bande sonore sans télécharger les images vidéo lourdes.</p>
+      </div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="expanded-controls-row">
+      <button type="button" class="expanded-action-btn" id="modal-stop-btn">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        <span>Arrêter</span>
+      </button>
+      <button type="button" class="expanded-action-btn primary" id="modal-minimize-btn">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+        <span>Réduire en barre</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- OVERLAY VIDÉO VRAI PLEIN ÉCRAN (MODE MP4 / VIDÉO 100VW x 100VH) -->
+<div id="video-overlay" class="video-overlay" aria-hidden="true">
+  <div class="video-topbar">
+    <button type="button" class="video-back-btn" id="video-close" aria-label="Fermer le plein écran">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+      <span>Retour</span>
+    </button>
+    <div class="video-topbar-title" id="video-title">Vidéo plein écran</div>
+    <div class="video-badge-4k">HD 1080P</div>
+  </div>
+
+  <div class="video-cinema-stage">
+    <iframe id="video-fullscreen-player" class="video-fullscreen-frame" src="about:blank" title="Lecteur vidéo plein écran" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+  </div>
 </div>
 
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/musique.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='js/musique.js') }}?v=5"></script>
 {% endblock %}
