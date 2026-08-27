@@ -102,7 +102,6 @@ TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "").strip()
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
 SPONSOR_SMARTLINK_URL = os.environ.get(
     "SPONSOR_SMARTLINK_URL", "https://omg10.com/4/11645531"
 ).strip()
