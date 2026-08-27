@@ -6,8 +6,8 @@
 <title>{% block title %}OmniStream — Films, Séries, Animés & Musique{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=12">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;0,900;1,600;1,700&family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=14">
 <script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v=1" defer></script>
 <meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
@@ -21,9 +21,8 @@
         <svg viewBox="0 0 40 40" width="34" height="34" aria-hidden="true">
           <defs>
             <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#8b5cf6"/>
-              <stop offset="50%" stop-color="#ec4899"/>
-              <stop offset="100%" stop-color="#fb923c"/>
+              <stop offset="0%" stop-color="#33c173"/>
+              <stop offset="100%" stop-color="#177a42"/>
             </linearGradient>
           </defs>
           <rect x="2" y="2" width="36" height="36" rx="10" fill="url(#logoGrad)"/>
@@ -227,30 +226,6 @@
   {% block content %}{% endblock %}
 </main>
 
-<!-- MOBILE BOTTOM NAVIGATION (MOVIEBOX / NATIVE APP STYLE) -->
-<nav class="mobile-bottom-nav" aria-label="Navigation mobile rapide">
-  <a href="{{ url_for('index') }}" class="mobile-nav-item {{ 'active' if not tab and not landing_page else '' }}">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-    <span>Accueil</span>
-  </a>
-  <a href="{{ url_for('index', tab='films') }}" class="mobile-nav-item {{ 'active' if tab=='films' else '' }}">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
-    <span>Films</span>
-  </a>
-  <a href="{{ url_for('index', tab='series') }}" class="mobile-nav-item {{ 'active' if tab=='series' else '' }}">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
-    <span>Séries</span>
-  </a>
-  <a href="{{ url_for('musiques') }}" class="mobile-nav-item {{ 'active' if request.path == '/musiques' else '' }}">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-    <span>Musique</span>
-  </a>
-  <button type="button" class="mobile-nav-item" id="mobile-menu-trigger" aria-label="Ouvrir le menu">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-    <span>Menu</span>
-  </button>
-</nav>
-
 <!-- SPONSOR GIFT (FLOATING DISCREET) -->
 {% if show_sponsor_gift %}
 <a class="sponsor-gift" id="sponsor-gift" href="{{ sponsor_smartlink_url }}"
@@ -346,7 +321,6 @@
   const drawerPanel = document.getElementById("drawer-panel");
   const drawerBackdrop = document.getElementById("drawer-backdrop");
   const drawerCloseBtn = document.getElementById("drawer-close-btn");
-  const mobileMenuTrigger = document.getElementById("mobile-menu-trigger");
 
   function setDrawer(open) {
     if (!drawerPanel || !drawerBackdrop) return;
@@ -363,7 +337,6 @@
   if (burgerBtn) burgerBtn.addEventListener("click", () => setDrawer(!drawerPanel.classList.contains("open")));
   if (drawerCloseBtn) drawerCloseBtn.addEventListener("click", () => setDrawer(false));
   if (drawerBackdrop) drawerBackdrop.addEventListener("click", () => setDrawer(false));
-  if (mobileMenuTrigger) mobileMenuTrigger.addEventListener("click", () => setDrawer(true));
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && drawerPanel && drawerPanel.classList.contains("open")) {
