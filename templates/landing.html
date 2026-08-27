@@ -2,149 +2,315 @@
 {% block title %}OmniStream — Films, Séries, Animés & Musique en accès libre{% endblock %}
 {% block content %}
 
-<!-- HERO SECTION -->
-<section class="landing-hero">
-  <div class="poster-wall" aria-hidden="true">
-    <div class="poster-col poster-col-up">
-      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+<!-- ================================================================
+     1. HERO SECTION (STYLE UNIVERSITÉ D'ANTANANARIVO HERO BANNER)
+     ================================================================ -->
+<section class="landing-hero-ua">
+  <div class="hero-ua-bg-wrap">
+    <!-- Animated Poster Wall Background -->
+    <div class="poster-wall" aria-hidden="true">
+      <div class="poster-col poster-col-up">
+        {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+        {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      </div>
+      <div class="poster-col poster-col-down">
+        {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+        {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      </div>
+      <div class="poster-col poster-col-up">
+        {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+        {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      </div>
+      <div class="poster-col poster-col-down">
+        {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+        {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      </div>
     </div>
-    <div class="poster-col poster-col-down">
-      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-    </div>
-    <div class="poster-col poster-col-up">
-      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-    </div>
-    <div class="poster-col poster-col-down">
-      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-    </div>
+    <div class="hero-ua-overlay"></div>
   </div>
-  <div class="poster-wall-overlay"></div>
 
-  <div class="landing-hero-inner reveal">
-    <div class="landing-badge-pill">
-      <span class="badge-dot"></span>
-      <span>Plateforme Multimédia Indépendante</span>
-    </div>
-    
-    <span class="landing-eyebrow">Catalogue <span class="ew-films">Films</span> · <span class="ew-series">Séries</span> · <span class="ew-animes">Animés</span> · <span class="ew-musique">Musique</span></span>
-    <h1>Le streaming,<br><span class="gradient-text">libre &amp; illimité.</span></h1>
-    <p class="landing-lead">
-      Films, séries, animés, musique : OmniStream réunit tout l'univers du divertissement dans un flux unique et immersif. Fiches complètes, assistant IA, lecteur de scans mangas — sans compte, sans inscription, sans limites.
+  <div class="hero-ua-content reveal">
+    <div class="hero-ua-kicker">BIENVENUE SUR OMNISTREAM MADAGASCAR</div>
+    <h1 class="hero-ua-title">
+      Le streaming,<br>
+      <span class="hero-ua-gold">Libre,</span> <span class="hero-ua-green">Illimité &amp; Gratuit</span>
+    </h1>
+    <p class="hero-ua-sub">
+      La plateforme multimédia indépendante à Madagascar : Films 4K, Séries TV, Animés Japonais, Scans Mangas VF et Musique en accès direct sans compte.
     </p>
-    <div class="landing-cta">
-      <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+
+    <div class="hero-ua-buttons">
+      <a href="{{ url_for('index', tab='films') }}" class="ua-btn-green">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
         <span>Explorer le catalogue</span>
       </a>
-      <a href="{{ url_for('musiques') }}" class="landing-btn-secondary">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-        <span>Écouter la musique</span>
+      <a href="{{ url_for('musiques') }}" class="ua-btn-dark">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        <span>Espace Musique &amp; Vidéo</span>
       </a>
     </div>
+
+    <!-- Quick Search Pill in Hero -->
+    <form class="hero-ua-search" action="{{ url_for('index') }}" method="get" role="search">
+      <input type="hidden" name="tab" value="films">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="text" name="q" placeholder="Rechercher un film, une série, un animé..." maxlength="120" aria-label="Recherche">
+      <button type="submit">Rechercher</button>
+    </form>
   </div>
 </section>
 
-<!-- STATS BAND (INSPIRED BY UNIVERSITÉ D'ANTANANARIVO BANNER) -->
+<!-- ================================================================
+     STATISTICS & KPI COUNTERS BAND
+     ================================================================ -->
 <section class="landing-stats-band">
   <div class="landing-stats-inner">
     <div class="mini-stat reveal">
       <div class="mini-stat-icon-wrap">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
       </div>
       <span class="mini-stat-number">{{ visits }}</span>
-      <span class="mini-stat-label">Visiteurs uniques</span>
+      <span class="mini-stat-label">Visiteurs Uniques</span>
     </div>
 
     <div class="mini-stat reveal">
-      <div class="mini-stat-icon-wrap icon-purple">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
-      </div>
-      <span class="mini-stat-number">4</span>
-      <span class="mini-stat-label">Univers de divertissement</span>
-    </div>
-
-    <div class="mini-stat reveal">
-      <div class="mini-stat-icon-wrap icon-pink">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+      <div class="mini-stat-icon-wrap">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
       </div>
       <span class="mini-stat-number">+10 000</span>
-      <span class="mini-stat-label">Titres indexés</span>
+      <span class="mini-stat-label">Titres HD Indexés</span>
     </div>
 
     <div class="mini-stat reveal">
-      <div class="mini-stat-icon-wrap icon-cyan">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+      <div class="mini-stat-icon-wrap">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+      </div>
+      <span class="mini-stat-number">6</span>
+      <span class="mini-stat-label">Pôles Multimédia</span>
+    </div>
+
+    <div class="mini-stat reveal">
+      <div class="mini-stat-icon-wrap">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
       </div>
       <span class="mini-stat-number">100%</span>
-      <span class="mini-stat-label">Accès libre &amp; gratuit</span>
+      <span class="mini-stat-label">Libre &amp; Sans Inscription</span>
     </div>
   </div>
 </section>
 
-<!-- FEATURES SECTION (MOVIEBOX + UA CARDS STYLE) -->
-<section class="landing-features">
-  <div class="section-header-wrap reveal">
-    <span class="section-kicker">FONCTIONNALITÉS &amp; EXPÉRIENCE</span>
-    <h2>Une plateforme pensée pour les passionnés</h2>
-    <p class="section-sub">Découvrez l'ensemble des technologies et contenus intégrés dans l'écosystème OmniStream.</p>
-  </div>
-
-  <div class="landing-feature-grid">
-    <div class="landing-feature reveal">
-      <div class="feature-icon-badge badge-purple">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+<!-- ================================================================
+     2. ACTUALITÉS / DERNIÈRES NOUVELLES (STYLE SCREENSHOT 2)
+     ================================================================ -->
+<section class="ua-news-section">
+  <div class="ua-news-container">
+    <div class="ua-news-header reveal">
+      <div class="ua-news-title-group">
+        <span class="ua-section-kicker">ACTUALITÉS DU STREAMING</span>
+        <h2 class="ua-section-title">Dernières Nouvelles</h2>
       </div>
-      <h3>Catalogue Unifié &amp; Riche</h3>
-      <p>Films, séries, animés et animations avec synopsis, casting complet et notations officielles issues de TMDB.</p>
+      <a href="{{ url_for('index', tab='nouveautes') }}" class="ua-see-all-btn">Voir toutes les actualités</a>
     </div>
 
-    <div class="landing-feature reveal">
-      <div class="feature-icon-badge badge-pink">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-      </div>
-      <h3>Musique Audio &amp; Vidéo</h3>
-      <p>Écoutez en mode Audio économique (faible consommation de données Mo) ou profitez du lecteur vidéo en vrai plein écran.</p>
-    </div>
-
-    <div class="landing-feature reveal">
-      <div class="feature-icon-badge badge-orange">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
-      </div>
-      <h3>Lecteur de Scans Mangas</h3>
-      <p>Accédez directement aux chapitres en version française (VF) grâce à l'intégration MangaDex avec chargement rapide.</p>
-    </div>
-
-    <div class="landing-feature reveal">
-      <div class="feature-icon-badge badge-cyan">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><circle cx="9" cy="10" r="1"></circle><circle cx="12" cy="10" r="1"></circle><circle cx="15" cy="10" r="1"></circle></svg>
-      </div>
-      <h3>Assistant IA Gemini Intégré</h3>
-      <p>Posez des questions sur les acteurs, théories, intrigues ou suites prévues directement sur chaque fiche média.</p>
-    </div>
-
-    <div class="landing-feature reveal">
-      <div class="feature-icon-badge badge-gold">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H7v2h10v-2h-2c-.55 0-1-.45-1-1v-2.34c3.34-1.28 5-4.66 5-7.66V4H6v5c0 3 1.66 6.38 5 7.66z"></path></svg>
-      </div>
-      <h3>Les Légendes (Note ≥ 8.5)</h3>
-      <p>Un filtre d'élite réunissant les chefs-d'œuvre incontournables du cinéma et de la télévision plébiscités par le public.</p>
-    </div>
-
-    <div class="landing-feature reveal">
-      <div class="feature-icon-badge badge-emerald">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-      </div>
-      <h3>Zéro Inscription · Respect Total</h3>
-      <p>Aucun mot de passe, aucun traçage intrusif, aucune pub bloquante. Une expérience fluide et respectueuse de votre vie privée.</p>
+    <div class="ua-news-grid">
+      {% for art in news_articles %}
+      <article class="ua-news-card reveal">
+        <div class="ua-news-card-img-wrap">
+          <img src="{{ art.image }}" alt="{{ art.title }}" loading="lazy" class="ua-news-card-img">
+          <span class="ua-news-badge">{{ art.badge }}</span>
+        </div>
+        <div class="ua-news-card-body">
+          <div class="ua-news-date">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            <span>{{ art.date }}</span>
+          </div>
+          <h3 class="ua-news-card-title">{{ art.title }}</h3>
+          <p class="ua-news-card-desc">{{ art.desc }}</p>
+          <a href="{{ art.link }}" class="ua-news-card-link">
+            <span>Lire la suite</span>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </a>
+        </div>
+      </article>
+      {% endfor %}
     </div>
   </div>
 </section>
 
-<!-- ABOUT SECTION (INSPIRED BY UNIVERSITÉ D'ANTANANARIVO ABOUT SECTION) -->
+<!-- ================================================================
+     3. UNIVERS & EXPÉRIENCE MULTIMÉDIA (STYLE SCREENSHOT 3 TOP)
+     ================================================================ -->
+<section class="ua-campus-life-section">
+  <div class="ua-campus-container">
+    <div class="ua-campus-header-row reveal">
+      <div class="ua-campus-title-col">
+        <span class="ua-section-kicker">UNIVERS OMNISTREAM</span>
+        <h2 class="ua-section-title white">
+          Plus qu'un simple streaming,<br>
+          un univers complet
+        </h2>
+      </div>
+      <div class="ua-campus-desc-col">
+        <p>
+          Vivez une expérience multimédia inoubliable. Au-delà des films et séries, découvrez un lecteur audio spécialement optimisé pour les forfaits mobiles à Madagascar, un lecteur de scans mangas VF et un assistant IA interactif.
+        </p>
+      </div>
+    </div>
+
+    <div class="ua-campus-cards-grid">
+      <!-- Card 1: Films & Séries -->
+      <a href="{{ url_for('index', tab='films') }}" class="ua-campus-card reveal">
+        <img src="{{ url_for('static', filename='images/univ-cinema.jpg') }}" alt="Films et Séries 4K" class="ua-campus-card-bg">
+        <div class="ua-campus-card-overlay"></div>
+        <div class="ua-campus-card-title">
+          <span>Films &amp; Séries 4K</span>
+          <small>Box-Office &amp; Saisons Complètes</small>
+        </div>
+      </a>
+
+      <!-- Card 2: Art & Culture Manga -->
+      <a href="{{ url_for('index', tab='animes') }}" class="ua-campus-card reveal">
+        <img src="{{ url_for('static', filename='images/univ-manga.jpg') }}" alt="Art et Culture Manga" class="ua-campus-card-bg">
+        <div class="ua-campus-card-overlay"></div>
+        <div class="ua-campus-card-title">
+          <span>Art &amp; Culture Manga</span>
+          <small>Scans VF &amp; Animés Japonais</small>
+        </div>
+      </a>
+
+      <!-- Card 3: Musique & Clips -->
+      <a href="{{ url_for('musiques') }}" class="ua-campus-card reveal">
+        <img src="{{ url_for('static', filename='images/univ-music.jpg') }}" alt="Musique et Clips HD" class="ua-campus-card-bg">
+        <div class="ua-campus-card-overlay"></div>
+        <div class="ua-campus-card-title">
+          <span>Musique &amp; Clips</span>
+          <small>Mode Audio Mo &amp; Vidéo 1080p</small>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================
+     4. MÉDIAS & DIFFUSION (STYLE SCREENSHOT 4 TOP)
+     ================================================================ -->
+<section class="ua-media-broadcast-section">
+  <div class="ua-media-container">
+    <div class="ua-media-header reveal">
+      <span class="ua-section-kicker">MÉDIAS DU STREAMING</span>
+      <h2 class="ua-section-title white">Au Cœur du Son &amp; de l'Image</h2>
+      <p class="ua-media-sub">
+        Restez connecté à vos divertissements préférés grâce à nos lecteurs officiels. Musique en direct, fiches complètes et mode vidéo plein écran.
+      </p>
+    </div>
+
+    <div class="ua-media-cards-row">
+      <!-- Card 1: Radio / Audio MP3 (Red/Coral Circle Icon) -->
+      <div class="ua-media-card reveal">
+        <div class="ua-media-card-top-bg">
+          <div class="ua-media-round-icon red-icon">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
+          </div>
+          <div class="ua-media-card-header-text">
+            <h3>AUDIO STREAM 107.5</h3>
+            <span>La Voix du Streaming · Économiseur de Mo</span>
+          </div>
+        </div>
+        <div class="ua-media-card-body">
+          <p>
+            Écoutez en direct les nouveautés musicales et artistes favoris avec notre mode audio économique qui préserve votre forfait internet mobile à Madagascar.
+          </p>
+          <div class="ua-media-actions">
+            <a href="{{ url_for('musiques') }}" class="ua-media-btn-primary red-btn">
+              <span>Écouter le Direct</span>
+            </a>
+            <a href="{{ url_for('musiques') }}" class="ua-media-link-secondary">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
+              <span>Grille des Titres</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Vidéo TV (Blue Circle Icon) -->
+      <div class="ua-media-card reveal">
+        <div class="ua-media-card-top-bg">
+          <div class="ua-media-round-icon blue-icon">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+          </div>
+          <div class="ua-media-card-header-text">
+            <h3>OMNI TV HD</h3>
+            <span>Le Regard Cinéma &amp; Plein Écran</span>
+          </div>
+        </div>
+        <div class="ua-media-card-body">
+          <p>
+            Retrouvez les bandes-annonces, les reportages, clips vidéo et films en haute définition avec un lecteur immersif en vrai plein écran 1080p.
+          </p>
+          <div class="ua-media-actions">
+            <a href="{{ url_for('musiques') }}" class="ua-media-btn-primary blue-btn">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              <span>Regarder en HD</span>
+            </a>
+            <a href="{{ url_for('index', tab='films') }}" class="ua-media-link-secondary">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              <span>Catalogue Vidéo</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================
+     5. COLLABORATIONS & TECHNOLOGIES (STYLE SCREENSHOT 3 BOTTOM)
+     ================================================================ -->
+<section class="ua-partners-section">
+  <div class="ua-partners-container">
+    <div class="ua-partners-header reveal">
+      <span class="ua-section-kicker gold">COLLABORATIONS &amp; TECHNOLOGIES</span>
+      <h2 class="ua-section-title white">Nos Moteurs &amp; API Certifiées</h2>
+      <p class="ua-partners-sub">
+        Une plateforme ouverte sur le monde, intégrant des technologies internationales pour la qualité, la sécurité et la rapidité.
+      </p>
+    </div>
+
+    <div class="ua-partners-card reveal">
+      <div class="ua-partners-grid">
+        <div class="ua-partner-item">
+          <div class="ua-partner-icon">🎬</div>
+          <div class="ua-partner-name">TMDB API</div>
+          <small>Métadonnées Mondiales</small>
+        </div>
+        <div class="ua-partner-item">
+          <div class="ua-partner-icon">✨</div>
+          <div class="ua-partner-name">Google Gemini 2.5</div>
+          <small>Assistant IA Flash</small>
+        </div>
+        <div class="ua-partner-item">
+          <div class="ua-partner-icon">📖</div>
+          <div class="ua-partner-name">MangaDex</div>
+          <small>Scans &amp; Chapitres VF</small>
+        </div>
+        <div class="ua-partner-item">
+          <div class="ua-partner-icon">🎵</div>
+          <div class="ua-partner-name">YouTube Media</div>
+          <small>Flux Audio &amp; Vidéo</small>
+        </div>
+        <div class="ua-partner-item">
+          <div class="ua-partner-icon">🇲🇬</div>
+          <div class="ua-partner-name">Madagascar Network</div>
+          <small>Optimisation Forfait Mo</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================
+     6. DIRECTION DU PROJET & ENGAGEMENT
+     ================================================================ -->
 <section class="landing-about">
   <div class="landing-about-container">
     <div class="about-grid">
@@ -152,43 +318,47 @@
         <div class="about-card-glow">
           <div class="about-card-inner">
             <div class="about-icon-main">
-              <svg viewBox="0 0 40 40" width="48" height="48" aria-hidden="true">
+              <svg viewBox="0 0 40 40" width="44" height="44" aria-hidden="true">
                 <circle cx="20" cy="20" r="16" fill="none" stroke="url(#logoGrad)" stroke-width="3"/>
                 <path d="M16.5 13.5L27.5 20 16.5 26.5z" fill="#d9a84e"/>
                 <circle cx="31.3" cy="8.7" r="2.6" fill="#d9a84e"/>
               </svg>
             </div>
             <div class="about-card-title">OmniStream Project</div>
-            <div class="about-card-sub">Antananarivo, Madagascar</div>
+            <div class="about-card-sub">Antananarivo · Madagascar</div>
             <div class="about-quote-box">
-              <p>« Conçu par un passionné pour offrir une expérience multimédia fluide, esthétique et sans contrainte. »</p>
+              <p>« Ensemble pour le libre accès à la culture et au divertissement cinématographique et musical à Madagascar. »</p>
+            </div>
+            <div class="about-creator-badge">
+              <span>Conception &amp; Développement</span>
+              <strong>NAMBININTSOA Tsiky Fandresena</strong>
             </div>
           </div>
         </div>
       </div>
 
       <div class="about-text-content reveal">
-        <span class="section-kicker gold">À PROPOS DU PROJET</span>
-        <h2>Une Vision Moderne du Streaming &amp; de la Découverte</h2>
+        <span class="ua-section-kicker">DIRECTION DU PROJET</span>
+        <h2 class="ua-section-title white">Une Vision Moderne du Streaming</h2>
         <p class="about-lead">
-          OmniStream est une application web indépendante imaginée et réalisée par <strong>NAMBININTSOA Tsiky Fandresena</strong>.
+          OmniStream est une plateforme web indépendante créée par <strong>NAMBININTSOA Tsiky Fandresena</strong> à Antananarivo, Madagascar.
         </p>
         <p class="about-desc">
-          L'objectif est d'offrir une interface soignée, ultra-rapide et responsive, combinant les meilleures sources de métadonnées et de streaming pour centraliser le divertissement en un seul espace harmonieux.
+          Ce projet unit la rigueur des interfaces institutionnelles de référence et la modernité des plateformes multimédia. L'objectif est de centraliser films, séries télévisées, animés japonais, musique et scans mangas au sein d'un espace élégant, réactif et 100 % accessible sans contrainte.
         </p>
 
         <ul class="about-highlights">
           <li>
             <span class="highlight-dot"></span>
-            <span>Intégration d'API modernes TMDB, Gemini, MangaDex et YouTube</span>
+            <span>Intégration d'API certifiées : TMDB, Gemini 2.5 Flash, MangaDex et YouTube</span>
           </li>
           <li>
             <span class="highlight-dot"></span>
-            <span>Mode basse consommation pour les connexions mobiles à Madagascar</span>
+            <span>Mode basse consommation pensé pour les débits mobiles à Madagascar</span>
           </li>
           <li>
             <span class="highlight-dot"></span>
-            <span>Interface glassmorphism dark pensée pour le confort visuel</span>
+            <span>Design sobre, contrasté et professionnel adapté à tous les écrans</span>
           </li>
         </ul>
       </div>
@@ -196,16 +366,24 @@
   </div>
 </section>
 
-<!-- FINAL CALL TO ACTION -->
+<!-- ================================================================
+     7. APPEL À L'ACTION FINAL
+     ================================================================ -->
 <section class="landing-final-cta reveal">
-  <span class="section-kicker pink">COMMENCER L'EXPÉRIENCE</span>
-  <h2>Prêt à explorer vos prochains coups de cœur ?</h2>
-  <p class="landing-final-lead">Accédez immédiatement à des milliers de films, séries, animés et titres musicaux.</p>
-  <div class="landing-cta">
-    <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
-      <span>Explorer le catalogue maintenant</span>
-    </a>
+  <div class="landing-final-cta-box">
+    <span class="ua-section-kicker">DÉCOUVRIR LE CATALOGUE</span>
+    <h2>Prêt à explorer des milliers d'œuvres en haute définition ?</h2>
+    <p class="landing-final-lead">Accédez sans inscription à l'intégralité du catalogue cinéma, séries, animés et musique.</p>
+    <div class="landing-cta">
+      <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+        <span>Commencer l'exploration</span>
+      </a>
+      <a href="{{ url_for('musiques') }}" class="landing-btn-secondary">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        <span>Écouter la musique</span>
+      </a>
+    </div>
   </div>
 </section>
 
@@ -223,7 +401,7 @@
         io.unobserve(e.target);
       }
     });
-  }, { threshold: 0.12 });
+  }, { threshold: 0.1 });
   els.forEach((el) => io.observe(el));
 })();
 </script>

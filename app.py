@@ -128,6 +128,227 @@ MANGADEX_UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+_FALLBACK_POSTERS = [
+    "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+    "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
+    "https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
+    "https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+    "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+    "https://image.tmdb.org/t/p/w500/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
+    "https://image.tmdb.org/t/p/w500/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg",
+    "https://image.tmdb.org/t/p/w500/fqL8TuhvC3B00q9jV22Yq0Cswv9.jpg",
+    "https://image.tmdb.org/t/p/w500/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
+    "https://image.tmdb.org/t/p/w500/fHpKWv1m46Z8a4WkE814e4hG4oV.jpg",
+    "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+    "https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg",
+    "https://image.tmdb.org/t/p/w500/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
+    "https://image.tmdb.org/t/p/w500/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",
+    "https://image.tmdb.org/t/p/w500/ty8TGRuvJLPUmAR1H1nRIsgwvim.jpg",
+    "https://image.tmdb.org/t/p/w500/cMD9Ygz11VJbzAghURwe3ya69IR.jpg",
+    "https://image.tmdb.org/t/p/w500/q719jXXEzOoYaps6qFsP9llNGj.jpg",
+    "https://image.tmdb.org/t/p/w500/cMYCDADoLKLbB83g4WnJegaZimC.jpg",
+    "https://image.tmdb.org/t/p/w500/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg",
+    "https://image.tmdb.org/t/p/w500/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
+    "https://image.tmdb.org/t/p/w500/or06FN3Dka5tukK1e9sl16pB3iy.jpg",
+    "https://image.tmdb.org/t/p/w500/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg",
+    "https://image.tmdb.org/t/p/w500/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg",
+    "https://image.tmdb.org/t/p/w500/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg",
+    "https://image.tmdb.org/t/p/w500/6oom5QYQ2yQTMJIbnvbkBL9cDK6.jpg",
+    "https://image.tmdb.org/t/p/w500/wuMc08IPKEatf9rnMNX2IDx0qav.jpg",
+    "https://image.tmdb.org/t/p/w500/qNBAXBIQlnOThrVvA6mA2B5ggV6.jpg",
+    "https://image.tmdb.org/t/p/w500/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
+    "https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg",
+    "https://image.tmdb.org/t/p/w500/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
+    "https://image.tmdb.org/t/p/w500/A7dLx3U5d8o82mKkK4gY12X1yX1.jpg",
+    "https://image.tmdb.org/t/p/w500/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg",
+]
+
+_FALLBACK_FEATURED_MOVIES = [
+    {
+        "id": 693134,
+        "media_type": "movie",
+        "title": "Dune : Deuxième Partie",
+        "poster": "https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/xOMo8BRK7PfcJv9JCnx7s520QIe.jpg",
+        "rating": 8.4,
+        "year": "2024",
+    },
+    {
+        "id": 872585,
+        "media_type": "movie",
+        "title": "Oppenheimer",
+        "poster": "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/rLb2cwF3Pazuxaj0sRXQ037tGI1.jpg",
+        "rating": 8.1,
+        "year": "2023",
+    },
+    {
+        "id": 569094,
+        "media_type": "movie",
+        "title": "Spider-Man : Across the Spider-Verse",
+        "poster": "https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/4HodYYKEIsGOdinkGi2Ucz6X9i0.jpg",
+        "rating": 8.4,
+        "year": "2023",
+    },
+    {
+        "id": 157336,
+        "media_type": "movie",
+        "title": "Interstellar",
+        "poster": "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/xJHokMbljvjADYdit5fK5VQsXEG.jpg",
+        "rating": 8.4,
+        "year": "2014",
+    },
+]
+
+_FALLBACK_FEATURED_SERIES = [
+    {
+        "id": 94605,
+        "media_type": "tv",
+        "title": "Arcane",
+        "poster": "https://image.tmdb.org/t/p/w500/fqL8TuhvC3B00q9jV22Yq0Cswv9.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/2rmK7mnchw9Xr3XdiTFSxTTLXqv.jpg",
+        "rating": 8.7,
+        "year": "2021",
+    },
+    {
+        "id": 1396,
+        "media_type": "tv",
+        "title": "Breaking Bad",
+        "poster": "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg",
+        "rating": 8.9,
+        "year": "2008",
+    },
+    {
+        "id": 66732,
+        "media_type": "tv",
+        "title": "Stranger Things",
+        "poster": "https://image.tmdb.org/t/p/w500/jRXYjXNq0Cs2TcJjLkki24MLewN.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/56v2KjBlU4XaOv9rVYEQypROD7P.jpg",
+        "rating": 8.6,
+        "year": "2016",
+    },
+    {
+        "id": 100088,
+        "media_type": "tv",
+        "title": "The Last of Us",
+        "poster": "https://image.tmdb.org/t/p/w500/uKvVjHNqB5VmOrdxqAt2V7JMrne.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/uDgy6hyPd82kOHh6I95FLtLnj6p.jpg",
+        "rating": 8.6,
+        "year": "2023",
+    },
+]
+
+_FALLBACK_FEATURED_ANIMES = [
+    {
+        "id": 1429,
+        "media_type": "tv",
+        "title": "L'Attaque des Titans",
+        "poster": "https://image.tmdb.org/t/p/w500/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/yB2svtBxYQI2btL52Taf7l4bwdU.jpg",
+        "rating": 8.7,
+        "year": "2013",
+    },
+    {
+        "id": 85937,
+        "media_type": "tv",
+        "title": "Demon Slayer : Kimetsu no Yaiba",
+        "poster": "https://image.tmdb.org/t/p/w500/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/nTvM4mhqZlHIvUkI1gVnWumrSlq.jpg",
+        "rating": 8.7,
+        "year": "2019",
+    },
+    {
+        "id": 95479,
+        "media_type": "tv",
+        "title": "Jujutsu Kaisen",
+        "poster": "https://image.tmdb.org/t/p/w500/fHpKWv1m46Z8a4WkE814e4hG4oV.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/4fUvLSm4O2hZ3cW1T1hI3oQYk.jpg",
+        "rating": 8.6,
+        "year": "2020",
+    },
+    {
+        "id": 37854,
+        "media_type": "tv",
+        "title": "One Piece",
+        "poster": "https://image.tmdb.org/t/p/w500/cMD9Ygz11VJbzAghURwe3ya69IR.jpg",
+        "backdrop": "https://image.tmdb.org/t/p/w1280/4Mt7whox67MBt02rRAvisFEBqYs.jpg",
+        "rating": 8.7,
+        "year": "1999",
+    },
+]
+
+_LANDING_NEWS_ARTICLES = [
+    {
+        "badge": "CINÉMA 4K",
+        "date": "27 août 2026",
+        "title": "Dune : Deuxième Partie disponible en VF & 4K Ultra HD",
+        "desc": (
+            "La suite spectaculaire de Denis Villeneuve débarque sur OmniStream "
+            "avec une immersion visuelle et sonore totale."
+        ),
+        "image": "https://image.tmdb.org/t/p/w780/xOMo8BRK7PfcJv9JCnx7s520QIe.jpg",
+        "link": "/details/movie/693134?tab=films",
+    },
+    {
+        "badge": "SÉRIES PHARES",
+        "date": "25 août 2026",
+        "title": "Arcane Saison 2 : Les secrets de Piltover & Zaun",
+        "desc": (
+            "Redécouvrez l'intégrale de la série d'animation primée mondialement "
+            "avec fiches de personnages complètes."
+        ),
+        "image": "https://image.tmdb.org/t/p/w780/2rmK7mnchw9Xr3XdiTFSxTTLXqv.jpg",
+        "link": "/details/tv/94605?tab=series",
+    },
+    {
+        "badge": "ANIMÉS SHŌNEN",
+        "date": "22 août 2026",
+        "title": "L'Attaque des Titans : Édition intégrale en streaming",
+        "desc": (
+            "Revivez les batailles épiques du Bataillon d'exploration en version "
+            "française et originale sous-titrée."
+        ),
+        "image": "https://image.tmdb.org/t/p/w780/yB2svtBxYQI2btL52Taf7l4bwdU.jpg",
+        "link": "/details/tv/1429?tab=animes",
+    },
+    {
+        "badge": "MANGAS VF",
+        "date": "18 août 2026",
+        "title": "Lecteur de Scans Mangas : Chapitres en direct",
+        "desc": (
+            "Profitez d'un lecteur MangaDex haute vitesse pour lire vos "
+            "chapitres favoris directement depuis votre navigateur."
+        ),
+        "image": "/static/images/univ-manga.jpg",
+        "link": "/lecteur-scan?titre=One+Piece",
+    },
+    {
+        "badge": "STREAMING MP3",
+        "date": "15 août 2026",
+        "title": "Mode Audio : Économiseur de Mégaoctets (Mo)",
+        "desc": (
+            "Une architecture innovante conçue spécialement pour économiser "
+            "votre forfait internet mobile à Madagascar."
+        ),
+        "image": "/static/images/univ-music.jpg",
+        "link": "/musiques",
+    },
+    {
+        "badge": "ASSISTANT IA",
+        "date": "10 août 2026",
+        "title": "Assistant Gemini 2.5 Flash connecté aux fiches",
+        "desc": (
+            "Posez vos questions sur les théories, castings et suites prévues "
+            "grâce à l'intelligence artificielle intégrée."
+        ),
+        "image": "https://image.tmdb.org/t/p/w780/rLb2cwF3Pazuxaj0sRXQ037tGI1.jpg",
+        "link": "/details/movie/872585?tab=films",
+    },
+]
+
 _CACHE_MISSING = object()
 _CACHE_MAX_ITEMS = 512
 _cache = OrderedDict()
@@ -549,9 +770,12 @@ def index():
         visits = auth_db.get_total_visits()
 
         posters = []
-        hero_items = []
+        featured_movies = []
+        featured_series = []
+        featured_animes = []
         try:
             movies = tmdb_get("/discover/movie", {"sort_by": "popularity.desc"})
+            series = tmdb_get("/discover/tv", {"sort_by": "popularity.desc"})
             animes = tmdb_get(
                 "/discover/tv",
                 {
@@ -560,27 +784,51 @@ def index():
                     "with_origin_country": "JP",
                 },
             )
-            pool = _result_items(movies) + _result_items(animes)
+            pool = _result_items(movies) + _result_items(series) + _result_items(animes)
             posters = [
                 image_url
                 for item in pool
                 if (image_url := _tmdb_image_url(IMG_BASE, item.get("poster_path")))
             ]
-            # Hero items for the landing page carousel
-            trending = _result_items(tmdb_get("/trending/movie/week"))
-            hero_items = [
+            featured_movies = [
                 normalize_card(item, "movie")
-                for item in trending[:8]
-                if item.get("backdrop_path")
+                for item in _result_items(movies)[:4]
+                if item.get("poster_path")
+            ]
+            featured_series = [
+                normalize_card(item, "tv")
+                for item in _result_items(series)[:4]
+                if item.get("poster_path")
+            ]
+            featured_animes = [
+                normalize_card(item, "tv")
+                for item in _result_items(animes)[:4]
+                if item.get("poster_path")
             ]
         except UpstreamServiceError as error:
             app.logger.info("Données TMDB indisponibles : %s", error)
+
+        # Garantir au moins 32 affiches de haute qualité pour la fresque d'arrière-plan
+        if len(posters) < 32:
+            posters = posters + [p for p in _FALLBACK_POSTERS if p not in posters]
+            if len(posters) < 32:
+                posters = (posters * 4)[:32]
+
+        if not featured_movies:
+            featured_movies = _FALLBACK_FEATURED_MOVIES
+        if not featured_series:
+            featured_series = _FALLBACK_FEATURED_SERIES
+        if not featured_animes:
+            featured_animes = _FALLBACK_FEATURED_ANIMES
 
         return render_template(
             "landing.html",
             visits=visits,
             posters=posters,
-            hero_items=hero_items,
+            featured_movies=featured_movies,
+            featured_series=featured_series,
+            featured_animes=featured_animes,
+            news_articles=_LANDING_NEWS_ARTICLES,
             landing_page=True,
         )
 
