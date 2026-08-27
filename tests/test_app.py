@@ -57,7 +57,7 @@ def test_landing_starts_without_turso_or_tmdb(client, monkeypatch):
 
     assert response.status_code == 200
     assert b"body-landing" in response.data
-    assert b"Tout ce que vous regardez" in response.data
+    assert b"Le streaming," in response.data
     assert b'id="sponsor-gift"' in response.data
     assert app_module.SPONSOR_SMARTLINK_URL.encode() in response.data
     assert auth_db.get_total_visits() == 1
