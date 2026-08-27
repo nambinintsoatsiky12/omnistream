@@ -1,29 +1,38 @@
-"""
-Envoi d'e-mails via l'API HTTPS de Mailjet — utilisé à la place du SMTP
-Gmail, car Render bloque le trafic sortant sur les ports SMTP (25, 465,
-587) pour les services gratuits. L'API Mailjet passe par HTTPS (port 443),
-qui n'est jamais bloqué.
+"""Envoi des e-mails transactionnels OmniStream via l'API HTTPS Mailjet."""
 
-Nécessite trois variables d'environnement :
-  MAILJET_API_KEY    : ta clé API Mailjet (Primary API Key)
-  MAILJET_SECRET_KEY : ta clé secrète Mailjet (Secret Key)
-  SENDER_EMAIL         : ton adresse Gmail déjà validée comme expéditeur
-                          dans Mailjet (Domains and senders > Active)
-"""
+from __future__ import annotations
+
+import html
+import logging
 import os
+
 import requests
 from requests.auth import HTTPBasicAuth
 
-MAILJET_API_KEY = os.environ.get("MAILJET_API_KEY", "")
-MAILJET_SECRET_KEY = os.environ.get("MAILJET_SECRET_KEY", "")
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
-
+MAILJET_API_KEY = os.environ.get("MAILJET_API_KEY", "").strip()
+MAILJET_SECRET_KEY = os.environ.get("MAILJET_SECRET_KEY", "").strip()
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "").strip()
+MAIL_BACKEND = os.environ.get("MAIL_BACKEND", "mailjet").strip().lower()
 MAILJET_API_URL = "https://api.mailjet.com/v3.1/send"
+
+logger = logging.getLogger(__name__)
 
 
 def _send_email(to_email, subject, text_body, html_body):
+    """Envoie un message et indique explicitement si l'opération a réussi."""
+
+    if MAIL_BACKEND == "console":
+        # Pratique uniquement en développement : le lien est visible dans le terminal.
+        logger.warning("E-mail de développement pour %s\n%s", to_email, text_body)
+        return True
+    if MAIL_BACKEND != "mailjet":
+        logger.error("MAIL_BACKEND inconnu : %s", MAIL_BACKEND)
+        return False
     if not MAILJET_API_KEY or not MAILJET_SECRET_KEY or not SENDER_EMAIL:
-        print("MAILJET_API_KEY / MAILJET_SECRET_KEY / SENDER_EMAIL non configurés — e-mail non envoyé.")
+        logger.error(
+            "MAILJET_API_KEY, MAILJET_SECRET_KEY et SENDER_EMAIL doivent être "
+            "configurés."
+        )
         return False
 
     payload = {
@@ -37,7 +46,6 @@ def _send_email(to_email, subject, text_body, html_body):
             }
         ]
     }
-
     try:
         response = requests.post(
             MAILJET_API_URL,
@@ -45,60 +53,69 @@ def _send_email(to_email, subject, text_body, html_body):
             auth=HTTPBasicAuth(MAILJET_API_KEY, MAILJET_SECRET_KEY),
             timeout=10,
         )
-        if response.status_code in (200, 201):
-            return True
-        print(f"Erreur envoi e-mail : {response.status_code} — {response.text}")
+    except requests.RequestException:
+        logger.warning("Impossible de joindre Mailjet.", exc_info=True)
         return False
-    except Exception as e:
-        print(f"Erreur envoi e-mail : {e}")
-        return False
+
+    if response.status_code in {200, 201}:
+        return True
+    logger.error("Mailjet a refusé l'envoi (HTTP %s).", response.status_code)
+    return False
 
 
 def send_verification_email(to_email, verify_url, first_name=""):
-    greeting = f"Bonjour {first_name}," if first_name else "Bonjour,"
+    safe_name = html.escape(first_name.strip(), quote=True)
+    safe_url = html.escape(verify_url, quote=True)
+    greeting_text = (
+        f"Bonjour {first_name.strip()}," if first_name.strip() else "Bonjour,"
+    )
+    greeting_html = f"Bonjour {safe_name}," if safe_name else "Bonjour,"
     subject = "Confirmez votre adresse e-mail — OmniStream"
     text_body = (
-        f"{greeting}\n\n"
-        f"Merci de vous être inscrit sur OmniStream. Pour activer votre compte, "
-        f"veuillez confirmer votre adresse e-mail en cliquant sur le lien ci-dessous :\n\n"
+        f"{greeting_text}\n\n"
+        "Merci de vous être inscrit sur OmniStream. Pour activer votre compte, "
+        "confirmez votre adresse e-mail en ouvrant le lien ci-dessous :\n\n"
         f"{verify_url}\n\n"
-        f"Ce lien expirera si vous ne l'utilisez pas. Si vous n'êtes pas à l'origine "
-        f"de cette demande, vous pouvez ignorer ce message en toute sécurité.\n\n"
-        f"Cordialement,\nL'équipe OmniStream"
+        "Ce lien expire dans 24 heures. Si vous n'êtes pas à l'origine de cette "
+        "demande, ignorez ce message.\n\n"
+        "Cordialement,\nL'équipe OmniStream"
     )
     html_body = (
-        f"<p>{greeting}</p>"
-        f"<p>Merci de vous être inscrit sur OmniStream. Pour activer votre compte, "
-        f"veuillez confirmer votre adresse e-mail en cliquant sur le lien ci-dessous :</p>"
-        f'<p><a href="{verify_url}">{verify_url}</a></p>'
-        f"<p>Ce lien expirera si vous ne l'utilisez pas. Si vous n'êtes pas à l'origine "
-        f"de cette demande, vous pouvez ignorer ce message en toute sécurité.</p>"
-        f"<p>Cordialement,<br>L'équipe OmniStream</p>"
+        f"<p>{greeting_html}</p>"
+        "<p>Merci de vous être inscrit sur OmniStream. Pour activer votre compte, "
+        "confirmez votre adresse e-mail en ouvrant le lien ci-dessous :</p>"
+        f'<p><a href="{safe_url}">{safe_url}</a></p>'
+        "<p>Ce lien expire dans 24 heures. Si vous n'êtes pas à l'origine de cette "
+        "demande, ignorez ce message.</p>"
+        "<p>Cordialement,<br>L'équipe OmniStream</p>"
     )
     return _send_email(to_email, subject, text_body, html_body)
 
 
 def send_password_reset_email(to_email, reset_url, first_name=""):
-    greeting = f"Bonjour {first_name}," if first_name else "Bonjour,"
+    safe_name = html.escape(first_name.strip(), quote=True)
+    safe_url = html.escape(reset_url, quote=True)
+    greeting_text = (
+        f"Bonjour {first_name.strip()}," if first_name.strip() else "Bonjour,"
+    )
+    greeting_html = f"Bonjour {safe_name}," if safe_name else "Bonjour,"
     subject = "Réinitialisation de votre mot de passe — OmniStream"
     text_body = (
-        f"{greeting}\n\n"
-        f"Vous avez demandé à réinitialiser votre mot de passe OmniStream. "
-        f"Cliquez sur le lien ci-dessous pour en choisir un nouveau :\n\n"
+        f"{greeting_text}\n\n"
+        "Vous avez demandé à réinitialiser votre mot de passe OmniStream. "
+        "Ouvrez le lien ci-dessous pour en choisir un nouveau :\n\n"
         f"{reset_url}\n\n"
-        f"Ce lien expire dans 1 heure. Si vous n'êtes pas à l'origine de cette "
-        f"demande, vous pouvez ignorer ce message : votre mot de passe actuel "
-        f"reste inchangé.\n\n"
-        f"Cordialement,\nL'équipe OmniStream"
+        "Ce lien expire dans 1 heure. Si vous n'êtes pas à l'origine de cette "
+        "demande, ignorez ce message : votre mot de passe reste inchangé.\n\n"
+        "Cordialement,\nL'équipe OmniStream"
     )
     html_body = (
-        f"<p>{greeting}</p>"
-        f"<p>Vous avez demandé à réinitialiser votre mot de passe OmniStream. "
-        f"Cliquez sur le lien ci-dessous pour en choisir un nouveau :</p>"
-        f'<p><a href="{reset_url}">{reset_url}</a></p>'
-        f"<p>Ce lien expire dans 1 heure. Si vous n'êtes pas à l'origine de cette "
-        f"demande, vous pouvez ignorer ce message : votre mot de passe actuel "
-        f"reste inchangé.</p>"
-        f"<p>Cordialement,<br>L'équipe OmniStream</p>"
+        f"<p>{greeting_html}</p>"
+        "<p>Vous avez demandé à réinitialiser votre mot de passe OmniStream. "
+        "Ouvrez le lien ci-dessous pour en choisir un nouveau :</p>"
+        f'<p><a href="{safe_url}">{safe_url}</a></p>'
+        "<p>Ce lien expire dans 1 heure. Si vous n'êtes pas à l'origine de cette "
+        "demande, ignorez ce message : votre mot de passe reste inchangé.</p>"
+        "<p>Cordialement,<br>L'équipe OmniStream</p>"
     )
     return _send_email(to_email, subject, text_body, html_body)

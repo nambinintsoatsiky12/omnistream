@@ -1,61 +1,55 @@
 (function () {
+  "use strict";
+
   const panel = document.getElementById("chat-panel");
   const messagesEl = document.getElementById("chat-messages");
   const form = document.getElementById("chat-form");
   const input = document.getElementById("chat-input");
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  if (!panel || !messagesEl || !form || !input) return;
 
-  // Chaque page de détail = un nouveau titre = un nouvel historique de discussion.
-  // On le garde en mémoire côté navigateur (pas de stockage entre pages : à chaque
-  // clic sur un film/anime différent, la conversation Gemini repart de zéro).
   let history = [];
-
   const context = {
-    title: panel.dataset.title,
-    year: panel.dataset.year,
-    overview: panel.dataset.overview,
-    genres: panel.dataset.genres ? panel.dataset.genres.split(",") : [],
+    title: panel.dataset.title || "",
+    year: panel.dataset.year || "",
+    overview: panel.dataset.overview || "",
+    genres: panel.dataset.genres ? panel.dataset.genres.split(",").filter(Boolean) : [],
   };
 
   function addMessage(role, text) {
-    const div = document.createElement("div");
-    div.className = "msg " + (role === "user" ? "user" : "model");
-    div.textContent = text;
-    messagesEl.appendChild(div);
+    const message = document.createElement("div");
+    message.className = `msg ${role === "user" ? "user" : "model"}`;
+    message.textContent = text;
+    messagesEl.appendChild(message);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
-  // Petites phrases qui défilent pendant l'attente, façon "vraie réflexion",
-  // plutôt qu'un "..." figé qui donne l'impression que ça a planté.
-  const THINKING_PHRASES = [
+  const thinkingPhrases = [
     "Recherche en cours",
     "Je fouille mes souvenirs de cinéphile",
     "Je vérifie les dernières infos",
     "Je prépare ma réponse",
   ];
 
-  function startThinkingAnimation(el) {
+  function startThinkingAnimation(element) {
     let dotCount = 0;
     let phraseIndex = 0;
-    el.textContent = THINKING_PHRASES[0];
-
-    const dotsInterval = setInterval(() => {
+    element.textContent = thinkingPhrases[0];
+    const dotsInterval = window.setInterval(() => {
       dotCount = (dotCount + 1) % 4;
-      el.dataset.dots = ".".repeat(dotCount);
-      el.textContent = THINKING_PHRASES[phraseIndex] + el.dataset.dots;
+      element.textContent = `${thinkingPhrases[phraseIndex]}${".".repeat(dotCount)}`;
     }, 400);
-
-    const phraseInterval = setInterval(() => {
-      phraseIndex = (phraseIndex + 1) % THINKING_PHRASES.length;
+    const phraseInterval = window.setInterval(() => {
+      phraseIndex = (phraseIndex + 1) % thinkingPhrases.length;
     }, 2200);
-
     return function stop() {
-      clearInterval(dotsInterval);
-      clearInterval(phraseInterval);
+      window.clearInterval(dotsInterval);
+      window.clearInterval(phraseInterval);
     };
   }
 
-  form.addEventListener("submit", async function (e) {
-    e.preventDefault();
+  form.addEventListener("submit", async function submitQuestion(event) {
+    event.preventDefault();
     const question = input.value.trim();
     if (!question) return;
 
@@ -69,34 +63,40 @@
     messagesEl.appendChild(thinking);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     const stopThinking = startThinkingAnimation(thinking);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 35000);
 
     try {
-      const res = await fetch("/api/chat", {
+      const response = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: context.title,
-          year: context.year,
-          overview: context.overview,
-          genres: context.genres,
-          messages: history,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        body: JSON.stringify({ ...context, messages: history }),
+        signal: controller.signal,
       });
-      const data = await res.json();
-      stopThinking();
-      thinking.remove();
-
-      if (data.error) {
-        addMessage("model", "Erreur : " + data.error);
-      } else {
-        addMessage("model", data.reply);
-        history.push({ role: "model", content: data.reply });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "La requête a échoué.");
+      if (typeof data.reply !== "string" || !data.reply.trim()) {
+        throw new Error("Gemini a renvoyé une réponse vide.");
       }
-    } catch (err) {
+      addMessage("model", data.reply);
+      history.push({ role: "model", content: data.reply });
+      // 40 messages + la prochaine question restent sous la limite serveur.
+      if (history.length > 40) history = history.slice(-40);
+    } catch (error) {
+      history.pop(); // Évite deux messages « user » consécutifs au prochain essai.
+      const message =
+        error.name === "AbortError"
+          ? "Gemini met trop de temps à répondre. Réessaie dans un instant."
+          : error.message || "Impossible de contacter Gemini pour le moment.";
+      addMessage("model", message);
+    } finally {
+      window.clearTimeout(timeout);
       stopThinking();
       thinking.remove();
-      addMessage("model", "Impossible de contacter Gemini pour le moment.");
-    } finally {
       input.disabled = false;
       input.focus();
     }

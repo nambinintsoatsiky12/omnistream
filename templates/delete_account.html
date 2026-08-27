@@ -18,9 +18,10 @@
   </p>
 
   <form method="post" action="{{ url_for('delete_account') }}" class="auth-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="auth-field">
       <label for="password">Confirmez avec votre mot de passe</label>
-      <input type="password" id="password" name="password" required autocomplete="current-password">
+      <input type="password" id="password" name="password" required maxlength="128" autocomplete="current-password">
     </div>
 
     <button type="submit" class="auth-submit auth-submit-danger">Supprimer définitivement mon compte</button>

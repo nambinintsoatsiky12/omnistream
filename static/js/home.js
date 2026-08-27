@@ -1,4 +1,6 @@
 (function () {
+  "use strict";
+
   const root = document.getElementById("app-root");
   if (!root) return;
 
@@ -7,240 +9,364 @@
   const sentinel = document.getElementById("sentinel");
   const emptyMsg = document.getElementById("grid-empty");
   const pillsEl = document.getElementById("pills");
+  const heroSection = document.getElementById("hero");
+  const heroTrack = document.getElementById("hero-track");
+  const heroDots = document.getElementById("hero-dots");
 
   let page = 1;
   let hasMore = true;
   let loading = false;
   let activeGenre = "all";
+  let generation = 0;
+  let listController = null;
+  let heroController = null;
+  let heroTimer = null;
 
-  const sessionSeed = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const sessionSeed =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
-  function seededRandom(seedStr) {
-    let h = 1779033703 ^ seedStr.length;
-    for (let i = 0; i < seedStr.length; i++) {
-      h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353);
-      h = (h << 13) | (h >>> 19);
+  function seededRandom(seedString) {
+    let hash = 1779033703 ^ seedString.length;
+    for (let index = 0; index < seedString.length; index += 1) {
+      hash = Math.imul(hash ^ seedString.charCodeAt(index), 3432918353);
+      hash = (hash << 13) | (hash >>> 19);
     }
-    return function () {
-      h = Math.imul(h ^ (h >>> 16), 2246822507);
-      h = Math.imul(h ^ (h >>> 13), 3266489909);
-      h ^= h >>> 16;
-      return (h >>> 0) / 4294967296;
+    return function random() {
+      hash = Math.imul(hash ^ (hash >>> 16), 2246822507);
+      hash = Math.imul(hash ^ (hash >>> 13), 3266489909);
+      hash ^= hash >>> 16;
+      return (hash >>> 0) / 4294967296;
     };
   }
 
-  function seededShuffle(array, seedStr) {
-    const rng = seededRandom(seedStr);
-    const result = array.slice();
-    for (let i = result.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [result[i], result[j]] = [result[j], result[i]];
+  function seededShuffle(values, seedString) {
+    const random = seededRandom(seedString);
+    const result = values.slice();
+    for (let index = result.length - 1; index > 0; index -= 1) {
+      const target = Math.floor(random() * (index + 1));
+      [result[index], result[target]] = [result[target], result[index]];
     }
     return result;
   }
 
-  function listUrl(p) {
-    if (tab === "nouveautes") {
-      return `/api/upcoming?type=${encodeURIComponent(activeGenre)}&page=${p}&seed=${sessionSeed}`;
-    }
-    if (tab === "legendes") {
-      return `/api/legends?type=${encodeURIComponent(activeGenre)}&page=${p}&seed=${sessionSeed}`;
-    }
-    return `/api/list?tab=${encodeURIComponent(tab)}&genre=${encodeURIComponent(activeGenre)}&page=${p}&seed=${sessionSeed}`;
+  function listUrl(requestedPage) {
+    const params = new URLSearchParams({
+      type: activeGenre,
+      page: String(requestedPage),
+      seed: sessionSeed,
+    });
+    if (tab === "nouveautes") return `/api/upcoming?${params}`;
+    if (tab === "legendes") return `/api/legends?${params}`;
+    params.delete("type");
+    params.set("tab", tab);
+    params.set("genre", activeGenre);
+    return `/api/list?${params}`;
   }
 
-  function formatDate(dStr) {
-    if (!dStr) return "";
-    const parts = dStr.split("-");
-    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    return dStr;
+  function heroUrl() {
+    if (
+      activeGenre === "all" &&
+      ["films", "series", "animes", "animation_occidentale"].includes(tab)
+    ) {
+      return `/api/hero?tab=${encodeURIComponent(tab)}`;
+    }
+    return listUrl(1);
+  }
+
+  async function requestJson(url, signal) {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    let data;
+    try {
+      data = await response.json();
+    } catch (_error) {
+      throw new Error("Le serveur a renvoyé une réponse invalide.");
+    }
+    if (!response.ok) {
+      throw new Error(data.error || "La requête a échoué.");
+    }
+    return data;
+  }
+
+  function safeImageUrl(value) {
+    if (typeof value !== "string" || !value) return "";
+    try {
+      const url = new URL(value, window.location.origin);
+      if (url.protocol !== "https:" && url.origin !== window.location.origin) {
+        return "";
+      }
+      return url.href;
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function formatDate(value) {
+    if (typeof value !== "string") return "";
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+  }
+
+  function detailUrl(item) {
+    if (!item || typeof item !== "object") return null;
+    const mediaType = item.media_type;
+    const itemId = Number(item.id);
+    if (!["movie", "tv"].includes(mediaType) || !Number.isInteger(itemId) || itemId <= 0) {
+      return null;
+    }
+    const params = new URLSearchParams({ tab });
+    return `/details/${mediaType}/${itemId}?${params}`;
+  }
+
+  function createPoster(item, compact) {
+    const poster = document.createElement("div");
+    poster.className = compact ? "hero-poster" : "poster";
+    const source = safeImageUrl(item.poster || item.backdrop);
+    if (source) {
+      const image = document.createElement("img");
+      image.className = compact ? "hero-poster-img" : "poster-img";
+      image.src = source;
+      image.alt = `Affiche de ${String(item.title || "ce titre")}`;
+      image.loading = compact ? "eager" : "lazy";
+      poster.appendChild(image);
+    } else {
+      poster.classList.add("poster-placeholder");
+      poster.textContent = "Affiche indisponible";
+    }
+    return poster;
+  }
+
+  function createRatingBadge(rating) {
+    const badge = document.createElement("span");
+    badge.className = "rating-badge";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      "M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z",
+    );
+    svg.appendChild(path);
+    badge.append(svg, document.createTextNode(String(rating ?? 0)));
+    return badge;
+  }
+
+  function createCard(item) {
+    const href = detailUrl(item);
+    if (!href) return null;
+
+    const card = document.createElement("a");
+    card.className = "card";
+    card.href = href;
+
+    const poster = createPoster(item, false);
+    poster.appendChild(createRatingBadge(item.rating));
+
+    const info = document.createElement("div");
+    info.className = "card-info";
+    const title = document.createElement("div");
+    title.className = "card-title";
+    title.textContent = String(item.title || "Sans titre");
+    info.appendChild(title);
+
+    if (tab === "nouveautes") {
+      const date = document.createElement("div");
+      date.className = "card-date";
+      date.textContent = `Sortie : ${formatDate(item.date) || "date inconnue"}`;
+      info.appendChild(date);
+    }
+
+    card.append(poster, info);
+    return card;
+  }
+
+  function hideHero() {
+    if (heroTimer) window.clearInterval(heroTimer);
+    heroTimer = null;
+    if (heroTrack) heroTrack.replaceChildren();
+    if (heroDots) heroDots.replaceChildren();
+    if (heroSection) heroSection.hidden = true;
   }
 
   async function loadHero() {
-    const track = document.getElementById("hero-track");
-    const dotsEl = document.getElementById("hero-dots");
-    if (!track || !dotsEl) return;
+    if (!heroTrack || !heroDots || !heroSection) return;
+    if (heroController) heroController.abort();
+    heroController = new AbortController();
+    const currentGeneration = generation;
 
     try {
-      const res = await fetch(listUrl(1));
-      const data = await res.json();
+      const data = await requestJson(heroUrl(), heroController.signal);
+      if (currentGeneration !== generation) return;
+      const rawItems = Array.isArray(data.items) ? data.items : [];
+      const items = seededShuffle(
+        rawItems.filter((item) => detailUrl(item)),
+        `hero-${tab}-${activeGenre}-${sessionSeed}`,
+      ).slice(0, 5);
+      if (items.length === 0) {
+        hideHero();
+        return;
+      }
 
-      let items = data.items || [];
-      items = seededShuffle(items, `hero-${tab}-${activeGenre}-${sessionSeed}`).slice(0, 5);
+      if (heroTimer) window.clearInterval(heroTimer);
+      const slides = [];
+      const dots = [];
+      items.forEach((item, index) => {
+        const slide = document.createElement("article");
+        slide.className = `hero-slide${index === 0 ? " active" : ""}`;
+        const backdrop = safeImageUrl(item.backdrop || item.poster);
+        if (backdrop) slide.style.backgroundImage = `url(${JSON.stringify(backdrop)})`;
 
-      if (!items || items.length === 0) return;
+        const shade = document.createElement("div");
+        shade.className = "hero-content";
+        const poster = createPoster(item, true);
+        const copy = document.createElement("div");
+        copy.className = "hero-copy";
+        const title = document.createElement("h2");
+        title.textContent = String(item.title || "Sans titre");
+        const metadata = document.createElement("p");
+        const rating = Number(item.rating);
+        const ratingText = Number.isFinite(rating) && rating > 0 ? rating.toFixed(1) : "N/A";
+        metadata.textContent = `★ ${ratingText} · ${formatDate(item.date) || item.year || "Date inconnue"}`;
+        copy.append(title, metadata);
 
-      const heroSection = document.getElementById("hero");
-      if(heroSection) heroSection.style.display = "block";
+        const link = document.createElement("a");
+        link.className = "hero-play";
+        link.href = detailUrl(item);
+        link.textContent = "▶";
+        link.setAttribute("aria-label", `Voir la fiche de ${String(item.title || "ce titre")}`);
+        shade.append(poster, copy, link);
+        slide.appendChild(shade);
+        slides.push(slide);
 
-      track.innerHTML = items.map((item, idx) => {
-        let bgUrl = item.backdrop || item.poster || "";
-        if (bgUrl.startsWith("/")) bgUrl = "https://image.tmdb.org/t/p/original" + bgUrl;
+        const dot = document.createElement("button");
+        dot.type = "button";
+        dot.className = `hero-dot${index === 0 ? " active" : ""}`;
+        dot.setAttribute("aria-label", `Afficher la sélection ${index + 1}`);
+        dots.push(dot);
+      });
 
-        let posterUrl = item.poster || item.backdrop || "";
-        if (posterUrl.startsWith("/")) posterUrl = "https://image.tmdb.org/t/p/w200" + posterUrl;
-
-        let year = "Bientôt";
-        let rawD = item.date || item.release_date || item.first_air_date || "";
-
-        if (!rawD && item.startDate && item.startDate.year) {
-            const y = item.startDate.year;
-            const m = String(item.startDate.month || 1).padStart(2, '0');
-            const d = String(item.startDate.day || 1).padStart(2, '0');
-            rawD = `${y}-${m}-${d}`;
-        }
-
-        if (rawD && rawD.includes('-')) {
-            const [y, m, d] = rawD.split('-');
-            year = `${d}/${m}/${y.slice(-2)}`;
-        } else if (item.year) {
-            year = item.year;
-        }
-        const rating = item.rating ? parseFloat(item.rating).toFixed(1) : "N/A";
-
-        return `
-          <div class="hero-slide ${idx === 0 ? "active" : ""}" style="background: url('${bgUrl}') top center/cover no-repeat;">
-
-            <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 70%; background: linear-gradient(to top, #0a0a0f 10%, transparent); z-index: 1;"></div>
-
-            <div style="position: absolute; bottom: 30px; left: 15px; right: 15px; z-index: 2; display: flex; align-items: center; gap: 15px;">
-
-              <img src="${posterUrl}" style="width: 65px; height: 95px; border-radius: 8px; object-fit: cover; box-shadow: 0 4px 15px rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.1);">
-
-              <div style="flex: 1; text-align: left; text-shadow: 2px 2px 4px rgba(0,0,0,0.9);">
-                <h1 style="font-size: 1.2rem; margin: 0 0 6px 0; font-weight: 800; color: #fff; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                  ${item.title}
-                </h1>
-                <p style="font-size: 0.85rem; margin: 0; color: #d1d1d1; font-weight: bold;">
-                  <span style="color: #ffaa00;">★ ${rating}</span> &nbsp;|&nbsp; 📅 ${year}
-                </p>
-              </div>
-
-              <a href="/details/${item.media_type || (tab === 'films' ? 'movie' : 'tv')}/${item.id}?tab=${encodeURIComponent(tab)}" style="background: linear-gradient(45deg, #00d2ff, #0077ff); width: 32px; height: 32px; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; text-decoration: none; box-shadow: 0 4px 10px rgba(0, 119, 255, 0.4); flex-shrink: 0; font-size: 0.9rem;">
-                ▶
-              </a>
-            </div>
-          </div>
-        `;
-      }).join("");
-
-      dotsEl.innerHTML = items.map((_, idx) => `
-        <button class="dot ${idx === 0 ? "active" : ""}" data-idx="${idx}"></button>
-      `).join("");
+      heroTrack.replaceChildren(...slides);
+      heroDots.replaceChildren(...dots);
+      heroSection.hidden = false;
 
       let current = 0;
-      const slides = track.querySelectorAll(".hero-slide");
-      const dots = dotsEl.querySelectorAll(".dot");
-
-      function show(i) {
-        if(slides.length === 0) return;
+      function show(index) {
+        if (!slides.length || currentGeneration !== generation) return;
         slides[current].classList.remove("active");
         dots[current].classList.remove("active");
-        current = (i + slides.length) % slides.length;
+        current = (index + slides.length) % slides.length;
         slides[current].classList.add("active");
         dots[current].classList.add("active");
       }
-
-      dots.forEach(d => d.addEventListener("click", () => show(parseInt(d.dataset.idx, 10))));
-
-      if(window.heroInterval) clearInterval(window.heroInterval);
-      window.heroInterval = setInterval(() => show(current + 1), 6000);
-
-    } catch (e) {
-      console.error("Erreur chargement Hero:", e);
+      dots.forEach((dot, index) => dot.addEventListener("click", () => show(index)));
+      if (slides.length > 1) {
+        heroTimer = window.setInterval(() => show(current + 1), 6000);
+      }
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        console.error("Erreur de chargement du bandeau :", error);
+        if (currentGeneration === generation) hideHero();
+      }
     }
   }
-  function buildDetailUrl(item) {
-    const mt = item.media_type || (tab === "films" ? "movie" : "tv");
-    return `/details/${mt}/${item.id}?tab=${encodeURIComponent(tab)}`;
+
+  function specialPills() {
+    return [
+      { id: "all", label: "Tout" },
+      { id: "movie", label: "Films" },
+      { id: "tv", label: "Séries" },
+      { id: "anime", label: "Animes" },
+    ];
   }
 
   async function loadPills() {
-    let pills;
-    if (tab === "nouveautes" || tab === "legendes") {
-      pills = [
-        { id: "all", label: "Tout" },
-        { id: "movie", label: "Films" },
-        { id: "tv", label: "Séries" },
-        { id: "anime", label: "Animes" },
-      ];
-    } else {
-      const res = await fetch(`/api/genres?tab=${encodeURIComponent(tab)}`);
-      const data = await res.json();
-      pills = data.pills || [];
-    }
-
-    pillsEl.innerHTML = pills
-      .map((p) => `<button class="pill${p.id === "all" ? " active" : ""}" data-id="${p.id}">${p.label}</button>`)
-      .join("");
-
-    pillsEl.querySelectorAll(".pill").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.dataset.id === activeGenre) return;
-        pillsEl.querySelectorAll(".pill").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        activeGenre = btn.dataset.id;
-        resetGrid();
-        loadMore();
+    try {
+      const pills = ["nouveautes", "legendes"].includes(tab)
+        ? specialPills()
+        : (await requestJson(`/api/genres?tab=${encodeURIComponent(tab)}`)).pills || [];
+      const buttons = pills.map((pill) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `pill${pill.id === activeGenre ? " active" : ""}`;
+        button.dataset.id = String(pill.id);
+        button.textContent = String(pill.label);
+        button.addEventListener("click", () => {
+          if (button.dataset.id === activeGenre) return;
+          activeGenre = button.dataset.id;
+          pillsEl.querySelectorAll(".pill").forEach((item) => {
+            item.classList.toggle("active", item === button);
+          });
+          generation += 1;
+          resetGrid();
+          loadHero();
+          loadMore();
+        });
+        return button;
       });
-    });
-  }
-
-  const STAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>';
-
-  function cardHtml(item) {
-    const dateLine = tab === "nouveautes" ? `<div class="card-date">Sortie : ${formatDate(item.date)}</div>` : "";
-    return `
-      <a class="card" href="${buildDetailUrl(item)}">
-        <div class="poster" style="background-image:url('${item.poster || ""}')">
-          <span class="rating-badge">${STAR_SVG}${item.rating}</span>
-        </div>
-        <div class="card-info">
-          <div class="card-title">${item.title}</div>
-          ${dateLine}
-        </div>
-      </a>`;
+      pillsEl.replaceChildren(...buttons);
+    } catch (error) {
+      console.error("Erreur de chargement des genres :", error);
+      pillsEl.replaceChildren();
+    }
   }
 
   function resetGrid() {
+    if (listController) listController.abort();
     page = 1;
     hasMore = true;
-    gridEl.innerHTML = "";
+    loading = false;
+    gridEl.replaceChildren();
     emptyMsg.hidden = true;
   }
 
   async function loadMore() {
     if (loading || !hasMore) return;
     loading = true;
+    const requestedPage = page;
+    const currentGeneration = generation;
+    const controller = new AbortController();
+    listController = controller;
 
     try {
-        const res = await fetch(listUrl(page));
-        const data = await res.json();
-        const items = data.items || [];
-
-        gridEl.insertAdjacentHTML("beforeend", items.map(cardHtml).join(""));
-
-        hasMore = !!data.has_more;
-        page += 1;
-        loading = false;
-
-        if (page === 2 && items.length === 0) emptyMsg.hidden = false;
-    } catch (e) {
-        console.error("Erreur LoadMore:", e);
-        loading = false;
+      const data = await requestJson(listUrl(requestedPage), controller.signal);
+      if (currentGeneration !== generation) return;
+      const items = Array.isArray(data.items) ? data.items : [];
+      const cards = items.map(createCard).filter(Boolean);
+      gridEl.append(...cards);
+      hasMore = Boolean(data.has_more);
+      page = requestedPage + 1;
+      if (requestedPage === 1 && cards.length === 0) emptyMsg.hidden = false;
+    } catch (error) {
+      if (error.name !== "AbortError" && currentGeneration === generation) {
+        console.error("Erreur de chargement du catalogue :", error);
+        if (requestedPage === 1) {
+          emptyMsg.textContent = error.message || "Impossible de charger le catalogue.";
+          emptyMsg.hidden = false;
+        }
+      }
+    } finally {
+      if (currentGeneration === generation) loading = false;
     }
   }
 
-  const observer = new IntersectionObserver(
-    (entries) => {
-      if (entries[0].isIntersecting) {
-          loadMore();
+  if ("IntersectionObserver" in window && sentinel) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+  } else {
+    window.addEventListener("scroll", () => {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 800) {
+        loadMore();
       }
-    },
-    { rootMargin: "600px" }
-  );
-
-  if (sentinel) observer.observe(sentinel);
+    });
+  }
 
   loadHero();
   loadPills();
