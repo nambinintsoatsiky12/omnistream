@@ -67,6 +67,7 @@ h1, h2, h3 {
 }
 
 html {
+  font-size: 15px;
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -877,7 +878,7 @@ main:has(.landing-hero),
 
 .search-title {
   font-size: 1.5rem;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
   margin-bottom: 16px;
 }
@@ -889,7 +890,7 @@ main:has(.landing-hero),
 
 .section-banner-title h2 {
   font-size: 1.6rem;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
 }
 
@@ -980,7 +981,7 @@ main:has(.landing-hero),
   height: 26px;
   border-radius: 6px;
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 700;
   color: #fff;
   display: flex;
   align-items: center;
@@ -1177,8 +1178,8 @@ main:has(.landing-hero),
 }
 
 .detail-meta h1 {
-  font-size: 2.4rem;
-  font-weight: 900;
+  font-size: 1.95rem;
+  font-weight: 700;
   color: var(--text-bright);
   line-height: 1.15;
   margin-bottom: 14px;
@@ -1931,7 +1932,7 @@ main:has(.landing-hero),
 
 .expanded-track-title {
   font-size: 1.25rem;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
   margin: 6px 0 4px;
 }
@@ -2091,7 +2092,7 @@ main:has(.landing-hero),
   background: var(--gradient);
   color: #fff;
   font-size: 0.7rem;
-  font-weight: 900;
+  font-weight: 700;
   padding: 4px 10px;
   border-radius: 6px;
 }
@@ -2131,7 +2132,7 @@ main:has(.landing-hero),
 
 .scan-title {
   font-size: 1.6rem;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
 }
 
@@ -2328,9 +2329,9 @@ main:has(.landing-hero),
 }
 
 .landing-hero h1 {
-  font-size: 3.4rem;
+  font-size: 2.6rem;
   line-height: 1.1;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
   margin-bottom: 20px;
 }
@@ -2430,7 +2431,7 @@ main:has(.landing-hero),
 
 .mini-stat-number {
   font-family: var(--font-display);
-  font-size: 2.4rem;
+  font-size: 2rem;
   font-weight: 700;
   color: var(--text-bright);
   letter-spacing: 0.5px;
@@ -2456,8 +2457,8 @@ main:has(.landing-hero),
 }
 
 .section-header-wrap h2 {
-  font-size: 2.2rem;
-  font-weight: 900;
+  font-size: 1.8rem;
+  font-weight: 700;
   color: var(--text-bright);
   margin-bottom: 12px;
 }
@@ -2561,7 +2562,7 @@ main:has(.landing-hero),
 
 .about-card-title {
   font-size: 1.4rem;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
 }
 
@@ -2586,8 +2587,8 @@ main:has(.landing-hero),
 }
 
 .about-text-content h2 {
-  font-size: 2rem;
-  font-weight: 900;
+  font-size: 1.8rem;
+  font-weight: 700;
   color: var(--text-bright);
   line-height: 1.2;
   margin-bottom: 16px;
@@ -2640,8 +2641,8 @@ main:has(.landing-hero),
 }
 
 .landing-final-cta h2 {
-  font-size: 2.2rem;
-  font-weight: 900;
+  font-size: 1.8rem;
+  font-weight: 700;
   color: var(--text-bright);
   margin-bottom: 12px;
 }
@@ -2693,7 +2694,7 @@ main:has(.landing-hero),
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 900;
+  font-weight: 700;
   font-size: 1.25rem;
   color: var(--text-bright);
 }
@@ -2787,7 +2788,7 @@ main:has(.landing-hero),
 }
 
 .footer-stat-val {
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
   font-size: 1.1rem;
 }
@@ -2901,7 +2902,7 @@ main:has(.landing-hero),
 
 .privacy-box h1 {
   font-size: 2rem;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
   margin-bottom: 12px;
 }
@@ -2956,7 +2957,7 @@ main:has(.landing-hero),
 
 .error-box h1 {
   font-size: 1.6rem;
-  font-weight: 900;
+  font-weight: 700;
   color: var(--text-bright);
   margin-bottom: 12px;
 }
