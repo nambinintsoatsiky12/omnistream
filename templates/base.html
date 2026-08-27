@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta name="monetag" content="b6fa60c9186008dd5d46d51283cfd9a6">
-<script>(function(s){s.dataset.zone='11645593',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>{% block title %}OmniStream{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2">
-<meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=5">
+<script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v=1" defer></script>
+<meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
-<body class="{{ 'body-landing' if not tab else '' }}">
-<header class="topbar {{ 'topbar-landing' if not tab else '' }}">
+<body class="{{ 'body-landing' if landing_page|default(false) else '' }}">
+<header class="topbar {{ 'topbar-landing' if landing_page|default(false) else '' }}">
   <div class="topbar-inner" id="topbar-inner">
     <a href="{{ url_for('index') }}" class="logo logo-mark">
       <span class="logo-icon">
@@ -31,16 +31,16 @@
     {% if tab %}
     <form class="searchbar" id="searchbar" action="{{ url_for('index') }}" method="get">
       <input type="hidden" name="tab" value="{{ tab|default('films') }}">
-      <input type="text" name="q" id="search-input" placeholder="Rechercher..." value="{{ query|default('') }}">
+      <input type="text" name="q" id="search-input" placeholder="Rechercher..." value="{{ query|default('') }}" maxlength="120" aria-label="Rechercher un titre">
       <button type="submit">OK</button>
     </form>
 
-    <button class="icon-btn" id="search-toggle" aria-label="Rechercher">
+    <button type="button" class="icon-btn" id="search-toggle" aria-label="Rechercher">
       <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
     </button>
     {% endif %}
 
-    <button class="icon-btn" id="burger-btn" aria-label="Menu">
+    <button type="button" class="icon-btn" id="burger-btn" aria-label="Menu" aria-controls="burger-panel" aria-expanded="false">
       <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
     </button>
   </div>
@@ -54,20 +54,39 @@
   </nav>
   {% endif %}
 
-  <div class="burger-panel" id="burger-panel">
+  <nav class="burger-panel" id="burger-panel" aria-label="Menu principal">
     <a href="{{ url_for('index', tab='films') }}">Accueil</a>
     <a href="{{ url_for('index', tab='nouveautes') }}">Nouveautés à venir</a>
     <a href="{{ url_for('index', tab='legendes') }}">Les Légendes (note ≥ 8,5)</a>
-    <a href="{{ url_for('index', tab='legendes') }}">🏆 Top de la semaine</a>
-    {% if session.get('user_first_name') %}
-      <a href="{{ url_for('logout') }}" class="burger-divider">Déconnexion</a>
+    <a href="{{ url_for('musiques') }}">🎧 Musique</a>
+    {% if session.get('user_id') is not none %}
+      <a href="{{ url_for('delete_account') }}" class="burger-divider">Mon compte</a>
+      <form action="{{ url_for('logout') }}" method="post" class="burger-logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Déconnexion</button>
+      </form>
+    {% else %}
+      <a href="{{ url_for('login') }}" class="burger-divider">Connexion</a>
+      <a href="{{ url_for('signup') }}">Créer un compte</a>
     {% endif %}
-  </div>
+  </nav>
 </header>
 
 <main>
   {% block content %}{% endblock %}
 </main>
+
+{% if show_sponsor_gift %}
+<a class="sponsor-gift" id="sponsor-gift" href="{{ sponsor_smartlink_url }}"
+   target="_blank" rel="noopener noreferrer sponsored"
+   aria-label="Ouvrir le cadeau sponsorisé dans un nouvel onglet">
+  <span class="sponsor-gift-icon" aria-hidden="true">🎁</span>
+  <span class="sponsor-gift-label">
+    <strong>Petit cadeau</strong>
+    <small>Lien sponsorisé</small>
+  </span>
+</a>
+{% endif %}
 
 <footer class="site-footer">
   <div>Propulsé par TMDB &amp; Gemini</div>
@@ -78,8 +97,15 @@
 (function () {
   const burgerBtn = document.getElementById("burger-btn");
   const burgerPanel = document.getElementById("burger-panel");
+  function setMenuOpen(open) {
+    if (!burgerBtn || !burgerPanel) return;
+    burgerPanel.classList.toggle("open", open);
+    burgerBtn.setAttribute("aria-expanded", String(open));
+  }
   if (burgerBtn && burgerPanel) {
-    burgerBtn.addEventListener("click", () => burgerPanel.classList.toggle("open"));
+    burgerBtn.addEventListener("click", () => {
+      setMenuOpen(!burgerPanel.classList.contains("open"));
+    });
   }
 
   const topbarInner = document.getElementById("topbar-inner");
@@ -93,9 +119,12 @@
   }
 
   document.addEventListener("click", (e) => {
-    if (burgerPanel && burgerBtn && !burgerPanel.contains(e.target) && e.target !== burgerBtn && !burgerBtn.contains(e.target)) {
-      burgerPanel.classList.remove("open");
+    if (burgerPanel && burgerBtn && !burgerPanel.contains(e.target) && !burgerBtn.contains(e.target)) {
+      setMenuOpen(false);
     }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") setMenuOpen(false);
   });
 
   const header = document.querySelector(".topbar");

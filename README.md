@@ -1,97 +1,122 @@
 # OmniStream
 
-Site web (Flask) qui affiche Films / Séries / Animes / Animation Occidentale via
-l'API TMDB, avec une note pour chaque titre. En cliquant sur un titre, on ouvre
-sa fiche détaillée + un chat avec Gemini qui connaît déjà le titre en question
-(nouvelle discussion à chaque nouveau titre cliqué).
+Application Flask de découverte de films, séries, animés, mangas et musique.
+Le catalogue et les fiches viennent de TMDB, le chat utilise Gemini, les scans
+sont recherchés sur MangaDex et la rubrique musique utilise YouTube.
 
-## 1. Récupérer les clés API
+## Prérequis
 
-- **TMDB** : crée un compte sur https://www.themoviedb.org/ → Paramètres →
-  API → demande une clé "API Key (v3 auth)".
-- **Gemini** : va sur https://aistudio.google.com/apikey et génère une clé.
+- Python 3.10 ou plus récent ;
+- une clé TMDB pour le catalogue ;
+- les autres services sont optionnels selon les fonctionnalités utilisées.
 
-## 2. Installer en local (optionnel, pour tester avant de déployer)
+## Démarrage local
 
 ```bash
-cd omnistream
-python -m venv venv
-source venv/bin/activate      # Windows : venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate              # Windows : .venv\Scripts\activate
 pip install -r requirements.txt
 
-export TMDB_API_KEY="ta_cle_tmdb"        # Windows : set TMDB_API_KEY=...
-export GEMINI_API_KEY="ta_cle_gemini"
+export TMDB_API_KEY="votre_cle_tmdb"
+export GEMINI_API_KEY="votre_cle_gemini"       # chat, optionnel
+export YOUTUBE_API_KEY="votre_cle_youtube"     # musique, optionnel
+export MAIL_BACKEND="console"                  # développement uniquement
 
 python app.py
 ```
 
-Le site sera visible sur http://127.0.0.1:5000
+Le site écoute sur <http://127.0.0.1:5000>. Sans configuration Turso,
+OmniStream crée automatiquement une base SQLite locale `users.db`. Avec
+`MAIL_BACKEND=console`, les liens de confirmation et de réinitialisation sont
+écrits dans le terminal au lieu d'être envoyés : **ne jamais activer ce mode en
+production**.
 
-## 3. Déployer sur PythonAnywhere
+La page vitrine reste accessible quand TMDB est absent ou momentanément en
+panne. Les routes qui ont réellement besoin d'une API renvoient alors un
+message d'erreur explicite.
 
-1. Crée un compte sur https://www.pythonanywhere.com
-2. Onglet **Files** : envoie (ou clone via git) le dossier `omnistream/`
-   dans ton espace, par exemple `/home/tonpseudo/omnistream`.
-3. Onglet **Consoles** → ouvre une console Bash, puis :
-   ```bash
-   cd omnistream
-   pip install --user -r requirements.txt
-   ```
-4. Onglet **Web** → **Add a new web app** → choisis **Flask** puis la version
-   Python. PythonAnywhere crée un fichier WSGI, par exemple
-   `/var/www/tonpseudo_pythonanywhere_com_wsgi.py`. Ouvre-le et remplace
-   son contenu par :
-   ```python
-   import sys, os
-   path = '/home/tonpseudo/omnistream'
-   if path not in sys.path:
-       sys.path.append(path)
+## Configuration
 
-   os.environ["TMDB_API_KEY"] = "ta_cle_tmdb"
-   os.environ["GEMINI_API_KEY"] = "ta_cle_gemini"
+| Variable | Utilité |
+| --- | --- |
+| `TMDB_API_KEY` | Catalogue, recherches et fiches TMDB |
+| `GEMINI_API_KEY` | Assistant sur les fiches |
+| `GEMINI_MODEL` | Modèle Gemini (`gemini-2.5-flash` par défaut) |
+| `YOUTUBE_API_KEY` | Recherche et tendances musicales |
+| `SPONSOR_SMARTLINK_URL` | Lien du cadeau flottant (`https://omg10.com/4/11645531` par défaut, valeur vide pour le masquer) |
+| `SECRET_KEY` | Signature des sessions ; obligatoire en production |
+| `PUBLIC_BASE_URL` | URL publique **obligatoire avec Mailjet**, utilisée dans les liens (ex. `https://example.com`) |
+| `ADMIN_EMAIL` | Compte autorisé à ouvrir `/admin` |
+| `TURSO_DATABASE_URL` | URL Turso (`libsql://...` ou `https://...`) |
+| `TURSO_AUTH_TOKEN` | Jeton Turso ; doit être défini avec l'URL |
+| `DATABASE_PATH` | Chemin SQLite local (par défaut `users.db`) |
+| `MAILJET_API_KEY` | Clé publique Mailjet |
+| `MAILJET_SECRET_KEY` | Clé secrète Mailjet |
+| `SENDER_EMAIL` | Expéditeur validé dans Mailjet |
+| `MAIL_BACKEND` | `mailjet` par défaut, `console` seulement en local |
+| `SESSION_COOKIE_SECURE` | Mettre à `true` derrière HTTPS |
+| `TRUST_PROXY_HEADERS` | Mettre à `true` uniquement derrière un proxy de confiance |
+| `TRUSTED_HOSTS` | Hôtes autorisés, séparés par des virgules (protection de l'en-tête `Host`) |
+| `PORT` | Port du serveur de développement (`5000` par défaut) |
+| `FLASK_DEBUG` | Active le debug local si égal à `true` |
 
-   from app import app as application
-   ```
-5. Toujours sur l'onglet **Web** :
-   - **Source code** : `/home/tonpseudo/omnistream`
-   - **Working directory** : `/home/tonpseudo/omnistream`
-   - **Static files** : URL `/static/` → Directory `/home/tonpseudo/omnistream/static`
-6. Clique sur **Reload**. Le site est en ligne sur `tonpseudo.pythonanywhere.com`.
+`TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN` doivent toujours être définis
+ensemble. Les tables et les migrations simples sont appliquées au démarrage.
 
-## Structure du projet
+## Déploiement
 
+Exemple avec Gunicorn :
+
+```bash
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export PUBLIC_BASE_URL="https://votre-domaine.example"
+export SESSION_COOKIE_SECURE=true
+export TRUSTED_HOSTS="votre-domaine.example"
+# Configurer ensuite TMDB, Turso et Mailjet dans les secrets de l'hébergeur.
+
+gunicorn --bind 0.0.0.0:${PORT:-8000} app:app
 ```
-omnistream/
-├── app.py                 → routes Flask + appels TMDB + appel Gemini
-├── requirements.txt
-├── templates/
-│   ├── base.html          → header, logo, barre de recherche, onglets
-│   ├── index.html         → grille de films/séries/animes
-│   └── detail.html        → fiche détail + chat Gemini
-└── static/
-    ├── css/style.css      → thème sombre (cyan / orange)
-    └── js/chat.js         → logique du chat (une conversation par titre)
+
+Si l'hébergeur place Gunicorn derrière son propre proxy HTTP de confiance,
+ajoutez `TRUST_PROXY_HEADERS=true`.
+
+## Tests et qualité
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+ruff check .
 ```
 
-## Comment fonctionne le chat Gemini
+Les tests utilisent une base SQLite temporaire et remplacent les appels aux
+API externes par des réponses simulées.
 
-- Chaque page de détail (`/details/<type>/<id>`) contient les infos du titre
-  (titre, année, synopsis, genres) dans des attributs `data-*`.
-- `chat.js` garde l'historique de conversation **en mémoire dans le
-  navigateur**, propre à cette page : dès que tu cliques sur un autre
-  film/anime, tu arrives sur une nouvelle page → nouvel historique vide →
-  nouvelle discussion.
-- À chaque message envoyé, le front-end appelle `/api/chat` avec le titre,
-  le synopsis et l'historique. Le serveur construit une instruction système
-  ("tu parles uniquement de CE titre") et interroge l'API Gemini, puis
-  renvoie la réponse.
+## Structure
 
-## Pistes d'amélioration
+```text
+app.py                  routes Flask, validation et intégrations externes
+auth_db.py              stockage SQLite/Turso et jetons d'authentification
+mailer.py               e-mails Mailjet (ou console en développement)
+templates/               pages Jinja
+static/css/style.css     styles responsives
+static/js/home.js        catalogue, filtres et pagination
+static/js/chat.js        chat Gemini
+static/js/musique.js     recherche et lecteur YouTube
+requirements.txt        dépendances de production
+requirements-dev.txt    outils de test et de lint
+```
 
-- Ajouter la pagination (TMDB renvoie `page` et `total_pages`).
-- Distinguer "Mangas" des "Animes" (TMDB ne gère que les films/séries — pour
-  de vrais mangas il faudrait ajouter l'API Jikan / MyAnimeList).
-- Ajouter des boutons "lecture" pointant vers tes propres sources vidéo
-  (TMDB ne fournit aucun lien de streaming).
-- Stocker les favoris / historique de recherche (base de données SQLite,
-  supportée nativement sur PythonAnywhere).
+## Données et sécurité
+
+- Les mots de passe sont hachés avec Werkzeug et ne sont jamais stockés en
+  clair.
+- Les formulaires et le chat sont protégés contre les requêtes CSRF.
+- Les jetons de confirmation expirent après 24 heures ; ceux de mot de passe
+  après 1 heure et ne sont utilisables qu'une fois. Une réinitialisation révoque
+  également les sessions déjà ouvertes.
+- Le proxy MangaDex n'accepte qu'une liste limitée d'endpoints et l'ancien
+  proxy d'images refuse toute URL extérieure à `uploads.mangadex.org`.
+- Aucun script publicitaire de notification n'est chargé. L'ancien service
+  worker push est désabonné et supprimé lors de la prochaine visite.
+- Le Smartlink sponsorisé ne s'ouvre qu'après un clic volontaire sur le petit
+  cadeau flottant ; le bouton de lecture des scans ouvre uniquement le lecteur.

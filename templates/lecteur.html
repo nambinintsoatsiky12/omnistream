@@ -24,12 +24,26 @@
             margin-bottom: 15px;
         }
         .btn-back {
-            color: #8a2be2;
+            color: #b77cff;
+            background: transparent;
+            border: 0;
             text-decoration: none;
             font-weight: bold;
             font-size: 0.9rem;
             float: left;
             margin-left: 10px;
+            cursor: pointer;
+        }
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
         #pages-container img {
             width: 100%;
@@ -77,149 +91,240 @@
 <body>
 
     <div class="nav-bar">
-        <a href="javascript:history.back()" class="btn-back">← Retour</a>
+        <button type="button" id="back-button" class="btn-back">← Retour</button>
         <h1 style="font-size:1.1rem; margin: 0; display: inline-block; color: #fff;">{{ titre }}</h1>
         <br>
         <!-- Boutons de langue -->
         <div id="lang-buttons" style="display:none; margin: 10px 0;">
-            <button id="btn-fr" onclick="loadChaptersByLang('fr')" style="padding: 6px 14px; background: #ff0055; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🇫🇷 FR</button>
-            <button id="btn-en" onclick="loadChaptersByLang('en')" style="padding: 6px 14px; background: #222; color: #888; border: 1px solid #444; border-radius: 8px; font-weight: bold; cursor: pointer; margin-left: 8px;">🇬🇧 EN</button>
+            <button type="button" id="btn-fr" style="padding: 6px 14px; background: #ff0055; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🇫🇷 FR</button>
+            <button type="button" id="btn-en" style="padding: 6px 14px; background: #222; color: #888; border: 1px solid #444; border-radius: 8px; font-weight: bold; cursor: pointer; margin-left: 8px;">🇬🇧 EN</button>
         </div>
-        <select id="chapter-select" style="display:none;" onchange="loadChapterPages(this.value)"></select>
+        <label for="chapter-select" class="visually-hidden">Chapitre</label>
+        <select id="chapter-select" style="display:none;"></select>
     </div>
 
-    <div id="status" class="status-msg">🔍 Traque des chapitres...</div>
+    <div id="status" class="status-msg" role="status" aria-live="polite">🔍 Recherche des chapitres...</div>
     <div id="pages-container"></div>
 
     <script>
-        const titreAnime = "{{ titre }}";
-        let globalMangaId = null;
+    (function () {
+        "use strict";
 
-        async function initManga() {
-            const status = document.getElementById("status");
-            try {
-                let cleanTitle = titreAnime
-                    .split(':')[0]
-                    .split('-')[0]
-                    .replace(/saison*\d+/gi, '')
-                    .replace(/season*\d+/gi, '')
-                    .replace(/\(.*\)/g, '')
-                    .trim();
+        const animeTitle = {{ titre | tojson }};
+        const status = document.getElementById("status");
+        const select = document.getElementById("chapter-select");
+        const languageBox = document.getElementById("lang-buttons");
+        const frenchButton = document.getElementById("btn-fr");
+        const englishButton = document.getElementById("btn-en");
+        const pagesContainer = document.getElementById("pages-container");
+        let mangaId = null;
+        let languageGeneration = 0;
+        let pagesGeneration = 0;
 
-                status.innerHTML = `🔍 Recherche de "${cleanTitle}"...`;
-
-                let searchRes = await fetch(`/api/mangadex_proxy?endpoint=/manga&title=${encodeURIComponent(cleanTitle)}&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=porno`);
-                let searchData = await searchRes.json();
-
-                if (!searchData.data || searchData.data.length === 0) {
-                    status.innerHTML = `❌ Aucun scan disponible pour "<strong>${cleanTitle}</strong>"`;
-                    return;
-                }
-
-                let chosenManga = searchData.data.find(m => {
-                    const titleStr = JSON.stringify(m.attributes.title).toLowerCase();
-                    return titleStr.includes("colored") || titleStr.includes("color");
-                }) || searchData.data[0];
-
-                globalMangaId = chosenManga.id;
-
-                // Charge le français par défaut avec bascule auto si vide
-                await loadChaptersByLang('fr', true);
-            } catch (e) {
-                status.innerHTML = `❌ Erreur : ${e.message}`;
-            }
+        function setStatus(message) {
+            status.textContent = message;
+            status.style.display = "block";
         }
 
-        async function loadChaptersByLang(lang, autoFallback = false) {
-            const status = document.getElementById("status");
-            const select = document.getElementById("chapter-select");
-            const langBox = document.getElementById("lang-buttons");
-            const btnFr = document.getElementById("btn-fr");
-            const btnEn = document.getElementById("btn-en");
-
-            // Mise à jour visuelle des boutons
-            btnFr.style.background = (lang === 'fr') ? '#ff0055' : '#222';
-            btnFr.style.color = (lang === 'fr') ? 'white' : '#888';
-            btnEn.style.background = (lang === 'en') ? '#ff0055' : '#222';
-            btnEn.style.color = (lang === 'en') ? 'white' : '#888';
-
-            status.style.display = "block";
-            status.innerHTML = `🔍 Recherche des chapitres (${lang.toUpperCase()})...`;
-            select.style.display = "none";
-
-            let chaptersRes = await fetch(`/api/mangadex_proxy?endpoint=/manga/${globalMangaId}/feed&translatedLanguage[]=${lang}&order[chapter]=asc&limit=500&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=porno`);
-            let chaptersData = await chaptersRes.json();
-
-            if (!chaptersData.data || chaptersData.data.length === 0) {
-                if (lang === 'fr' && autoFallback) {
-                    status.innerHTML = "⚠️ Pas de VF disponible. Bascule automatique en Anglais (VA)...";
-                    await loadChaptersByLang('en', false);
-                    return;
-                }
-                status.innerHTML = `❌ Aucun chapitre trouvé en ${lang === 'fr' ? 'Français' : 'Anglais'}.`;
-                langBox.style.display = "block";
-                return;
+        async function requestJson(url) {
+            const response = await fetch(url, { headers: { Accept: "application/json" } });
+            let data;
+            try {
+                data = await response.json();
+            } catch (_error) {
+                throw new Error("Réponse serveur invalide.");
             }
+            if (!response.ok) throw new Error(data.error || "La requête a échoué.");
+            return data;
+        }
 
-            // Filtrage anti-doublons
-            const uniqueChapters = [];
-            const seen = new Set();
-            chaptersData.data.forEach(ch => {
-                const num = ch.attributes.chapter || "spec";
-                if (!seen.has(num)) {
-                    seen.add(num);
-                    uniqueChapters.push(ch);
-                }
+        function addContentRatings(params) {
+            ["safe", "suggestive", "erotica", "pornographic"].forEach((rating) => {
+                params.append("contentRating[]", rating);
             });
+        }
 
-            const flag = (lang === 'fr') ? '🇫🇷' : '🇬🇧';
-            select.innerHTML = uniqueChapters.map(ch => {
-                const num = ch.attributes.chapter ? `Chapitre ${ch.attributes.chapter}` : "Spécial";
-                const title = ch.attributes.title ? ` - ${ch.attributes.title}` : "";
-                return `<option value="${ch.id}">${flag} ${num}${title}</option>`;
-            }).join("");
-
-            status.style.display = "none";
-            select.style.display = "inline-block";
-            langBox.style.display = "block";
-
-            loadChapterPages(uniqueChapters[0].id);
+        function updateLanguageButtons(language) {
+            frenchButton.style.background = language === "fr" ? "#ff0055" : "#222";
+            frenchButton.style.color = language === "fr" ? "white" : "#888";
+            englishButton.style.background = language === "en" ? "#ff0055" : "#222";
+            englishButton.style.color = language === "en" ? "white" : "#888";
         }
 
         async function loadChapterPages(chapterId) {
-            const container = document.getElementById("pages-container");
-            container.innerHTML = '<div class="status-msg">📖 Chargement des planches...</div>';
+            if (!/^[0-9a-f-]{36}$/i.test(chapterId)) return;
+            const currentGeneration = ++pagesGeneration;
+            pagesContainer.replaceChildren();
+            const loading = document.createElement("div");
+            loading.className = "status-msg";
+            loading.textContent = "📖 Chargement des planches...";
+            pagesContainer.appendChild(loading);
 
             try {
-                const res = await fetch(`/api/mangadex_proxy?endpoint=/at-home/server/${chapterId}`);
-                const data = await res.json();
+                const params = new URLSearchParams({
+                    endpoint: `/at-home/server/${chapterId}`,
+                });
+                const data = await requestJson(`/api/mangadex_proxy?${params}`);
+                if (currentGeneration !== pagesGeneration) return;
+                if (!data.chapter || typeof data.baseUrl !== "string") {
+                    throw new Error("Chapitre introuvable.");
+                }
 
-                if (!data.chapter) throw new Error("Chapitre introuvable.");
+                const files =
+                    Array.isArray(data.chapter.dataSaver) && data.chapter.dataSaver.length
+                        ? data.chapter.dataSaver
+                        : data.chapter.data;
+                const folder =
+                    Array.isArray(data.chapter.dataSaver) && data.chapter.dataSaver.length
+                        ? "data-saver"
+                        : "data";
+                if (!Array.isArray(files) || !files.length || typeof data.chapter.hash !== "string") {
+                    throw new Error("Ce chapitre ne contient aucune planche.");
+                }
 
-                const baseUrl = data.baseUrl;
-                const hash = data.chapter.hash;
-                const useDataSaver = data.chapter.dataSaver && data.chapter.dataSaver.length > 0;
-                const pageFiles = useDataSaver ? data.chapter.dataSaver : data.chapter.data;
-                const folder = useDataSaver ? 'data-saver' : 'data';
-
-                container.innerHTML = pageFiles.map(file => {
-                    const primaryUrl = `${baseUrl}/${folder}/${hash}/${file}`;
-                    const fallbackUrl = `https://uploads.mangadex.org/${folder}/${hash}/${file}`;
-                    return `<img src="${primaryUrl}"
-                                 onerror="if(this.src!=='${fallbackUrl}'){this.src='${fallbackUrl}';}"
-                                 referrerpolicy="no-referrer"
-                                 loading="lazy"
-                                 alt="Page Scan">`;
-                }).join("");
-
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            } catch (err) {
-                console.error(err);
-                container.innerHTML = `<div class="status-msg">❌ Échec d'affichage : ${err.message}</div>`;
+                const baseUrl = new URL(data.baseUrl);
+                if (
+                    baseUrl.protocol !== "https:" ||
+                    baseUrl.username ||
+                    baseUrl.password ||
+                    baseUrl.search ||
+                    baseUrl.hash
+                ) throw new Error("Serveur d'images invalide.");
+                const hash = encodeURIComponent(data.chapter.hash);
+                const images = files
+                    .filter((file) => typeof file === "string")
+                    .map((file, index) => {
+                        const safeFile = encodeURIComponent(file);
+                        const primaryUrl = `${baseUrl.href.replace(/\/$/, "")}/${folder}/${hash}/${safeFile}`;
+                        const fallbackUrl = `https://uploads.mangadex.org/${folder}/${hash}/${safeFile}`;
+                        const image = document.createElement("img");
+                        image.src = primaryUrl;
+                        image.alt = `Page ${index + 1}`;
+                        image.referrerPolicy = "no-referrer";
+                        image.loading = index < 2 ? "eager" : "lazy";
+                        image.addEventListener("error", () => {
+                            if (image.src !== fallbackUrl) image.src = fallbackUrl;
+                        }, { once: true });
+                        return image;
+                    });
+                pagesContainer.replaceChildren(...images);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+            } catch (error) {
+                if (currentGeneration !== pagesGeneration) return;
+                console.error(error);
+                const message = document.createElement("div");
+                message.className = "status-msg";
+                message.textContent = `❌ Échec d'affichage : ${error.message}`;
+                pagesContainer.replaceChildren(message);
             }
         }
 
-        initManga();
+        async function loadChaptersByLanguage(language, automaticFallback) {
+            if (!mangaId || !["fr", "en"].includes(language)) return;
+            const currentGeneration = ++languageGeneration;
+            pagesGeneration += 1;
+            updateLanguageButtons(language);
+            setStatus(`🔍 Recherche des chapitres (${language.toUpperCase()})...`);
+            select.style.display = "none";
+
+            try {
+                const params = new URLSearchParams({
+                    endpoint: `/manga/${mangaId}/feed`,
+                    "order[chapter]": "asc",
+                    limit: "500",
+                });
+                params.append("translatedLanguage[]", language);
+                addContentRatings(params);
+                const data = await requestJson(`/api/mangadex_proxy?${params}`);
+                if (currentGeneration !== languageGeneration) return;
+                const chapters = Array.isArray(data.data) ? data.data : [];
+                if (!chapters.length) {
+                    if (language === "fr" && automaticFallback) {
+                        setStatus("⚠️ Pas de VF disponible. Bascule en anglais...");
+                        await loadChaptersByLanguage("en", false);
+                        return;
+                    }
+                    setStatus(
+                        `❌ Aucun chapitre trouvé en ${language === "fr" ? "français" : "anglais"}.`,
+                    );
+                    languageBox.style.display = "block";
+                    return;
+                }
+
+                const uniqueChapters = [];
+                const seen = new Set();
+                chapters.forEach((chapter) => {
+                    if (!chapter || !chapter.attributes || typeof chapter.id !== "string") return;
+                    const number = chapter.attributes.chapter || "special";
+                    if (!seen.has(number)) {
+                        seen.add(number);
+                        uniqueChapters.push(chapter);
+                    }
+                });
+                if (!uniqueChapters.length) throw new Error("Aucun chapitre exploitable.");
+
+                const flag = language === "fr" ? "🇫🇷" : "🇬🇧";
+                const options = uniqueChapters.map((chapter) => {
+                    const number = chapter.attributes.chapter
+                        ? `Chapitre ${chapter.attributes.chapter}`
+                        : "Spécial";
+                    const chapterTitle = chapter.attributes.title
+                        ? ` - ${chapter.attributes.title}`
+                        : "";
+                    return new Option(`${flag} ${number}${chapterTitle}`, chapter.id);
+                });
+                select.replaceChildren(...options);
+                status.style.display = "none";
+                select.style.display = "inline-block";
+                languageBox.style.display = "block";
+                loadChapterPages(uniqueChapters[0].id);
+            } catch (error) {
+                if (currentGeneration !== languageGeneration) return;
+                console.error(error);
+                setStatus(`❌ Erreur : ${error.message}`);
+                languageBox.style.display = "block";
+            }
+        }
+
+        async function initializeManga() {
+            const cleanTitle = animeTitle
+                .split(":")[0]
+                .replace(/\s+-\s+.*/, "")
+                .replace(/(?:saison|season)\s*\d+/gi, "")
+                .replace(/\([^)]*\)/g, "")
+                .trim();
+            if (!cleanTitle) {
+                setStatus("❌ Le titre du manga est invalide.");
+                return;
+            }
+            setStatus(`🔍 Recherche de « ${cleanTitle} »...`);
+
+            try {
+                const params = new URLSearchParams({ endpoint: "/manga", title: cleanTitle });
+                addContentRatings(params);
+                const data = await requestJson(`/api/mangadex_proxy?${params}`);
+                const results = Array.isArray(data.data) ? data.data : [];
+                if (!results.length || typeof results[0].id !== "string") {
+                    setStatus(`❌ Aucun scan disponible pour « ${cleanTitle} ».`);
+                    return;
+                }
+                mangaId = results[0].id;
+                await loadChaptersByLanguage("fr", true);
+            } catch (error) {
+                console.error(error);
+                setStatus(`❌ Erreur : ${error.message}`);
+            }
+        }
+
+        frenchButton.addEventListener("click", () => loadChaptersByLanguage("fr", false));
+        englishButton.addEventListener("click", () => loadChaptersByLanguage("en", false));
+        select.addEventListener("change", () => loadChapterPages(select.value));
+        document.getElementById("back-button").addEventListener("click", () => {
+            if (window.history.length > 1) window.history.back();
+            else window.location.href = "/?tab=animes";
+        });
+        initializeManga();
+    })();
     </script>
 </body>
 </html>

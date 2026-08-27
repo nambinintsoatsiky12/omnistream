@@ -5,20 +5,20 @@
 <section class="landing-hero">
   <div class="poster-wall" aria-hidden="true">
     <div class="poster-col poster-col-up">
-      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy">{% endfor %}
-      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
     </div>
     <div class="poster-col poster-col-down">
-      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy">{% endfor %}
-      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
     </div>
     <div class="poster-col poster-col-up">
-      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy">{% endfor %}
-      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
     </div>
     <div class="poster-col poster-col-down">
-      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy">{% endfor %}
-      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy">{% endfor %}
+      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
     </div>
   </div>
   <div class="poster-wall-overlay"></div>
@@ -106,6 +106,10 @@
 <script>
 (function () {
   const els = document.querySelectorAll(".reveal");
+  if (!("IntersectionObserver" in window)) {
+    els.forEach((el) => el.classList.add("in-view"));
+    return;
+  }
   const io = new IntersectionObserver((entries) => {
     entries.forEach((e) => {
       if (e.isIntersecting) {
