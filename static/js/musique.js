@@ -6,8 +6,11 @@
   const resultsEl = document.getElementById("musique-results");
   const emptyMsg = document.getElementById("musique-empty");
   const loadingMsg = document.getElementById("musique-loading");
-  const playerWrap = document.getElementById("musique-player-wrap");
   const player = document.getElementById("musique-player");
+  const audioBar = document.getElementById("audio-bar");
+  const audioBarTitle = document.getElementById("audio-bar-title");
+  const audioBarChannel = document.getElementById("audio-bar-channel");
+  const audioBarStop = document.getElementById("audio-bar-stop");
   const sectionTitle = document.getElementById("musique-section-title");
   const modeToggle = document.getElementById("mode-toggle");
   const videoOverlay = document.getElementById("video-overlay");
@@ -30,8 +33,7 @@
         if (currentMode === "audio") {
           closeVideoOverlay();
         } else {
-          if (playerWrap) playerWrap.hidden = true;
-          if (player) player.src = "about:blank";
+          stopAudio();
         }
       });
     });
@@ -72,20 +74,33 @@
     }
   });
 
+  /* Audio mode : iframe caché de 1px + barre de lecteur visible */
+  function stopAudio() {
+    if (player) player.src = "about:blank";
+    if (audioBar) audioBar.hidden = true;
+  }
+
+  if (audioBarStop) {
+    audioBarStop.addEventListener("click", stopAudio);
+  }
+
+  function playAudio(videoId, title, channel) {
+    if (player) {
+      player.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`;
+    }
+    if (audioBarTitle) audioBarTitle.textContent = title || "Lecture en cours";
+    if (audioBarChannel) audioBarChannel.textContent = channel || "";
+    if (audioBar) audioBar.hidden = false;
+  }
+
   /* Play video based on current mode */
-  function playVideo(videoId, title) {
+  function playVideo(videoId, title, channel) {
     if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return;
     if (currentMode === "video") {
+      stopAudio();
       openVideoOverlay(videoId, title);
     } else {
-      // Audio mode: inline player
-      if (player) {
-        player.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1`;
-      }
-      if (playerWrap) {
-        playerWrap.hidden = false;
-        playerWrap.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      playAudio(videoId, title, channel);
     }
   }
 
@@ -104,7 +119,9 @@
     const card = document.createElement("button");
     card.type = "button";
     card.className = "card musique-card";
-    card.addEventListener("click", () => playVideo(String(item.id), String(item.title || "")));
+    card.addEventListener("click", () =>
+      playVideo(String(item.id), String(item.title || ""), String(item.channel || "")),
+    );
 
     const poster = document.createElement("div");
     poster.className = "poster";

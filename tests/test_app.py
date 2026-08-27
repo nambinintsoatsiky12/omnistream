@@ -353,7 +353,12 @@ def test_musique_page_loads(client):
     assert response.status_code == 200
     assert b"Audio" in response.data
     assert b"Vid\xc3\xa9o" in response.data
+    # Mode Audio : iframe cachée en 1px + barre de lecteur
+    assert b"audio-hidden-frame" in response.data
+    assert b"audio-bar" in response.data
+    # Mode Vidéo : overlay vrai plein écran
     assert b"video-overlay" in response.data
+    assert b"video-fullscreen-frame" in response.data
 
 
 def test_privacy_page_loads(client):
