@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% block title %}OmniStream — Films, séries et animés en un seul endroit{% endblock %}
+{% block title %}OmniStream — Films, Séries, Animés & Musique en accès libre{% endblock %}
 {% block content %}
 
+<!-- HERO SECTION -->
 <section class="landing-hero">
   <div class="poster-wall" aria-hidden="true">
     <div class="poster-col poster-col-up">
@@ -24,90 +25,186 @@
   <div class="poster-wall-overlay"></div>
 
   <div class="landing-hero-inner reveal">
-    <span class="landing-eyebrow">Catalogue Films · Séries · Animés</span>
-    <h1>Tout ce que vous regardez,<br>au même endroit.</h1>
+    <div class="landing-badge-pill">
+      <span class="badge-dot"></span>
+      <span>Plateforme Multimédia Indépendante</span>
+    </div>
+    
+    <span class="landing-eyebrow">Catalogue Films · Séries · Animés · Musique</span>
+    <h1>Tout ce que vous regardez,<br><span class="gradient-text">au même endroit.</span></h1>
     <p class="landing-lead">
-      OmniStream rassemble un catalogue complet de films, séries et animés,
-      avec des notes fiables, des sorties à venir et une sélection des œuvres
-      les mieux notées — accessible sans inscription.
+      OmniStream réunit un catalogue immersif de films, séries, animés et musique haute performance. Profitez de fiches complètes, de notes précises, d'un assistant IA et d'un lecteur de scans mangas — sans compte ni inscription requise.
     </p>
     <div class="landing-cta">
-      <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">🎬 Explorer le catalogue</a>
-      <a href="{{ url_for('musiques') }}" class="landing-btn-secondary">🎧 Découvrir la musique</a>
+      <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+        <span>Explorer le catalogue</span>
+      </a>
+      <a href="{{ url_for('musiques') }}" class="landing-btn-secondary">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        <span>Écouter la musique</span>
+      </a>
     </div>
   </div>
 </section>
 
+<!-- STATS BAND (INSPIRED BY UNIVERSITÉ D'ANTANANARIVO BANNER) -->
 <section class="landing-stats-band">
   <div class="landing-stats-inner">
     <div class="mini-stat reveal">
-      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+      <div class="mini-stat-icon-wrap">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+      </div>
       <span class="mini-stat-number">{{ visits }}</span>
       <span class="mini-stat-label">Visiteurs uniques</span>
     </div>
+
     <div class="mini-stat reveal">
-      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
+      <div class="mini-stat-icon-wrap icon-purple">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+      </div>
       <span class="mini-stat-number">4</span>
-      <span class="mini-stat-label">Catégories de contenu</span>
+      <span class="mini-stat-label">Univers de divertissement</span>
     </div>
+
     <div class="mini-stat reveal">
-      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>
-      <span class="mini-stat-number">∞</span>
-      <span class="mini-stat-label">Accès libre et gratuit</span>
+      <div class="mini-stat-icon-wrap icon-pink">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+      </div>
+      <span class="mini-stat-number">+10 000</span>
+      <span class="mini-stat-label">Titres indexés</span>
+    </div>
+
+    <div class="mini-stat reveal">
+      <div class="mini-stat-icon-wrap icon-orange">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+      </div>
+      <span class="mini-stat-number">100%</span>
+      <span class="mini-stat-label">Accès libre &amp; gratuit</span>
     </div>
   </div>
 </section>
 
+<!-- FEATURES SECTION (MOVIEBOX + UA CARDS STYLE) -->
 <section class="landing-features">
-  <h2 class="reveal">Ce que vous trouverez sur OmniStream</h2>
+  <div class="section-header-wrap reveal">
+    <span class="section-kicker">FONCTIONNALITÉS &amp; EXPÉRIENCE</span>
+    <h2>Une plateforme pensée pour les passionnés</h2>
+    <p class="section-sub">Découvrez l'ensemble des technologies et contenus intégrés dans l'écosystème OmniStream.</p>
+  </div>
+
   <div class="landing-feature-grid">
     <div class="landing-feature reveal">
-      <h3>🎬 Un catalogue complet</h3>
-      <p>Films, séries, animés et animation occidentale, avec fiches détaillées, casting et synopsis — sans inscription requise.</p>
+      <div class="feature-icon-badge badge-purple">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+      </div>
+      <h3>Catalogue Unifié &amp; Riche</h3>
+      <p>Films, séries, animés et animations avec synopsis, casting complet et notations officielles issues de TMDB.</p>
     </div>
+
     <div class="landing-feature reveal">
-      <h3>🆕 Sorties à venir</h3>
-      <p>Une section dédiée aux prochaines sorties, classées par date réelle de disponibilité.</p>
+      <div class="feature-icon-badge badge-pink">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+      </div>
+      <h3>Musique Audio &amp; Vidéo</h3>
+      <p>Écoutez en mode Audio économique (faible consommation de données Mo) ou profitez du lecteur vidéo en vrai plein écran.</p>
     </div>
+
     <div class="landing-feature reveal">
-      <h3>🏆 Les mieux notés</h3>
-      <p>Une sélection stricte des œuvres les mieux notées (note ≥ 8.5), tous genres confondus.</p>
+      <div class="feature-icon-badge badge-orange">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+      </div>
+      <h3>Lecteur de Scans Mangas</h3>
+      <p>Accédez directement aux chapitres en version française (VF) grâce à l'intégration MangaDex avec chargement rapide.</p>
     </div>
+
     <div class="landing-feature reveal">
-      <h3>🤖 Assistant Gemini intégré</h3>
-      <p>Posez vos questions sur n'importe quelle œuvre du catalogue directement depuis sa fiche — acteurs, anecdotes, suites.</p>
+      <div class="feature-icon-badge badge-cyan">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><circle cx="9" cy="10" r="1"></circle><circle cx="12" cy="10" r="1"></circle><circle cx="15" cy="10" r="1"></circle></svg>
+      </div>
+      <h3>Assistant IA Gemini Intégré</h3>
+      <p>Posez des questions sur les acteurs, théories, intrigues ou suites prévues directement sur chaque fiche média.</p>
     </div>
+
     <div class="landing-feature reveal">
-      <h3>📖 Lecteur de scans</h3>
-      <p>Lisez vos mangas préférés directement en VF grâce à l'intégration MangaDex.</p>
+      <div class="feature-icon-badge badge-gold">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H7v2h10v-2h-2c-.55 0-1-.45-1-1v-2.34c3.34-1.28 5-4.66 5-7.66V4H6v5c0 3 1.66 6.38 5 7.66z"></path></svg>
+      </div>
+      <h3>Les Légendes (Note ≥ 8.5)</h3>
+      <p>Un filtre d'élite réunissant les chefs-d'œuvre incontournables du cinéma et de la télévision plébiscités par le public.</p>
     </div>
+
     <div class="landing-feature reveal">
-      <h3>🎧 Musique &amp; Vidéo</h3>
-      <p>Écoutez et regardez les tendances musicales avec les modes Audio et Vidéo plein écran.</p>
+      <div class="feature-icon-badge badge-emerald">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      </div>
+      <h3>Zéro Inscription · Respect Total</h3>
+      <p>Aucun mot de passe, aucun traçage intrusif, aucune pub bloquante. Une expérience fluide et respectueuse de votre vie privée.</p>
     </div>
   </div>
 </section>
 
+<!-- ABOUT SECTION (INSPIRED BY UNIVERSITÉ D'ANTANANARIVO ABOUT SECTION) -->
 <section class="landing-about">
-  <div class="landing-about-inner reveal">
-    <h2>À propos d'OmniStream</h2>
-    <p>
-      OmniStream est un projet indépendant conçu et développé par
-      <strong>NAMBININTSOA Tsiky Fandresena</strong>, pensé pour offrir une
-      expérience de découverte simple et centralisée pour les amateurs de
-      films, séries et animés.
-    </p>
-    <blockquote class="landing-quote">
-      "Un site pensé par un passionné, pour les passionnés."
-    </blockquote>
+  <div class="landing-about-container">
+    <div class="about-grid">
+      <div class="about-visual reveal">
+        <div class="about-card-glow">
+          <div class="about-card-inner">
+            <div class="about-icon-main">
+              <svg viewBox="0 0 40 40" width="48" height="48">
+                <rect x="2" y="2" width="36" height="36" rx="10" fill="url(#logoGrad)"/>
+                <path d="M16 13l13 7-13 7z" fill="#fff"/>
+              </svg>
+            </div>
+            <div class="about-card-title">OmniStream Project</div>
+            <div class="about-card-sub">Antananarivo, Madagascar</div>
+            <div class="about-quote-box">
+              <p>« Conçu par un passionné pour offrir une expérience multimédia fluide, esthétique et sans contrainte. »</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="about-text-content reveal">
+        <span class="section-kicker">À PROPOS DU PROJET</span>
+        <h2>Une Vision Moderne du Streaming &amp; de la Découverte</h2>
+        <p class="about-lead">
+          OmniStream est une application web indépendante imaginée et réalisée par <strong>NAMBININTSOA Tsiky Fandresena</strong>.
+        </p>
+        <p class="about-desc">
+          L'objectif est d'offrir une interface soignée, ultra-rapide et responsive, combinant les meilleures sources de métadonnées et de streaming pour centraliser le divertissement en un seul espace harmonieux.
+        </p>
+
+        <ul class="about-highlights">
+          <li>
+            <span class="highlight-dot"></span>
+            <span>Intégration d'API modernes TMDB, Gemini, MangaDex et YouTube</span>
+          </li>
+          <li>
+            <span class="highlight-dot"></span>
+            <span>Mode basse consommation pour les connexions mobiles à Madagascar</span>
+          </li>
+          <li>
+            <span class="highlight-dot"></span>
+            <span>Interface glassmorphism dark pensée pour le confort visuel</span>
+          </li>
+        </ul>
+      </div>
+    </div>
   </div>
 </section>
 
+<!-- FINAL CALL TO ACTION -->
 <section class="landing-final-cta reveal">
-  <h2>Envie de découvrir votre prochain coup de cœur ?</h2>
-  <p class="landing-final-lead">Des centaines de films, séries et animés vous attendent — sans compte, sans inscription.</p>
+  <span class="section-kicker">COMMENCER L'EXPÉRIENCE</span>
+  <h2>Prêt à explorer vos prochains coups de cœur ?</h2>
+  <p class="landing-final-lead">Accédez immédiatement à des milliers de films, séries, animés et titres musicaux.</p>
   <div class="landing-cta">
-    <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">🎬 Explorer maintenant</a>
+    <a href="{{ url_for('index', tab='films') }}" class="landing-btn-primary">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+      <span>Explorer le catalogue maintenant</span>
+    </a>
   </div>
 </section>
 

@@ -1,20 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Confidentialité — OmniStream{% endblock %}
+{% block title %}Politique de Confidentialité — OmniStream{% endblock %}
 {% block content %}
-<div class="privacy-box">
-  <h1>Politique de confidentialité</h1>
-  <p>OmniStream respecte votre vie privée. Ce site ne collecte aucune donnée personnelle identifiable.</p>
+<div class="privacy-container">
+  <div class="privacy-box">
+    <div class="section-kicker">SÉCURITÉ &amp; TRANSPARENCE</div>
+    <h1>Politique de Confidentialité</h1>
+    <p class="privacy-intro">OmniStream est conçu selon le principe fondamental du respect de la vie privée et de la neutralité technologique.</p>
 
-  <h2>Cookies</h2>
-  <p>OmniStream utilise uniquement un cookie de session technique pour mémoriser vos préférences de navigation. Aucun cookie publicitaire ou de traçage n'est utilisé.</p>
+    <div class="privacy-section">
+      <h2>1. Aucune collecte de données personnelles</h2>
+      <p>OmniStream ne requiert aucune création de compte, aucun e-mail, aucun numéro de téléphone ni aucun mot de passe. Vous naviguez librement et anonymement sur l'ensemble du catalogue.</p>
+    </div>
 
-  <h2>Données collectées</h2>
-  <p>Un compteur de visiteurs uniques anonymes est utilisé pour mesurer la fréquentation du site. Aucune adresse IP, aucun identifiant personnel ni aucune donnée de navigation n'est stockée.</p>
+    <div class="privacy-section">
+      <h2>2. Compteur de visites anonymisé</h2>
+      <p>Seul un compteur de visites quotidiennes agrégé est maintenu en base de données. Il n'enregistre aucune adresse IP ni identifiant nominatif. Un marqueur de session éphémère permet d'éviter les doubles comptages d'un même visiteur au cours d'une même session.</p>
+    </div>
 
-  <h2>Services tiers</h2>
-  <p>OmniStream utilise les API de TMDB, YouTube et MangaDex pour afficher du contenu. Ces services peuvent collecter des données conformément à leurs propres politiques de confidentialité.</p>
+    <div class="privacy-section">
+      <h2>3. Fournisseurs et API Externes</h2>
+      <p>OmniStream interroge les API publiques de TMDB pour les métadonnées cinématographiques, MangaDex pour la lecture de scans et YouTube pour le flux musical. Vos interactions directes restent sécurisées et aucun cookie tiers publicitaire intrusif n'est injecté.</p>
+    </div>
 
-  <h2>Contact</h2>
-  <p>Pour toute question concernant la confidentialité, vous pouvez contacter le créateur du site.</p>
+    <div class="privacy-section">
+      <h2>4. Mode Basse Consommation</h2>
+      <p>Notre lecteur audio est optimisé pour les utilisateurs disposant de forfaits internet limités (notamment les réseaux mobiles à Madagascar), en limitant les requêtes au strict minimum.</p>
+    </div>
+
+    <div class="privacy-footer-tag">
+      <span>Dernière révision : 2026 · OmniStream Open &amp; Safe</span>
+    </div>
+  </div>
 </div>
 {% endblock %}

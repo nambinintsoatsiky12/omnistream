@@ -3,112 +3,375 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}OmniStream{% endblock %}</title>
+<title>{% block title %}OmniStream — Films, Séries, Animés & Musique{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=11">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=12">
 <script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v=1" defer></script>
 <meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
 <body class="{{ 'body-landing' if landing_page|default(false) else '' }}">
+
+<!-- TOP HEADER BAR -->
 <header class="topbar {{ 'topbar-landing' if landing_page|default(false) else '' }}" id="topbar">
   <div class="topbar-inner" id="topbar-inner">
-    <a href="{{ url_for('index') }}" class="logo logo-mark">
+    <a href="{{ url_for('index') }}" class="logo logo-mark" aria-label="OmniStream Accueil">
       <span class="logo-icon">
-        <svg viewBox="0 0 40 40" width="32" height="32">
+        <svg viewBox="0 0 40 40" width="34" height="34" aria-hidden="true">
           <defs>
             <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#a855f7"/>
+              <stop offset="0%" stop-color="#8b5cf6"/>
               <stop offset="50%" stop-color="#ec4899"/>
               <stop offset="100%" stop-color="#fb923c"/>
             </linearGradient>
           </defs>
           <rect x="2" y="2" width="36" height="36" rx="10" fill="url(#logoGrad)"/>
-          <path d="M16 13l13 7-13 7z" fill="#fff"/>
+          <path d="M16 13l13 7-13 7z" fill="#ffffff"/>
         </svg>
       </span>
-      OMNI<span>STREAM</span>
+      <span class="logo-text">OMNI<span>STREAM</span></span>
     </a>
 
-    {% if tab is defined and tab %}
-    <form class="searchbar" id="searchbar" action="{{ url_for('index') }}" method="get">
+    <!-- SEARCH BAR -->
+    <form class="searchbar" id="searchbar" action="{{ url_for('index') }}" method="get" role="search">
       <input type="hidden" name="tab" value="{{ tab|default('films') }}">
-      <input type="text" name="q" id="search-input" placeholder="Rechercher un titre..." value="{{ query|default('') }}" maxlength="120" aria-label="Rechercher un titre">
-      <button type="submit" aria-label="Rechercher">
-        <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+      <div class="searchbar-input-wrap">
+        <svg class="searchbar-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" name="q" id="search-input" placeholder="Rechercher un film, série, animé..." value="{{ query|default('') }}" maxlength="120" aria-label="Rechercher un titre">
+      </div>
+      <button type="submit" aria-label="Lancer la recherche">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
       </button>
     </form>
 
-    <button type="button" class="icon-btn" id="search-toggle" aria-label="Rechercher">
-      <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
-    </button>
-    {% endif %}
+    <!-- RIGHT ACTION BUTTONS -->
+    <div class="topbar-actions">
+      <button type="button" class="icon-btn" id="search-toggle" aria-label="Ouvrir la recherche">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      </button>
 
-    <button type="button" class="icon-btn" id="burger-btn" aria-label="Menu" aria-controls="burger-panel" aria-expanded="false">
-      <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      <a href="{{ url_for('musiques') }}" class="topbar-music-link" title="Espace Musique">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18V5l12-2v13"></path>
+          <circle cx="6" cy="18" r="3"></circle>
+          <circle cx="18" cy="16" r="3"></circle>
+        </svg>
+        <span>Musique</span>
+      </a>
+
+      <button type="button" class="burger-btn" id="burger-btn" aria-label="Menu principal" aria-controls="drawer-panel" aria-expanded="false">
+        <span class="burger-bar bar-1"></span>
+        <span class="burger-bar bar-2"></span>
+        <span class="burger-bar bar-3"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- CATEGORY TABS -->
+  {% if tab is defined and tab %}
+  <nav class="tabs" aria-label="Catégories principales">
+    <a href="{{ url_for('index', tab='films') }}" class="{{ 'active' if tab=='films' or not tab else '' }}">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+      Films
+    </a>
+    <a href="{{ url_for('index', tab='series') }}" class="{{ 'active' if tab=='series' else '' }}">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+      Séries
+    </a>
+    <a href="{{ url_for('index', tab='animes') }}" class="{{ 'active' if tab=='animes' else '' }}">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+      Animes
+    </a>
+    <a href="{{ url_for('index', tab='animation_occidentale') }}" class="{{ 'active' if tab=='animation_occidentale' else '' }}">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+      Animation
+    </a>
+    <a href="{{ url_for('index', tab='nouveautes') }}" class="{{ 'active' if tab=='nouveautes' else '' }}">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+      Nouveautés
+    </a>
+    <a href="{{ url_for('index', tab='legendes') }}" class="{{ 'active' if tab=='legendes' else '' }}">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H7v2h10v-2h-2c-.55 0-1-.45-1-1v-2.34c3.34-1.28 5-4.66 5-7.66V4H6v5c0 3 1.66 6.38 5 7.66z"></path></svg>
+      Légendes (≥ 8.5)
+    </a>
+  </nav>
+  {% endif %}
+</header>
+
+<!-- BACKDROP FOR DRAWER -->
+<div class="drawer-backdrop" id="drawer-backdrop" aria-hidden="true"></div>
+
+<!-- PROFESSIONAL OFF-CANVAS SLIDE DRAWER -->
+<aside class="drawer-panel" id="drawer-panel" aria-label="Menu de navigation" aria-hidden="true">
+  <div class="drawer-header">
+    <div class="drawer-brand">
+      <span class="drawer-logo-icon">
+        <svg viewBox="0 0 40 40" width="28" height="28" aria-hidden="true">
+          <rect x="2" y="2" width="36" height="36" rx="8" fill="url(#logoGrad)"/>
+          <path d="M16 13l13 7-13 7z" fill="#fff"/>
+        </svg>
+      </span>
+      <div>
+        <div class="drawer-brand-title">OMNI<span>STREAM</span></div>
+        <div class="drawer-brand-sub">Navigation Officielle</div>
+      </div>
+    </div>
+    <button type="button" class="drawer-close-btn" id="drawer-close-btn" aria-label="Fermer le menu">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
     </button>
   </div>
 
-  {% if tab is defined and tab %}
-  <nav class="tabs">
-    <a href="{{ url_for('index', tab='films') }}" class="{{ 'active' if tab=='films' or not tab else '' }}">Films</a>
-    <a href="{{ url_for('index', tab='animes') }}" class="{{ 'active' if tab=='animes' else '' }}">Animes</a>
-    <a href="{{ url_for('index', tab='series') }}" class="{{ 'active' if tab=='series' else '' }}">Séries</a>
-    <a href="{{ url_for('index', tab='animation_occidentale') }}" class="{{ 'active' if tab=='animation_occidentale' else '' }}">Animation</a>
-  </nav>
-  {% endif %}
+  <div class="drawer-body">
+    <!-- SECTION 1: CATALOGUE -->
+    <div class="drawer-section-title">Catalogue Multimédia</div>
+    <nav class="drawer-nav">
+      <a href="{{ url_for('index') }}" class="drawer-item {{ 'active' if not tab and not landing_page else '' }}">
+        <span class="drawer-item-icon">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+        </span>
+        <span class="drawer-item-label">Accueil Vitrine</span>
+      </a>
 
-  <nav class="burger-panel" id="burger-panel" aria-label="Menu principal">
-    <a href="{{ url_for('index') }}">🏠 Accueil</a>
-    <a href="{{ url_for('index', tab='films') }}">🎬 Catalogue Films</a>
-    <a href="{{ url_for('index', tab='animes') }}">⛩️ Animes</a>
-    <a href="{{ url_for('index', tab='series') }}">📺 Séries</a>
-    <a href="{{ url_for('index', tab='nouveautes') }}">🆕 Nouveautés à venir</a>
-    <a href="{{ url_for('index', tab='legendes') }}">🏆 Les Légendes (≥ 8.5)</a>
-    <a href="{{ url_for('musiques') }}">🎧 Musique</a>
-    <a href="{{ url_for('privacy') }}" class="burger-divider">Confidentialité</a>
-  </nav>
-</header>
+      <a href="{{ url_for('index', tab='films') }}" class="drawer-item {{ 'active' if tab=='films' else '' }}">
+        <span class="drawer-item-icon">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+        </span>
+        <span class="drawer-item-label">Catalogue Films</span>
+      </a>
 
-<main>
+      <a href="{{ url_for('index', tab='series') }}" class="drawer-item {{ 'active' if tab=='series' else '' }}">
+        <span class="drawer-item-icon">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+        </span>
+        <span class="drawer-item-label">Séries &amp; Feuilletons</span>
+      </a>
+
+      <a href="{{ url_for('index', tab='animes') }}" class="drawer-item {{ 'active' if tab=='animes' else '' }}">
+        <span class="drawer-item-icon">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+        </span>
+        <span class="drawer-item-label">Animés Japonais</span>
+      </a>
+
+      <a href="{{ url_for('index', tab='animation_occidentale') }}" class="drawer-item {{ 'active' if tab=='animation_occidentale' else '' }}">
+        <span class="drawer-item-icon">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+        </span>
+        <span class="drawer-item-label">Animation Occidentale</span>
+      </a>
+    </nav>
+
+    <!-- SECTION 2: SÉLECTIONS SPÉCIALES -->
+    <div class="drawer-section-title">Sélections Spéciales</div>
+    <nav class="drawer-nav">
+      <a href="{{ url_for('index', tab='nouveautes') }}" class="drawer-item {{ 'active' if tab=='nouveautes' else '' }}">
+        <span class="drawer-item-icon accent-glow">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        </span>
+        <span class="drawer-item-label">Nouveautés à venir</span>
+        <span class="drawer-badge">Sorties</span>
+      </a>
+
+      <a href="{{ url_for('index', tab='legendes') }}" class="drawer-item {{ 'active' if tab=='legendes' else '' }}">
+        <span class="drawer-item-icon gold-glow">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H7v2h10v-2h-2c-.55 0-1-.45-1-1v-2.34c3.34-1.28 5-4.66 5-7.66V4H6v5c0 3 1.66 6.38 5 7.66z"></path></svg>
+        </span>
+        <span class="drawer-item-label">Les Légendes (≥ 8.5)</span>
+        <span class="drawer-badge gold">Top</span>
+      </a>
+
+      <a href="{{ url_for('musiques') }}" class="drawer-item">
+        <span class="drawer-item-icon pink-glow">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        </span>
+        <span class="drawer-item-label">Espace Musique (Audio &amp; Vidéo)</span>
+        <span class="drawer-badge pink">Stream</span>
+      </a>
+    </nav>
+
+    <!-- SECTION 3: LÉGAL & INFOS -->
+    <div class="drawer-section-title">Informations &amp; Sécurité</div>
+    <nav class="drawer-nav">
+      <a href="{{ url_for('privacy') }}" class="drawer-item">
+        <span class="drawer-item-icon">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        </span>
+        <span class="drawer-item-label">Politique de Confidentialité</span>
+      </a>
+    </nav>
+  </div>
+
+  <div class="drawer-footer">
+    <div class="drawer-credits">
+      <span>OmniStream v2.5 · Libre &amp; Public</span>
+      <small>Créé par NAMBININTSOA Tsiky Fandresena</small>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN CONTENT WRAPPER -->
+<main id="main-content">
   {% block content %}{% endblock %}
 </main>
 
+<!-- MOBILE BOTTOM NAVIGATION (MOVIEBOX / NATIVE APP STYLE) -->
+<nav class="mobile-bottom-nav" aria-label="Navigation mobile rapide">
+  <a href="{{ url_for('index') }}" class="mobile-nav-item {{ 'active' if not tab and not landing_page else '' }}">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+    <span>Accueil</span>
+  </a>
+  <a href="{{ url_for('index', tab='films') }}" class="mobile-nav-item {{ 'active' if tab=='films' else '' }}">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
+    <span>Films</span>
+  </a>
+  <a href="{{ url_for('index', tab='series') }}" class="mobile-nav-item {{ 'active' if tab=='series' else '' }}">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+    <span>Séries</span>
+  </a>
+  <a href="{{ url_for('musiques') }}" class="mobile-nav-item {{ 'active' if request.path == '/musiques' else '' }}">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+    <span>Musique</span>
+  </a>
+  <button type="button" class="mobile-nav-item" id="mobile-menu-trigger" aria-label="Ouvrir le menu">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+    <span>Menu</span>
+  </button>
+</nav>
+
+<!-- SPONSOR GIFT (FLOATING DISCREET) -->
 {% if show_sponsor_gift %}
 <a class="sponsor-gift" id="sponsor-gift" href="{{ sponsor_smartlink_url }}"
    target="_blank" rel="noopener noreferrer sponsored"
    aria-label="Ouvrir le cadeau sponsorisé dans un nouvel onglet">
-  <span class="sponsor-gift-icon" aria-hidden="true">🎁</span>
+  <span class="sponsor-gift-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="14" rx="2"></rect><path d="M12 8v14"></path><path d="M19 12H5"></path><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"></path></svg>
+  </span>
   <span class="sponsor-gift-label">
-    <strong>Petit cadeau</strong>
-    <small>Lien sponsorisé</small>
+    <strong>Cadeau Spécial</strong>
+    <small>Partenaire sponsorisé</small>
   </span>
 </a>
 {% endif %}
 
+<!-- PROFESSIONAL FOOTER (UNIVERSITÉ & STREAMING PREMIUM STYLE) -->
 <footer class="site-footer">
-  <div>Propulsé par TMDB &amp; Gemini</div>
-  <div class="creator">Créateur : NAMBININTSOA Tsiky Fandresena</div>
+  <div class="footer-container">
+    <div class="footer-col footer-brand-col">
+      <div class="footer-logo">
+        <span class="logo-icon">
+          <svg viewBox="0 0 40 40" width="30" height="30" aria-hidden="true">
+            <rect x="2" y="2" width="36" height="36" rx="8" fill="url(#logoGrad)"/>
+            <path d="M16 13l13 7-13 7z" fill="#fff"/>
+          </svg>
+        </span>
+        <span>OMNI<strong>STREAM</strong></span>
+      </div>
+      <p class="footer-desc">
+        La plateforme indépendante de découverte cinématographique, animation, séries et streaming musical. Accès 100 % libre et sans compte.
+      </p>
+      <div class="footer-creator-tag">
+        <span>Conçu &amp; Développé par</span>
+        <strong>NAMBININTSOA Tsiky Fandresena</strong>
+      </div>
+    </div>
+
+    <div class="footer-col">
+      <h3 class="footer-heading">Navigation</h3>
+      <ul class="footer-links">
+        <li><a href="{{ url_for('index') }}">Accueil Vitrine</a></li>
+        <li><a href="{{ url_for('index', tab='films') }}">Catalogue Films</a></li>
+        <li><a href="{{ url_for('index', tab='series') }}">Séries TV</a></li>
+        <li><a href="{{ url_for('index', tab='animes') }}">Animés Japonais</a></li>
+        <li><a href="{{ url_for('index', tab='animation_occidentale') }}">Animation</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col">
+      <h3 class="footer-heading">Découvrir</h3>
+      <ul class="footer-links">
+        <li><a href="{{ url_for('index', tab='nouveautes') }}">Nouveautés à venir</a></li>
+        <li><a href="{{ url_for('index', tab='legendes') }}">Les Légendes (≥ 8.5)</a></li>
+        <li><a href="{{ url_for('musiques') }}">Espace Musique MP3 / MP4</a></li>
+        <li><a href="{{ url_for('privacy') }}">Politique de Confidentialité</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col">
+      <h3 class="footer-heading">Technologie &amp; Données</h3>
+      <div class="footer-tech-badges">
+        <span class="tech-badge">TMDB API</span>
+        <span class="tech-badge">Google Gemini 2.5</span>
+        <span class="tech-badge">MangaDex API</span>
+        <span class="tech-badge">YouTube Media</span>
+      </div>
+      <div class="footer-stats-card">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        <div>
+          <div class="footer-stat-val">{{ visits if visits is defined else '1' }}</div>
+          <div class="footer-stat-lbl">Visiteurs Uniques</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bottom">
+    <div>&copy; 2026 OmniStream. Tous droits réservés.</div>
+    <div class="footer-bottom-links">
+      <a href="{{ url_for('privacy') }}">Confidentialité</a>
+      <span>•</span>
+      <span>Propulsé avec passion à Madagascar 🇲🇬</span>
+    </div>
+  </div>
 </footer>
 
+<!-- CORE SCRIPT (DRAWER, SCROLL, RESIZE) -->
 <script>
 (function () {
-  /* Burger menu */
+  "use strict";
+
   const burgerBtn = document.getElementById("burger-btn");
-  const burgerPanel = document.getElementById("burger-panel");
-  function setMenuOpen(open) {
-    if (!burgerBtn || !burgerPanel) return;
-    burgerPanel.classList.toggle("open", open);
-    burgerBtn.setAttribute("aria-expanded", String(open));
-  }
-  if (burgerBtn && burgerPanel) {
-    burgerBtn.addEventListener("click", () => {
-      setMenuOpen(!burgerPanel.classList.contains("open"));
-    });
+  const drawerPanel = document.getElementById("drawer-panel");
+  const drawerBackdrop = document.getElementById("drawer-backdrop");
+  const drawerCloseBtn = document.getElementById("drawer-close-btn");
+  const mobileMenuTrigger = document.getElementById("mobile-menu-trigger");
+
+  function setDrawer(open) {
+    if (!drawerPanel || !drawerBackdrop) return;
+    drawerPanel.classList.toggle("open", open);
+    drawerBackdrop.classList.toggle("open", open);
+    if (burgerBtn) {
+      burgerBtn.classList.toggle("open", open);
+      burgerBtn.setAttribute("aria-expanded", String(open));
+    }
+    drawerPanel.setAttribute("aria-hidden", String(!open));
+    document.body.classList.toggle("drawer-open", open);
   }
 
-  /* Search toggle (mobile) */
+  if (burgerBtn) burgerBtn.addEventListener("click", () => setDrawer(!drawerPanel.classList.contains("open")));
+  if (drawerCloseBtn) drawerCloseBtn.addEventListener("click", () => setDrawer(false));
+  if (drawerBackdrop) drawerBackdrop.addEventListener("click", () => setDrawer(false));
+  if (mobileMenuTrigger) mobileMenuTrigger.addEventListener("click", () => setDrawer(true));
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && drawerPanel && drawerPanel.classList.contains("open")) {
+      setDrawer(false);
+    }
+  });
+
+  // Mobile search toggle
   const topbarInner = document.getElementById("topbar-inner");
   const searchToggle = document.getElementById("search-toggle");
   const searchInput = document.getElementById("search-input");
@@ -119,25 +382,14 @@
     });
   }
 
-  /* Close menu on outside click / Escape */
-  document.addEventListener("click", (e) => {
-    if (burgerPanel && burgerBtn && !burgerPanel.contains(e.target) && !burgerBtn.contains(e.target)) {
-      setMenuOpen(false);
-    }
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") setMenuOpen(false);
-  });
-
-  /* Header scroll effect */
+  // Header scroll detection
   const header = document.getElementById("topbar");
   function onScroll() {
-    if (header) header.classList.toggle("scrolled", window.scrollY > 40);
+    if (header) header.classList.toggle("scrolled", window.scrollY > 30);
   }
   window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 
-  /* Header height CSS variable */
   function updateHeaderHeight() {
     if (header) {
       document.documentElement.style.setProperty("--header-h", header.offsetHeight + "px");

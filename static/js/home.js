@@ -21,6 +21,7 @@
   let listController = null;
   let heroController = null;
   let heroTimer = null;
+  let totalCardsRendered = 0;
 
   const sessionSeed =
     Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -133,7 +134,7 @@
       poster.appendChild(image);
     } else {
       poster.classList.add("poster-placeholder");
-      poster.textContent = "Affiche indisponible";
+      poster.innerHTML = `<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="20" height="20" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg><span>Indisponible</span>`;
     }
     return poster;
   }
@@ -141,28 +142,43 @@
   function createRatingBadge(rating) {
     const badge = document.createElement("span");
     badge.className = "rating-badge";
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("aria-hidden", "true");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute(
-      "d",
-      "M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z",
-    );
-    svg.appendChild(path);
-    badge.append(svg, document.createTextNode(String(rating ?? 0)));
+    const num = Number(rating);
+    const text = Number.isFinite(num) && num > 0 ? num.toFixed(1) : "—";
+    badge.innerHTML = `<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg><span>${text}</span>`;
     return badge;
   }
 
-  function createCard(item) {
+  function createRankBadge(rank) {
+    const badge = document.createElement("span");
+    badge.className = `rank-badge rank-${rank <= 3 ? rank : "default"}`;
+    badge.textContent = String(rank);
+    return badge;
+  }
+
+  function createQualityBadge() {
+    const badge = document.createElement("span");
+    badge.className = "quality-tag";
+    badge.textContent = "VF · HD";
+    return badge;
+  }
+
+  function createCard(item, index) {
     const href = detailUrl(item);
     if (!href) return null;
 
     const card = document.createElement("a");
-    card.className = "card";
+    card.className = "card moviebox-card";
     card.href = href;
 
     const poster = createPoster(item, false);
+
+    // MovieBox-style ranking badge on top items
+    if (page === 2 && index < 10 && activeGenre === "all") {
+      poster.appendChild(createRankBadge(index + 1));
+    } else {
+      poster.appendChild(createQualityBadge());
+    }
+
     poster.appendChild(createRatingBadge(item.rating));
 
     const info = document.createElement("div");
@@ -170,12 +186,21 @@
     const title = document.createElement("div");
     title.className = "card-title";
     title.textContent = String(item.title || "Sans titre");
-    info.appendChild(title);
+
+    const metaLine = document.createElement("div");
+    metaLine.className = "card-meta-line";
+
+    const yearText = item.year || (item.date ? String(item.date).slice(0, 4) : "");
+    const mediaTypeLabel = tab === "animes" ? "Anime" : (item.media_type === "tv" ? "Série" : "Film");
+
+    metaLine.innerHTML = `<span class="card-year">${yearText || "2024"}</span><span class="card-dot">•</span><span class="card-type-tag">${mediaTypeLabel}</span>`;
+
+    info.append(title, metaLine);
 
     if (tab === "nouveautes") {
       const date = document.createElement("div");
       date.className = "card-date";
-      date.textContent = `Sortie : ${formatDate(item.date) || "date inconnue"}`;
+      date.textContent = `Sortie : ${formatDate(item.date) || "À venir"}`;
       info.appendChild(date);
     }
 
@@ -224,19 +249,26 @@
         const poster = createPoster(item, true);
         const copy = document.createElement("div");
         copy.className = "hero-copy";
+        
+        const badge = document.createElement("span");
+        badge.className = "hero-badge";
+        badge.textContent = "À LA UNE DU MOMENT";
+
         const title = document.createElement("h2");
         title.textContent = String(item.title || "Sans titre");
+        
         const metadata = document.createElement("p");
         const rating = Number(item.rating);
         const ratingText = Number.isFinite(rating) && rating > 0 ? rating.toFixed(1) : "N/A";
-        metadata.textContent = `★ ${ratingText} · ${formatDate(item.date) || item.year || "Date inconnue"}`;
-        copy.append(title, metadata);
+        metadata.innerHTML = `<span class="hero-rating"><svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg> ${ratingText}</span> · <span>${formatDate(item.date) || item.year || "2024"}</span> · <span class="hero-quality">4K Ultra HD</span>`;
+        copy.append(badge, title, metadata);
 
         const link = document.createElement("a");
         link.className = "hero-play";
         link.href = detailUrl(item);
-        link.textContent = "▶";
+        link.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
         link.setAttribute("aria-label", `Voir la fiche de ${String(item.title || "ce titre")}`);
+        
         shade.append(poster, copy, link);
         slide.appendChild(shade);
         slides.push(slide);
@@ -275,10 +307,10 @@
 
   function specialPills() {
     return [
-      { id: "all", label: "Tout" },
+      { id: "all", label: "Tous les genres" },
       { id: "movie", label: "Films" },
-      { id: "tv", label: "Séries" },
-      { id: "anime", label: "Animes" },
+      { id: "tv", label: "Séries TV" },
+      { id: "anime", label: "Animés JP" },
     ];
   }
 
@@ -318,8 +350,9 @@
     page = 1;
     hasMore = true;
     loading = false;
+    totalCardsRendered = 0;
     gridEl.replaceChildren();
-    emptyMsg.hidden = true;
+    if (emptyMsg) emptyMsg.hidden = true;
   }
 
   async function loadMore() {
@@ -334,16 +367,16 @@
       const data = await requestJson(listUrl(requestedPage), controller.signal);
       if (currentGeneration !== generation) return;
       const items = Array.isArray(data.items) ? data.items : [];
-      const cards = items.map(createCard).filter(Boolean);
+      const cards = items.map((item, idx) => createCard(item, totalCardsRendered + idx)).filter(Boolean);
+      totalCardsRendered += cards.length;
       gridEl.append(...cards);
       hasMore = Boolean(data.has_more);
       page = requestedPage + 1;
-      if (requestedPage === 1 && cards.length === 0) emptyMsg.hidden = false;
+      if (requestedPage === 1 && cards.length === 0 && emptyMsg) emptyMsg.hidden = false;
     } catch (error) {
       if (error.name !== "AbortError" && currentGeneration === generation) {
         console.error("Erreur de chargement du catalogue :", error);
-        if (requestedPage === 1) {
-          emptyMsg.textContent = error.message || "Impossible de charger le catalogue.";
+        if (requestedPage === 1 && emptyMsg) {
           emptyMsg.hidden = false;
         }
       }

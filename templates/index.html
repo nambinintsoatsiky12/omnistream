@@ -1,31 +1,55 @@
 {% extends "base.html" %}
-{% block title %}OmniStream{% endblock %}
+{% block title %}OmniStream — Catalogue Films, Séries & Animés{% endblock %}
 {% block content %}
 
 {% if query %}
-  <h2 class="search-title">Résultats pour « {{ query }} »</h2>
+  <div class="search-results-header">
+    <span class="section-kicker">RECHERCHE GLOBALE</span>
+    <h1 class="search-title">Résultats pour « {{ query }} »</h1>
+  </div>
   <div class="grid">
     {% for item in items %}
       <a class="card" href="{{ url_for('details', media_type=item.media_type, item_id=item.id, tab=tab) }}">
         <div class="poster">
           <img class="poster-img" src="{{ item.poster }}" alt="Affiche de {{ item.title }}" loading="lazy">
-          <span class="rating-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>{{ item.rating }}</span>
+          <span class="quality-tag">HD · VF</span>
+          <span class="rating-badge">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>
+            {{ item.rating }}
+          </span>
         </div>
         <div class="card-info">
           <div class="card-title">{{ item.title }}</div>
+          <div class="card-meta-line">
+            <span class="card-type-tag">{{ item.media_type | upper }}</span>
+          </div>
         </div>
       </a>
     {% else %}
-      <p class="empty">Aucun résultat pour le moment.</p>
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+        </div>
+        <h3>Aucun résultat trouvé</h3>
+        <p>Essayez avec un autre titre, le nom en anglais ou un mot-clé plus court.</p>
+      </div>
     {% endfor %}
   </div>
 
 {% else %}
   <div id="app-root" data-tab="{{ tab }}">
     {% if tab == 'nouveautes' %}
-      <h2 class="search-title">🆕 Nouveautés à venir</h2>
+      <div class="section-banner-title">
+        <span class="section-kicker">CALENDRIER OFFICIEL</span>
+        <h2>Nouveautés &amp; Sorties à venir</h2>
+        <p>Découvrez les prochaines sorties cinéma et streaming classées par date.</p>
+      </div>
     {% elif tab == 'legendes' %}
-      <h2 class="search-title">🏆 Les Légendes (note ≥ 8.5)</h2>
+      <div class="section-banner-title">
+        <span class="section-kicker gold">SÉLECTION D'ÉLITE</span>
+        <h2>Les Légendes du Cinéma (Note ≥ 8.5)</h2>
+        <p>Les œuvres incontournables ayant reçu les meilleures critiques mondiales.</p>
+      </div>
     {% endif %}
 
     <!-- HERO CAROUSEL -->
@@ -35,12 +59,18 @@
     </section>
 
     <!-- GENRE PILLS -->
-    <nav class="pills" id="pills"></nav>
+    <nav class="pills" id="pills" aria-label="Filtres de genres"></nav>
 
     <!-- CONTENT GRID -->
     <div class="grid" id="grid"></div>
     <div id="sentinel" class="sentinel"></div>
-    <p id="grid-empty" class="empty" hidden>Aucun titre dans cette catégorie pour le moment.</p>
+    <div id="grid-empty" class="empty-state" hidden>
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"></circle><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+      </div>
+      <h3>Aucun titre disponible</h3>
+      <p>Aucun titre n'a été trouvé dans cette catégorie pour le moment.</p>
+    </div>
   </div>
 {% endif %}
 
@@ -48,6 +78,6 @@
 
 {% block scripts %}
 {% if not query %}
-  <script src="{{ url_for('static', filename='js/home.js') }}?v=5"></script>
+  <script src="{{ url_for('static', filename='js/home.js') }}?v=6"></script>
 {% endif %}
 {% endblock %}
