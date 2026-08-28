@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import requests
 
@@ -21,8 +23,9 @@ class FakeResponse:
             error.response = self
             raise error
 
-    def iter_content(self, _chunk_size):
-        yield self.content
+    def iter_content(self, chunk_size=1, **_kwargs):
+        for start in range(0, len(self.content), max(1, int(chunk_size))):
+            yield self.content[start : start + int(chunk_size)]
 
     def close(self):
         return None
@@ -407,6 +410,26 @@ def test_manifest_served(client):
     assert b"OmniStream" in response.data
 
 
+def test_manifest_content_type_admis_par_chrome(client):
+    """Sans ce mimetype, le manifeste est rejeté et l'application installée
+    ne se lance plus du tout."""
+    response = client.get("/manifest.webmanifest")
+
+    content_type = response.headers.get("Content-Type", "")
+    assert content_type.startswith("application/manifest+json")
+
+
+def test_url_de_lancement_de_l_app_repond(client):
+    """Tout ce que l'icône de l'application peut ouvrir doit répondre 200."""
+    manifest = json.loads(client.get("/manifest.webmanifest").get_data(as_text=True))
+
+    assert manifest["id"] == "/"
+    for url in [manifest["start_url"], *[s["url"] for s in manifest["shortcuts"]]]:
+        assert client.get(url).status_code == 200, url
+    for icon in manifest["icons"]:
+        assert client.get(icon["src"]).status_code == 200, icon["src"]
+
+
 def test_bottom_nav_present(client):
     response = client.get("/")
 
@@ -474,3 +497,466 @@ def test_landing_page_ne_calcule_plus_de_listes_vitrines(client, monkeypatch):
     assert "featured_movies" not in seen
     assert "featured_series" not in seen
     assert "featured_animes" not in seen
+
+
+# ---------------------------------------------------------------------------
+# Source MP3 libre (Internet Archive) : recherche, filtres, relais de fichier
+# ---------------------------------------------------------------------------
+
+
+ARCHIVE_SEARCH_ANSWER = {
+    "response": {
+        "docs": [
+            {"identifier": "album-1", "title": "Album Un", "creator": "Artiste"},
+            {"identifier": "album-2", "title": "Album Deux", "creator": "Artiste"},
+        ]
+    }
+}
+
+ARCHIVE_META_ANSWER = {
+    "metadata": {
+        "identifier": "album-1",
+        "title": "Album Un",
+        "creator": "Artiste",
+        "year": "2019",
+        "licenseurl": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+    },
+    "files": [
+        # Piste normale, avec ses métadonnées propres.
+        {
+            "name": "01 - Premier titre.mp3",
+            "format": "VBR MP3",
+            "size": "5242880",
+            "length": "212",
+            "title": "Premier titre",
+            "artist": "Artiste",
+        },
+        # Format mm:ss et piste sans titre : on retombe sur le nom du fichier.
+        {
+            "name": "02-deuxieme.mp3",
+            "format": "128 Kbps MP3",
+            "size": "3145728",
+            "length": "3:40",
+        },
+        # Perdu : ce n'est pas un MP3.
+        {"name": "cover.jpg", "format": "JPEG", "size": "10000"},
+        # Perdu aussi : fichier privé, donc non téléchargeable.
+        {
+            "name": "03-prive.mp3",
+            "format": "VBR MP3",
+            "size": "4000000",
+            "length": "100",
+            "private": "true",
+        },
+        # Perdu : beaucoup trop gros pour être un morceau.
+        {"name": "04-enorme.mp3", "format": "VBR MP3", "size": "90000000"},
+    ],
+}
+
+ARCHIVE_META_RESTREINT = {
+    "metadata": {
+        "identifier": "album-2",
+        "title": "Album Deux",
+        "access-restricted-item": "true",
+    },
+    "files": [{"name": "01.mp3", "format": "VBR MP3", "size": "1000"}],
+}
+
+
+def patch_archive(monkeypatch, search=ARCHIVE_SEARCH_ANSWER, metas=None, captured=None):
+    """Feint Internet Archive : un seul point d'entrée, aucun réseau."""
+    metas = metas or {"album-1": ARCHIVE_META_ANSWER, "album-2": ARCHIVE_META_RESTREINT}
+
+    def fake_get(url, params=None, **_kwargs):
+        if captured is not None and "advancedsearch" in url:
+            captured["url"] = url
+            captured["params"] = params
+        if "advancedsearch" in url:
+            return FakeResponse(search)
+        identifier = url.rstrip("/").split("/")[-1]
+        return FakeResponse(metas.get(identifier, {"metadata": {}, "files": []}))
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+
+def test_api_mp3_extrait_les_pistes_telechargeables(client, monkeypatch):
+    patch_archive(monkeypatch)
+
+    response = client.get("/api/mp3")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["source"] == "archive"
+
+    items = payload["items"]
+    # « album-2 » est « access-restricted » : ses pistes ne doivent pas être
+    # proposées, sous peine d'afficher un bouton d'enregistrement menteur.
+    assert [item["id"] for item in items] == [
+        "ia:album-1#01 - Premier titre.mp3",
+        "ia:album-1#02-deuxieme.mp3",
+    ]
+    first = items[0]
+    assert first["kind"] == "mp3"
+    assert first["type"] == "music"
+    assert first["title"] == "Premier titre"
+    assert first["channel"] == "Artiste"
+    assert first["duration"] == 212
+    assert first["size"] == 5242880
+    assert first["url"] == "https://archive.org/download/album-1/01%20-%20Premier%20titre.mp3"
+    # Le relais même-origin porte le « download=1 » qui force l'enregistrement.
+    assert first["download"].startswith("/mp3/album-1/")
+    assert first["download"].endswith("download=1")
+    assert first["page"] == "https://archive.org/details/album-1"
+    assert first["license"].startswith("https://creativecommons.org/")
+    # mm:ss converti en secondes, nom de fichier en secours du titre manquant.
+    assert items[1]["duration"] == 220
+    assert items[1]["title"] == "02-deuxieme"
+
+
+def test_api_mp3_recherche_sanitisee(client, monkeypatch):
+    captured = {}
+    patch_archive(monkeypatch, captured=captured)
+
+    client.get('/api/mp3?q=sega" OR all:true (live)')
+
+    query = captured["params"]["q"]
+    assert 'all:true' not in query
+    assert "(" in query and "sega" in query
+    # Les collections choisies sont celles dont on peut garder les fichiers, et
+    # elles sont verifiees une par une : « fma » et « live_music_archive » ne
+    # renvoyaient plus rien du tout (0 resultat) et faisaient un rayon vide.
+    for name in ("etree", "netlabels", "audio_music"):
+        assert name in query
+    assert "fma" not in query
+    assert "live_music_archive" not in query
+    assert captured["params"]["sort[]"] == "score desc"
+
+
+def test_api_mp3_tendances_trient_par_telechargements(client, monkeypatch):
+    captured = {}
+    patch_archive(monkeypatch, captured=captured)
+
+    client.get("/api/mp3")
+
+    assert captured["params"]["sort[]"] == "downloads desc"
+    assert captured["params"]["q"].startswith("mediatype:(audio)")
+
+
+def test_api_mp3_panne_renvoie_une_erreur_lisible(client, monkeypatch):
+    def fake_get(_url, **_kwargs):
+        raise requests.ConnectionError("plus de réseau")
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/api/mp3")
+
+    assert response.status_code == 502
+    assert "Internet Archive" in response.get_json()["error"]
+
+
+def test_mp3_relais_joint_le_nom_du_fichier(client, monkeypatch):
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs.get("headers")
+        return FakeResponse(
+            None,
+            headers={
+                "Content-Type": "audio/mpeg",
+                "Content-Length": "5",
+            },
+            content=b"MP3DA",
+        )
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/mp3/album-1/01%20-%20Premier%20titre.mp3?download=1")
+
+    assert response.status_code == 200
+    assert captured["url"] == "https://archive.org/download/album-1/01%20-%20Premier%20titre.mp3"
+    assert response.headers["Content-Type"] == "audio/mpeg"
+    assert response.headers["Accept-Ranges"] == "bytes"
+    disposition = response.headers["Content-Disposition"]
+    assert disposition.startswith("attachment; filename=")
+    assert "Premier titre.mp3" in disposition
+    assert response.data == b"MP3DA"
+
+
+def test_mp3_relais_transmet_la_plage(client, monkeypatch):
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured["headers"] = kwargs.get("headers")
+        return FakeResponse(
+            None,
+            status_code=206,
+            headers={
+                "Content-Type": "audio/mpeg",
+                "Content-Length": "3",
+                "Content-Range": "bytes 0-2/900",
+            },
+            content=b"ABC",
+        )
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get(
+        "/mp3/album-1/titre.mp3", headers={"Range": "bytes=0-2"}
+    )
+
+    assert captured["headers"]["Range"] == "bytes=0-2"
+    assert response.status_code == 206
+    assert response.headers["Content-Range"] == "bytes 0-2/900"
+    # Sans « download=1 », rien ne force l'enregistrement : la lecture peut
+    # utiliser la même adresse, en streaming.
+    assert "Content-Disposition" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/mp3/album-1/notaire.txt",
+        "/mp3/album-1/titre.mp4",
+        "/mp3/..%2F..%2Fetc%2Fpasswd",
+        "/mp3/al bum/titre.mp3",
+        "/mp3/album-1/",
+    ],
+)
+def test_mp3_relais_refuse_tout_chemin_inattendu(client, path):
+    # Aucun de ces chemins ne doit partir en direction d'Internet Archive.
+    response = client.get(path)
+
+    assert response.status_code in {400, 404, 405}
+
+
+def test_mp3_relais_refuse_un_fichier_trop_gros(client, monkeypatch):
+    def fake_get(_url, **_kwargs):
+        return FakeResponse(
+            None,
+            headers={"Content-Length": str(90 * 1024 * 1024)},
+            content=b"",
+        )
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/mp3/album-1/titre.mp3")
+
+    assert response.status_code == 413
+
+
+def test_mp3_relais_refuse_un_fichier_disparu(client, monkeypatch):
+    def fake_get(_url, **_kwargs):
+        return FakeResponse(None, status_code=403, content=b"")
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/mp3/album-1/titre.mp3")
+
+    assert response.status_code == 502
+
+
+def test_espace_musique_propose_la_source_mp3(client):
+    response = client.get("/musiques")
+
+    assert response.status_code == 200
+    assert b'id="source-toggle"' in response.data
+    assert b'data-source="mp3"' in response.data
+    assert b'data-source="youtube"' in response.data
+
+
+# ---------------------------------------------------------------------------
+# Jamendo : un catalogue moderne de MP3 que les artistes laissent copier
+# ---------------------------------------------------------------------------
+
+JAMENDO_TRACKS = {
+    "headers": {"status": "success", "code": 0, "results_count": 2},
+    "results": [
+        {
+            "id": 125871,
+            "name": "Tsikimba Soa",
+            "artist_name": "Rija Natural",
+            "album_name": "Hira Gasy Electronique",
+            "duration": 236,
+            "filesize": 9437184,
+            "release_date": "2019-04-11",
+            "image": "https://img.jamendo.com/imgstorage:125871:200/cover.jpg",
+            "audio": "https://prod-omnios.jamendo.com/stream/125871.mp3?token=abc",
+            "audiodownload": "https://www.jamendo.com/getTrack/MP32/125871/x",
+            "audiodownload_allowed": True,
+            "shorturl": "https://www.jamendo.com/track/125871/tsikimba-soa",
+            "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+            "license_name": "by-nc-sa",
+        },
+        {
+            # L'artiste a ferme la copie : le bouton ne doit pas exister.
+            "id": 999,
+            "name": "Interdit de copier",
+            "artist_name": "Quelqu'un",
+            "duration": 120,
+            "audio": "https://prod-omnios.jamendo.com/stream/999.mp3?token=zzz",
+            "audiodownload": "",
+            "audiodownload_allowed": False,
+        },
+    ],
+}
+
+
+def patch_jamendo(
+    monkeypatch, payload=JAMENDO_TRACKS, captured=None, stream=b"MP3DATA"
+):
+    """Feint a la fois l'API Jamendo et le fichier qu'elle designe."""
+
+    def fake_get(url, params=None, **kwargs):
+        if captured is not None:
+            captured.setdefault("calls", []).append((url, params, kwargs))
+        if "api.jamendo.com" in url:
+            wanted = (params or {}).get("id")
+            results = payload["results"]
+            if wanted:
+                results = [t for t in results if t.get("id") == int(wanted)]
+            return FakeResponse({**payload, "results": results})
+        return FakeResponse(
+            None,
+            headers={"Content-Type": "audio/mpeg", "Content-Length": str(len(stream))},
+            content=stream,
+        )
+
+    monkeypatch.setattr(app_module, "JAMENDO_CLIENT_ID", "cle-de-test")
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+
+def test_jamendo_normalise_les_pistes_dans_le_meme_moule(client, monkeypatch):
+    captured = {}
+    patch_jamendo(monkeypatch, captured=captured)
+
+    response = client.get("/api/mp3?provider=jamendo&q=rija")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    items = payload["items"]
+    assert [item["id"] for item in items] == ["jm:125871", "jm:999"]
+    first = items[0]
+    assert first["kind"] == "mp3"
+    assert first["title"] == "Tsikimba Soa"
+    assert first["channel"] == "Rija Natural"
+    assert first["duration"] == 236
+    assert first["size"] == 9437184
+    assert first["url"].startswith("https://prod-omnios.jamendo.com/stream/")
+    assert first["download"] == "/mp3/jamendo/125871.mp3?download=1"
+    assert first["license_name"] == "by-nc-sa"
+    assert first["page"].endswith("/tsikimba-soa")
+    # Le second titre n'a pas le droit d'etre copie : pas de bouton.
+    assert items[1]["download"] == ""
+    # Qualite explicite : le defaut de l'API est un 96 kbps de lecture seule.
+    params = captured["calls"][0][1]
+    assert params["audioformat"] == "mp32"
+    assert params["audiodlformat"] == "mp32"
+    assert params["search"] == "rija"
+    assert params["order"] == "relevance"
+    assert "jamendo" in payload["providers"]
+
+
+def test_jamendo_tendances_ordennees_par_popularite(client, monkeypatch):
+    captured = {}
+    patch_jamendo(monkeypatch, captured=captured)
+
+    client.get("/api/mp3?provider=jamendo")
+
+    params = captured["calls"][0][1]
+    assert params["order"] == "popularity_total"
+    # Un titre par artiste, sinon un seul netlabel remplirait la page.
+    assert params["groupby"] == "artist_id"
+
+
+def test_jamendo_sans_cle_refuse_sans_casser_la_page(client, monkeypatch):
+    monkeypatch.setattr(app_module, "JAMENDO_CLIENT_ID", "")
+
+    direct = client.get("/api/mp3?provider=jamendo")
+    assert direct.status_code == 503
+    assert "JAMENDO_CLIENT_ID" in direct.get_json()["error"]
+
+    patch_archive(monkeypatch)
+    auto = client.get("/api/mp3")
+    assert auto.status_code == 200
+    # Sans cle, le selecteur de fournisseur ne se montre meme pas.
+    assert auto.get_json()["providers"] == ["archive"]
+
+
+def test_jamendo_hors_quota_laisse_parler_archive(client, monkeypatch):
+    def fake_get(url, params=None, **_kwargs):
+        if "api.jamendo.com" in url:
+            return FakeResponse({}, status_code=429)
+        if "advancedsearch" in url:
+            return FakeResponse(ARCHIVE_SEARCH_ANSWER)
+        return FakeResponse(ARCHIVE_META_ANSWER)
+
+    monkeypatch.setattr(app_module, "JAMENDO_CLIENT_ID", "cle-de-test")
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/api/mp3")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["items"], "le secours Archive doit remplir la page"
+    assert "Jamendo" in payload["warning"]
+
+
+def test_rayon_madagascar_restreint_aux_fonds_musicaux(client, monkeypatch):
+    captured = {}
+    patch_archive(monkeypatch, captured=captured)
+
+    response = client.get("/api/mp3?shelf=madagascar")
+
+    assert response.status_code == 200
+    query = captured["params"]["q"]
+    for term in ("madagascar", "malagasy", "salegy", "hira gasy"):
+        assert term in query
+    # Pas de plein texte : il faisait remonter des livres audio a la place.
+    assert "text:" not in query
+    for name in ("etree", "audio_music", "netlabels"):
+        assert name in query
+
+
+def test_rayon_inconnu_retombe_sans_se_plaindre(client, monkeypatch):
+    captured = {}
+    patch_archive(monkeypatch, captured=captured)
+
+    response = client.get("/api/mp3?shelf=et-qu_si-ca-n-existe-pas")
+
+    assert response.status_code == 200
+    assert "madagascar" not in captured["params"]["q"]
+
+
+def test_shelves_exposes_a_l_interface(client, monkeypatch):
+    patch_archive(monkeypatch)
+
+    payload = client.get("/api/mp3").get_json()
+
+    keys = [shelf["key"] for shelf in payload["shelves"]]
+    assert keys[0] == "tout"
+    assert "madagascar" in keys
+    assert all(shelf["label"] for shelf in payload["shelves"])
+
+
+def test_relais_jamendo_impose_le_nom_du_morceau(client, monkeypatch):
+    captured = {}
+    patch_jamendo(monkeypatch, captured=captured)
+
+    response = client.get("/mp3/jamendo/125871.mp3?download=1")
+
+    assert response.status_code == 200
+    assert response.headers["Content-Type"] == "audio/mpeg"
+    assert "Tsikimba Soa" in response.headers["Content-Disposition"]
+    # L'URL de telechargement Jamendo expire : elle est resolue a la demande.
+    stream_call = captured["calls"][-1][0]
+    assert stream_call == "https://www.jamendo.com/getTrack/MP32/125871/x"
+    assert response.data == b"MP3DATA"
+
+
+def test_relais_jamendo_refuse_un_titre_non_copiable(client, monkeypatch):
+    patch_jamendo(monkeypatch)
+
+    response = client.get("/mp3/jamendo/999.mp3?download=1")
+
+    assert response.status_code == 410
+    assert "téléchargement libre" in response.get_data(as_text=True)

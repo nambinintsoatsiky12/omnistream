@@ -124,7 +124,10 @@
         return;
       }
       const channel = new MessageChannel();
-      const timer = window.setTimeout(() => resolve(null), 4000);
+      // « stats » lit le corps de chaque réponse et « clear-cache » parcours le
+      // cache : sur un téléphone, 4 secondes ne suffisent pas toujours, et une
+      // réponse en retard se lisait comme « rien à vider ».
+      const timer = window.setTimeout(() => resolve(null), 20000);
       channel.port1.onmessage = (event) => {
         window.clearTimeout(timer);
         resolve(event.data);
@@ -184,9 +187,9 @@
     bar.id = "omni-update-bar";
     bar.className = "omni-update-bar";
     bar.innerHTML =
-      '<span>OmniStream a été mis à jour.</span>' +
-      '<button type="button" data-omni-reload>Recharger</button>' +
-      '<button type="button" class="ghost" data-omni-dismiss aria-label="Plus tard">×</button>';
+      '<span class="omni-update-bar-label">Nouvelle version d’OmniStream disponible.</span>' +
+      '<button type="button" class="omni-update-bar-btn" data-omni-reload>Recharger</button>' +
+      '<button type="button" class="ghost" data-omni-dismiss aria-label="Reporter à plus tard">×</button>';
     document.body.appendChild(bar);
     bar.addEventListener("click", (event) => {
       if (event.target.closest("[data-omni-dismiss]")) {
@@ -209,27 +212,109 @@
   }
 
   /* =========================================================
-     2. ÉTAT HORS LIGNE
+     2. ÉTAT HORS LIGNE — bandeau supérieur
+     =========================================================
+     Le bandeau se cale SOUS le header fixe (jamais par-dessus le logo) et
+     signale sa hauteur à toute la page via « --top-banner-h » : contenu,
+     onglets et ancres descendent avec lui. Il est assez grand pour être lu
+     d'un coup d'œil et propose une action réelle, au lieu du simple fil
+     d'annonce de 12 px que personne ne remarquait.
      ========================================================= */
+  const BANNER_ID = "offline-banner";
+  const BANNER_DISMISS_KEY = "omni:offline-banner-dismissed";
+  const OFFLINE_WIFI_ICON =
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<line x1="1" y1="1" x2="23" y2="23"></line>' +
+    '<path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>' +
+    '<path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>' +
+    '<path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>' +
+    '<path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>' +
+    '<path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>' +
+    '<line x1="12" y1="20" x2="12.01" y2="20"></line></svg>';
+
+  function bannerDismissed() {
+    try {
+      return window.sessionStorage.getItem(BANNER_DISMISS_KEY) === "1";
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function rememberBannerDismissal() {
+    try {
+      window.sessionStorage.setItem(BANNER_DISMISS_KEY, "1");
+    } catch (_error) {
+      /* stockage indisponible : le bandeau reviendra à la page suivante */
+    }
+  }
+
+  // La page entière se décale de la hauteur réelle du bandeau.
+  function syncTopBannerHeight() {
+    const bar = document.getElementById(BANNER_ID);
+    const height = bar ? Math.ceil(bar.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty("--top-banner-h", `${height}px`);
+    document.documentElement.classList.toggle("has-top-banner", Boolean(bar));
+    updateHeaderHeight();
+  }
+
+  function buildOfflineBanner() {
+    const banner = document.createElement("div");
+    banner.id = BANNER_ID;
+    banner.className = "offline-banner";
+    banner.setAttribute("role", "status");
+    banner.setAttribute("aria-live", "polite");
+    banner.innerHTML =
+      '<span class="offline-banner-icon">' + OFFLINE_WIFI_ICON + "</span>" +
+      '<span class="offline-banner-text">' +
+      "<strong>Connexion perdue</strong>" +
+      "<span>Plus de réseau : la lecture est impossible, mais vos éléments enregistrés restent consultables.</span>" +
+      "</span>" +
+      '<span class="offline-banner-actions">' +
+      '<button type="button" class="offline-banner-btn primary" data-banner-action="retry">Réessayer</button>' +
+      '<button type="button" class="offline-banner-btn" data-banner-action="offline">Mes enregistrements</button>' +
+      '<button type="button" class="offline-banner-close" data-banner-action="dismiss" aria-label="Masquer ce message">×</button>' +
+      "</span>";
+    banner.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-banner-action]");
+      if (!action) return;
+      const kind = action.dataset.bannerAction;
+      if (kind === "dismiss") {
+        rememberBannerDismissal();
+        banner.remove();
+        syncTopBannerHeight();
+        return;
+      }
+      if (kind === "offline") {
+        window.location.href = "/telechargements";
+        return;
+      }
+      // « Réessayer » : on rechargera même si le navigateur annonce encore
+      // « hors ligne » — c'est lui qui ment le plus souvent après un réveil.
+      action.disabled = true;
+      window.setTimeout(() => window.location.reload(), 120);
+    });
+    return banner;
+  }
+
   function updateOnlineStatus() {
     const offline = !navigator.onLine;
     document.body.classList.toggle("is-offline", offline);
-    let banner = document.getElementById("offline-banner");
+    const banner = document.getElementById(BANNER_ID);
     if (offline) {
-      if (!banner) {
-        banner = document.createElement("div");
-        banner.id = "offline-banner";
-        banner.className = "offline-banner";
-        banner.innerHTML =
-          '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path><path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>' +
-          "<span>Hors ligne — vos éléments enregistrés restent consultables</span>";
-        document.body.appendChild(banner);
-      }
+      if (!banner && !bannerDismissed()) document.body.appendChild(buildOfflineBanner());
     } else if (banner) {
       banner.remove();
     }
+    syncTopBannerHeight();
   }
   window.addEventListener("online", () => {
+    // Le bandeau disparaît de lui-même : la mémoire du « masquer » ne vaut que
+    // pour la coupure en cours.
+    try {
+      window.sessionStorage.removeItem(BANNER_DISMISS_KEY);
+    } catch (_error) {
+      /* noop */
+    }
     updateOnlineStatus();
     toast("Connexion rétablie.", "ok");
   });
@@ -237,6 +322,10 @@
     updateOnlineStatus();
     toast("Plus de réseau : lecture impossible, mais vos enregistrements restent lisibles.", "warn");
   });
+  window.addEventListener("resize", syncTopBannerHeight);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(syncTopBannerHeight).catch(() => undefined);
+  }
   updateOnlineStatus();
 
   // Demande une fois le stockage « persistant » : le navigateur ne pourra
@@ -247,15 +336,85 @@
 
   /* =========================================================
      3. INSTALLATION PWA
+     =========================================================
+     Deux trous ont été comblés ici :
+      - le bouton « Installer » du menu (3 tirés) et la carte des pages
+        « Moi » / « Hors ligne » dépendaient de l'événement Chrome
+        beforeinstallprompt. Hors cet événement n'existe pas sur iOS, et il
+        n'arrive sur Android/Chrome qu'une fois l'engagement suffisant atteint :
+        l'option restait cachée : elle « ne marchait pas ». Elle est
+        maintenant remplacée par la marche à suivre du navigateur ;
+      - à l'ouverture dans l'application installée (mode standalone), plus
+        aucune proposition d'installation n'est affichée, et le document porte
+        data-display-mode="standalone" pour que la mise en page s'adapte.
      ========================================================= */
   let deferredPrompt = null;
+  let appInstalled = false;
+  const INSTALL_STANDALONE_QUERY = window.matchMedia
+    ? window.matchMedia("(display-mode: standalone)")
+    : null;
+  const INSTALL_HINT =
+    /iP(hone|ad|od)/.test(navigator.platform || "") ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+      ? "Sur iPhone : appuyez sur le bouton Partager, puis « Sur l’écran d’accueil »."
+      : "Dans le menu ⋮ du navigateur : « Installer l’application » (ou « Ajouter à l’écran d’accueil »).";
+
+  function isStandaloneDisplay() {
+    return Boolean(
+      (INSTALL_STANDALONE_QUERY && INSTALL_STANDALONE_QUERY.matches) ||
+        window.navigator.standalone === true,
+    );
+  }
+
+  function markDisplayMode() {
+    const standalone = isStandaloneDisplay();
+    document.documentElement.setAttribute("data-display-mode", standalone ? "standalone" : "browser");
+    if (standalone) {
+      // Déjà dans l'application : inutile de proposer de la réinstaller.
+      document.querySelectorAll("[data-pwa-install]").forEach((el) => {
+        el.hidden = true;
+      });
+    }
+  }
+  markDisplayMode();
+  if (INSTALL_STANDALONE_QUERY && INSTALL_STANDALONE_QUERY.addEventListener) {
+    INSTALL_STANDALONE_QUERY.addEventListener("change", markDisplayMode);
+  }
+
+  function setInstallLabel(el, text) {
+    const label = el.querySelector("span");
+    if (label && label.textContent) label.textContent = text;
+    else if (el.matches("button")) el.textContent = text;
+  }
+
+  // Repli sans invitation native : l'option reste visible et cliquable, elle
+  // explique la marche à suivre au lieu de ne rien faire.
+  function showManualInstallHint() {
+    if (isStandaloneDisplay() || appInstalled) return;
+    document.querySelectorAll("[data-pwa-install]").forEach((el) => {
+      el.hidden = false;
+      el.setAttribute("data-pwa-manual", "1");
+      const button = el.matches("button") ? el : el.querySelector("button[data-pwa-install]");
+      if (button) setInstallLabel(button, "Comment installer ?");
+    });
+  }
+
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     deferredPrompt = event;
     document.querySelectorAll("[data-pwa-install]").forEach((el) => {
       el.hidden = false;
+      el.removeAttribute("data-pwa-manual");
+      const button = el.matches("button") ? el : el.querySelector("button[data-pwa-install]");
+      if (button) setInstallLabel(button, el.matches("button") ? "Installer l’application" : "Installer");
     });
   });
+
+  // Chrome n'émet pas toujours l'invitation (navigateurs sans API, visite trop
+  // courte) : on bascule sur le mode explicatif après une courte attente.
+  window.setTimeout(() => {
+    if (!deferredPrompt) showManualInstallHint();
+  }, 1400);
 
   document.addEventListener("click", async (event) => {
     // Seule la VRAIE étiquette « Installer » déclenche l'invite ; le conteneur
@@ -263,13 +422,13 @@
     // réagir à un clic dans le vide.
     const btn = event.target.closest("button[data-pwa-install]");
     if (!btn) return;
+    event.preventDefault();
     if (!deferredPrompt) {
-      toast("Utilisez le menu « Ajouter à l'écran d'accueil » du navigateur.", "info");
+      toast(INSTALL_HINT, "info");
       return;
     }
-    event.preventDefault();
-    deferredPrompt.prompt();
     try {
+      deferredPrompt.prompt();
       await deferredPrompt.userChoice;
     } catch (_error) {
       /* noop */
@@ -278,13 +437,16 @@
     document.querySelectorAll("[data-pwa-install]").forEach((el) => {
       el.hidden = true;
     });
+    showManualInstallHint();
   });
 
   window.addEventListener("appinstalled", () => {
+    appInstalled = true;
     document.querySelectorAll("[data-pwa-install]").forEach((el) => {
       el.hidden = true;
     });
-    toast("OmniStream est installé sur votre appareil.", "ok");
+    document.dispatchEvent(new CustomEvent("omni:app-installed"));
+    toast("OmniStream est installé. Ouvrez-le depuis son icône sur l’écran d’accueil.", "ok");
   });
 
   /* =========================================================
@@ -317,6 +479,51 @@
     }
   }
 
+  /* Le menu des « 3 tirets » contient des liens vers une section précise :
+     « Actualités Streaming » pointe par exemple sur /#actualites. Ces ancres
+     étaient ignorées : sur la page d’accueil le clic passait pour « même
+     page » et se contentait de remonter en haut à travers le tiroir resté
+     ouvert ; depuis une autre page, la navigation interne changeait le contenu
+     sans jamais descendre jusqu'à la section. Résultat : une option du menu
+     qui paraissait morte.
+     */
+
+  function hashOf(href) {
+    const raw = String(href || "");
+    const index = raw.indexOf("#");
+    if (index === -1) return "";
+    const hash = raw.slice(index + 1);
+    try {
+      return decodeURIComponent(hash);
+    } catch (_error) {
+      return hash;
+    }
+  }
+
+  function findHashTarget(hash) {
+    const id = String(hash || "").replace(/^#/, "");
+    if (!id) return null;
+    let target = document.getElementById(id);
+    if (!target) {
+      try {
+        target = document.querySelector(`[name="${id}"]`);
+      } catch (_error) {
+        target = null;
+      }
+    }
+    if (!target || target === document.body) return null;
+    return target;
+  }
+
+  // scroll-margin-top (CSS) est déj calé sur la hauteur du header fixe :
+  // scrollIntoView suffit trouver la bonne position.
+  function scrollToHash(hash, smooth) {
+    const target = findHashTarget(hash);
+    if (!target) return false;
+    target.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    return true;
+  }
+
   // Filet de visibilité : sans indicateur, un tap sur un lien paraît ignoré
   // pendant toute la durée du chargement de la page suivante.
   function showProgressBar() {
@@ -335,7 +542,7 @@
     window.setTimeout(() => bar.remove(), 260);
   }
 
-  async function navigate(url, push) {
+  async function navigate(url, push, hash) {
     const shell = document.getElementById("main-content");
     if (!shell) {
       location.href = url;
@@ -368,7 +575,16 @@
       if (doc.title) document.title = doc.title;
       runPageScripts(doc);
       if (push) history.pushState({ pjax: true }, "", url);
-      window.scrollTo({ top: 0, behavior: "auto" });
+      if (hash) {
+        // Le contenu vient d'étre remplacé : deux passes, la premire pour
+        // coller au plus tét, la seconde une fois les styles et les images
+        // retombés en place (la hauteur réelle des blocs change encore).
+        window.scrollTo({ top: 0, behavior: "auto" });
+        window.requestAnimationFrame(() => scrollToHash(hash, false));
+        window.setTimeout(() => scrollToHash(hash, false), 320);
+      } else {
+        window.scrollTo({ top: 0, behavior: "auto" });
+      }
       updateBottomNavActive();
       updateHeaderHeight();
       if (window.OmniPlayer) window.OmniPlayer.render();
@@ -467,14 +683,27 @@
     const anchor = event.target.closest("a");
     if (!isRealAnchor(anchor, event)) return;
     const href = anchor.getAttribute("href");
+    let url;
+    try {
+      url = new URL(href, location.href).href;
+    } catch (_error) {
+      return;
+    }
+    const hash = hashOf(href);
     if (samePage(href)) {
-      // Même page : on remonte en haut plutôt que de recharger pour rien.
+      event.preventDefault();
+      closeDrawer();
+      if (hash && scrollToHash(hash, true)) {
+        history.replaceState(history.state, "", url);
+        return;
+      }
+      // Méme page sans ancre : on remonte en haut plutçt que de recharger.
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     event.preventDefault();
     closeDrawer();
-    navigate(new URL(href, location.href).href, true);
+    navigate(url, true, hash);
   });
 
   // Anticipation : dès que le doigt se pose sur un lien, la page suivante est
@@ -524,7 +753,7 @@
     navigate(url.href, true);
   });
 
-  window.addEventListener("popstate", () => navigate(location.href, false));
+  window.addEventListener("popstate", () => navigate(location.href, false, hashOf(location.hash)));
 
   function closeDrawer() {
     const drawer = document.getElementById("drawer-panel");

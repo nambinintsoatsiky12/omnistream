@@ -14,6 +14,7 @@ Ces tests protègent contre les pannes réellement rencontrées sur téléphone 
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -145,6 +146,8 @@ def test_classes_js_existant_en_css(style_css):
         "omni-ctrl-main",
         "icon-spinner",
         "omni-update-bar",
+        "omni-update-bar-btn",
+        "omni-update-bar-label",
         "omni-toast",
         "offline-poster",
     )
@@ -256,3 +259,398 @@ def test_player_garde_une_politique_de_secours(player_js):
     """Si le flux audio seul échoue, le titre se lance quand même sur YouTube."""
     assert "AUDIO_FALLBACK_COOLDOWN" in player_js
     assert "startYouTubeFallback" in player_js
+
+
+# ---------------------------------------------------------------------------
+# Application installée (PWA), bandeau d'état et menu des « 3 tirés »
+# ---------------------------------------------------------------------------
+
+
+def manifest_data() -> dict:
+    return json.loads(read(STATIC / "manifest.webmanifest"))
+
+
+def shell_assets() -> set:
+    body = read(STATIC / "service-worker.js")
+    head = body.index("const SHELL_ASSETS")
+    block = body[head : body.index("];", head)]
+    return set(re.findall(r'"(/[^"]*)"', block))
+
+
+def test_le_manifeste_est_servi_par_sa_route_dediee(base_html):
+    """Un manifeste au mauvais mimetype est refusé par Chrome : la fenêtre
+    de l'application installée ne s'ouvre alors plus du tout."""
+    assert "url_for('manifest')" in base_html
+
+
+def test_url_de_lancement_pre_enregistree_par_le_worker():
+    """« Installer l'application », puis l'icône qui ne s'ouvre pas : la page
+    de lancement doit faire partie de la coquille pré-enregistrée, sans dépendre
+    d'un paramètre de suivi que le cache ne connaît pas."""
+    manifest = manifest_data()
+    shell = shell_assets()
+    assert manifest["start_url"] == "/", "start_url doit être une URL nue"
+    assert manifest["start_url"] in shell
+    for shortcut in manifest.get("shortcuts", []):
+        assert shortcut["url"].split("?")[0] in shell, shortcut["url"]
+    assert "source=" not in str(manifest)
+
+
+def test_identite_de_l_application_est_stable():
+    """Sans « id », chaque modification de start_url crée une autre
+    application : les icônes déjà posées sur l'écran d'accueil ne
+    pointent plus sur rien de connu. Le repli « browser » évite en outre la
+    fenêtre muette quand le mode autonome n'est pas disponible."""
+    manifest = manifest_data()
+    assert manifest.get("id") == "/"
+    assert manifest.get("display") == "standalone"
+    assert "browser" in manifest.get("display_override", [])
+    assert manifest.get("orientation") == "any"
+
+
+def test_le_worker_ignore_les_parametres_de_suivi(service_worker):
+    assert "IGNORED_PAGE_PARAMS" in service_worker
+    assert '"source"' in service_worker
+    assert "pageUrlWithoutTracking" in service_worker
+
+
+def test_le_worker_ne_laisse_jamais_la_fenetre_vide(service_worker):
+    """5xx (instance endormie, redéploiement) et hors-ligne ne doivent plus
+    donner une fenêtre grise ou noire : on sert la dernière copie
+    connue, sinon une page de secours fabriquée par le worker."""
+    assert "response.status >= 500" in service_worker
+    assert "lastKnownCopy" in service_worker
+    assert "navigationRescue" in service_worker
+    assert "RESCUE_HTML" in service_worker
+    assert "location.reload()" in service_worker
+
+
+def test_la_coquille_est_complementee_a_l_activation(service_worker):
+    install = service_worker.index('self.addEventListener("install"')
+    activate = service_worker.index('self.addEventListener("activate"')
+    assert "precacheShell();" in service_worker[install:activate]
+    assert "precacheShell();" in service_worker[activate : activate + 1400]
+
+
+def test_tous_les_liens_du_menu_menent_une_section():
+    """Le menu des « 3 tirés » ne doit plus proposer d'option morte :
+    chaque lien vers une section retrouve bien l'ancre correspondante."""
+    base = read(TEMPLATES / "base.html")
+    head = base.index('id="drawer-panel"')
+    drawer = base[head : base.index("</aside>", head)]
+    hrefs = re.findall(r'href="([^"]+)"', drawer)
+    assert hrefs, "le menu ne contient plus aucun lien"
+    markup = "".join(read(template) for template in sorted(TEMPLATES.glob("*.html")))
+    for href in hrefs:
+        if "#" not in href:
+            continue
+        anchor = href.split("#", 1)[1]
+        assert f'id="{anchor}"' in markup, f"section manquante pour {href}"
+
+
+def test_le_shell_sert_reellement_les_liens_a_ancre():
+    """Un lien « /#actualites » doit descendre jusqu'à la section, depuis la
+    méme page comme depuis une autre, et refermer le tiroir."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    assert "function hashOf" in shell
+    assert "scrollToHash(hash, true)" in shell
+    assert "navigate(url, true, hash)" in shell
+    assert "hashOf(location.hash)" in shell
+    head = shell.index('document.addEventListener("click", (event) => {')
+    handler = shell[head : shell.index("  });", head)]
+    assert "closeDrawer();" in handler
+
+
+def test_option_installer_reste_vivante_partout():
+    """Chrome n'émet « beforeinstallprompt » qu'une fois l'engagement atteint,
+    et pas du tout sur iOS : sans repli, l'option du menu restait cachée."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    assert "beforeinstallprompt" in shell
+    assert "showManualInstallHint" in shell
+    assert "INSTALL_HINT" in shell
+    assert "data-pwa-manual" in shell
+
+
+def test_mode_autonome_reconnaissable(base_html, style_css):
+    """Dans l'application installée, plus de proposition d'installation et le
+    header tient compte de l'encoche du téléphone."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    assert '(display-mode: standalone)' in shell
+    assert 'data-display-mode' in shell
+    assert 'html[data-display-mode="standalone"] .install-card' in style_css
+    assert "@media (display-mode: standalone)" in style_css
+
+
+def test_bandeau_etat_grand_et_actionnable(style_css):
+    """Le bandeau du haut était trop petit pour être vu : texte à taille
+    lisible, icône et vrais boutons de 40 px minimum."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    classes = (
+        "offline-banner-icon",
+        "offline-banner-text",
+        "offline-banner-actions",
+        "offline-banner-btn",
+        "offline-banner-close",
+    )
+    for name in classes:
+        assert f".{name}" in style_css, f"classe .{name} posée par JS sans style"
+        assert name in shell, f"le bandeau ne fabrique plus .{name}"
+    assert set(re.findall(r'data-banner-action="([a-z-]+)"', shell)) == {
+        "retry",
+        "offline",
+        "dismiss",
+    }
+
+    start = style_css.index(".offline-banner-text {")
+    block = style_css[start : style_css.index("}", start)]
+    size = re.search(r"font-size: *([0-9.]+)rem", block)
+    assert size and float(size.group(1)) >= 0.9, "le bandeau est toujours trop petit"
+    head = style_css.index(".offline-banner {")
+    rule = style_css[head : style_css.index("}", head)]
+    assert re.search(r"min-height: *[4-9][0-9]px", rule), "hauteur tactile insuffisante"
+
+
+def test_bandeau_ne_recouvre_plus_le_header(style_css):
+    head = style_css.index(".topbar {")
+    rule = style_css[head : style_css.index("}", head)]
+    assert "top: var(--top-banner-h, 0px)" in rule
+    attendu = "padding-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px)"
+    assert attendu in style_css
+    bandeau = style_css[style_css.index(".offline-banner {") :]
+    assert "env(safe-area-inset-top" in bandeau
+
+
+def test_barre_de_mise_a_jour_lisible(style_css):
+    head = style_css.index(".omni-update-bar {")
+    rule = style_css[head : style_css.index("}", head)]
+    assert re.search(r"font-size: *0\.9[0-9]*rem", rule), "barre toujours trop petite"
+    assert "min-height" in rule
+    assert "var(--top-banner-h, 0px)" in rule
+
+
+# ---------------------------------------------------------------------------
+# Source MP3 libre : câblage du gabarit au joueur
+# ---------------------------------------------------------------------------
+
+
+def test_player_accepte_un_fichier_et_pas_seulement_youtube():
+    """La coupure écran éteint venait du secours iframe : le lecteur doit savoir
+    jouer un fichier MP3 par lui-même, et le dire."""
+    player = read(STATIC / "js" / "player.js")
+    for needle in (
+        "function isMp3Track",
+        "function isPlayable",
+        "async function playFileTrack",
+        'state.current.kind === "mp3"',
+        'el.preload = "auto"',
+        'el.addEventListener("timeupdate"',
+        "setPositionState(now, state.lastDuration)",
+        'el.addEventListener("stalled"',
+        "keepAlive.timer",
+        "system.resumeAttempts >= 24",
+    ):
+        assert needle in player, f"manquant dans player.js : {needle}"
+
+
+def test_le_worker_sert_les_fichiers_audio():
+    """Un MP3 épinglé doit se relire sans réseau, et un MP3 joué une fois ne
+    doit pas dévorer le stockage : d'où son cache et son plafond propres."""
+    worker = read(STATIC / "service-worker.js")
+    for needle in (
+        "function isAudioFile",
+        "async function audioFileFirst",
+        "AUDIO_CACHE",
+        "AUDIO_CACHE_LIMIT",
+        "function saveDataRequested",
+        "status: 206",
+        "Content-Range",
+        # Un cache écrit par la page ne doit plus être détruit à l'activation.
+        r"/^omnistream-v\d+-/",
+    ):
+        assert needle in worker, f"manquant dans service-worker.js : {needle}"
+
+
+def test_pas_de_cache_version_cod_en_dur():
+    """La page ne doit pas inventer un nom de cache « omnistream-v3-… » : le
+    worker change de version à chaque refonte et jetterait ces entrées."""
+    for name in ("library.js", "downloads.js"):
+        body = read(STATIC / "js" / name)
+        assert not re.search(r"omnistream-v\d", body), f"{name} cite une version"
+
+
+def test_la_page_musique_ne_cite_qu_des_id_existants():
+    """Un getElementById orphelin est exactement le « bouton qui ne fait rien »
+    du menu : chaque id demandé par le script doit être dans un gabarit."""
+    script = read(STATIC / "js" / "musique.js")
+    markup = "".join(
+        read(template) for template in sorted(TEMPLATES.glob("*.html"))
+    )
+    wanted = set(re.findall(r'getElementById\("([^"]+)"\)', script))
+    assert wanted, "plus aucun id utilisé par la page Musique ?"
+    missing = {name for name in wanted if f'id="{name}"' not in markup}
+    assert not missing, f"ids réclamés sans balise correspondante : {sorted(missing)}"
+
+
+def test_source_mp3_branchee_de_bout_en_bout():
+    script = read(STATIC / "js" / "musique.js")
+    page = read(TEMPLATES / "musique.html")
+    assert 'id="source-toggle"' in page
+    assert 'id="source-note"' in page
+    assert 'getElementById("source-toggle")' in script
+    assert 'getElementById("source-note")' in script
+    assert "/api/mp3" in script
+    assert "/api/musique-trending" in script
+    assert 'kind === "mp3"' in script
+
+
+def test_styles_des_boutons_mp3(style_css):
+    """Les classes fabriquées par la page Musique doivent exister en CSS."""
+    style = style_css
+    for name in (
+        "musique-source-wrap",
+        "source-toggle",
+        "source-btn",
+        "source-btn-text",
+        "source-note",
+        "musique-card-mp3",
+        "mp3-meta-line",
+        "mp3-meta",
+        "mp3-dot",
+        "music-get-btn",
+    ):
+        assert f".{name}" in style, f"classe .{name} utilisée mais jamais stylée"
+
+
+# ---------------------------------------------------------------------------
+# « Enregistrer le MP3, le relire hors ligne, et bouger dans le morceau »
+# ---------------------------------------------------------------------------
+
+
+def test_le_worker_repond_sur_le_canal_de_message(service_worker):
+    """`OmniSW.ask` (statistiques, purge) attend sur un MessageChannel : un
+    worker qui ne répond que sur `event.source` laissait la page croire
+    — « rien à vider » aprés avoir pourtant tout vidé."""
+    assert "event.ports" in service_worker
+    assert "port.postMessage(message)" in service_worker
+    assert "source.postMessage(message)" in service_worker
+
+
+def test_le_delai_de_reponse_laisse_le_temps_de_reflechir():
+    shell = read(STATIC / "js" / "app-shell.js")
+    """`stats` lit le corps de chaque réponse : 4 secondes étaient trop
+    courtes sur un téléphone et la page restait vide."""
+    assert "const timer = window.setTimeout(() => resolve(null), 20000);" in shell
+
+
+def test_epingler_un_mp3_attend_la_confirmation_du_cache():
+    """Annoncer « MP3 enregistré » avant que le fichier soit là était
+    la promesse menteuse qui faisait croire à un hors ligne cassé."""
+    library = read(STATIC / "js" / "library.js")
+    assert "function swRequest(" in library
+    assert "channel.port2" in library
+    assert "waitMsForBytes" in library
+    assert "answer.cached" in library
+    assert "return stored > 0;" in library
+    # La page Musique branche son message sur le résultat réel.
+    page = read(STATIC / "js" / "musique.js")
+    assert "const stored = await window.OmniLibrary.saveOffline(favItem);" in page
+    assert "n'a pas pu être mis en cache" in page
+
+
+def test_la_page_hors_ligne_distingue_le_fichier_du_clip():
+    """Un MP3 libre épinglé se relit à 0 Mo ; un clip YouTube, non. Mélanger
+    les deux affichait un avertissement faux et lançait une lecture
+    vouée à l'échec."""
+    downloads = read(STATIC / "js" / "downloads.js")
+    assert "function hasStoredFile(" in downloads
+    assert "function storageLabel(" in downloads
+    assert "MP3 · 0 Mo HORS LIGNE" in downloads
+    assert "CLIP · RÉSEAU REQUIS" in downloads
+    assert "if (!navigator.onLine && !hasStoredFile(item)) {" in downloads
+    # Le compteur « Fichiers en cache » doit compter les morceaux aussi.
+    assert 'name.includes("-audio")' in downloads
+
+
+def test_la_duree_inconnue_ne_vide_plus_la_barre_de_progression():
+    """Un MP3 téléchargé progressivement sans en-tête de durée rend
+    `el.duration` infini : la barre restait à 0 % et `currentTime` refusait
+    la valeur — « le trait brillant ne s'affiche pas, je ne peux ni avancer
+    ni recommencer »."""
+    player = read(STATIC / "js" / "player.js")
+    for needle in (
+        "function knownDuration",
+        "function resolveDuration",
+        "Number.isFinite",
+        "duration = resolveDuration(el.duration);",
+        'el.addEventListener("durationchange"',
+        'document.body.classList.add("seeking")',
+        'document.body.classList.remove("seeking")',
+    ):
+        assert needle in player, f"manquant dans player.js : {needle}"
+    # Un refus silencieux ressemble à un bouton cassé : il doit être dit.
+    assert "Durée du fichier inconnue" in player
+
+
+def test_le_repere_de_progression_se_voit_et_se_saisit(style_css):
+    """3 px de trait et 4 px de zone tactile : personne ne le voyait, personne
+    ne l'attrapait. Le repére a désormais un grain visible et une zone de
+    vingtaine de pixels."""
+    assert ".omni-bar-progress::before" in style_css
+    assert ".omni-bar-progress-fill::after" in style_css
+    assert "body.seeking .omni-bar-progress-fill" in style_css
+    block = style_css[style_css.index(".omni-bar-progress {") :]
+    block = block[: block.index("}")]
+    assert "touch-action: none" in block
+    assert "overflow: hidden" not in block, "le repére serait rogné"
+    assert "min-width: 6px" in style_css
+
+
+def test_la_barre_de_la_modale_a_le_droit_d_etre_grasse(style_css):
+    start = style_css.index(".omni-modal-progress {")
+    block = style_css[start : style_css.index("}", start)]
+    assert "height: 8px" in block
+    assert "overflow: hidden" not in block
+    assert ".omni-modal-progress-fill::after" in style_css
+
+
+def test_le_relais_de_fichier_ne_cache_rien_de_silencieux():
+    """Le relais ne sert qu'à nommer le fichier : la lecture part sur
+    l'Archive, sinon chaque écoute immobiliserait un worker."""
+    source = read(ROOT / "app.py")
+    assert 'ARCHIVE_FILE_URL.format(identifier=identifier, name=quote(name))' in source
+    assert '"url": ARCHIVE_FILE_URL' in source
+    assert "Content-Disposition" in source
+
+
+def test_les_rayons_viennent_du_serveur():
+    """Ni le gabarit ni le script ne connaissent la liste des rayons : un rayon
+    ajoute cote serveur apparait, un rayon retire disparait."""
+    script = read(STATIC / "js" / "musique.js")
+    page = read(TEMPLATES / "musique.html")
+    assert 'id="shelf-row"' in page
+    assert 'id="provider-row"' in page
+    assert 'searchParams.set("shelf", currentShelf)' in script
+    assert 'searchParams.set("provider", currentProvider)' in script
+    assert "renderChoices(data)" in script
+    assert "function renderChoice(" in script
+
+
+def test_le_poids_et_le_bouton_ne_mentent_pas():
+    """Taille inconnue = pas de « 0 Ko » ; telechargement non autorise par
+    l'artiste = pas de bouton."""
+    script = read(STATIC / "js" / "musique.js")
+    assert "item.size ? `MP3 \u00b7 ${humanSize(item.size)}` : \"MP3\"" in script
+    assert "if (item.download) info.append(download);" in script
+
+
+def test_le_credit_de_licence_est_affiche_et_style():
+    """Une licence Creative Commons se monnaie en attribution : elle doit etre
+    visible sur la carte, pas planquee dans une balise meta."""
+    script = read(STATIC / "js" / "musique.js")
+    style = read(STATIC / "css" / "style.css")
+    assert 'credit.className = "music-credit"' in script
+    assert 'rel = "noopener license"' in script
+    assert ".music-credit" in style
+    assert ".choice-btn" in style
+    assert ".choice-btn.active" in style
+    assert ".musique-choice-rows" in style

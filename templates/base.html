@@ -5,8 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>{% block title %}OmniStream — Films, Séries, Animés & Musique{% endblock %}</title>
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-<link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+{# Le manifeste passe par sa route dédiée : le mimetype est garanti
+   (« application/manifest+json »). Un manifeste servi en « octet-stream » est
+   refusé par Chrome, et l'application installée ne se lance alors plus. #}
+<link rel="manifest" href="{{ url_for('manifest') }}">
 <meta name="theme-color" content="#090b10">
+<meta name="theme-color" media="(display-mode: standalone)" content="#090b10">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="OmniStream">
@@ -552,6 +556,7 @@
         <span class="tech-badge">Google Gemini 2.5</span>
         <span class="tech-badge">MangaDex Scans</span>
         <span class="tech-badge">YouTube Stream</span>
+        <span class="tech-badge">MP3 sous licence libre</span>
       </div>
       <div class="footer-stats-card">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>

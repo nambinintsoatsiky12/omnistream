@@ -197,7 +197,10 @@ img {
 
 .topbar {
   position: fixed;
-  top: 0;
+  /* Le bandeau d'état du réseau se loge au-dessus du header :
+     c'est lui que l'on déplace, pour ne pas écraser le logo ni la
+     barre de recherche. */
+  top: var(--top-banner-h, 0px);
   left: 0;
   right: 0;
   z-index: 100;
@@ -1723,13 +1726,13 @@ main {
   margin: 0 auto;
   width: 100%;
   padding: 24px 36px 60px;
-  padding-top: calc(var(--header-h, 110px) + 16px);
+  padding-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px) + 16px);
   flex: 1;
 }
 
 /* Les ancres (#actualites...) s'arrêtent sous le header fixe */
 section[id] {
-  scroll-margin-top: calc(var(--header-h, 110px) + 20px);
+  scroll-margin-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px) + 20px);
 }
 
 main:has(.landing-hero-ua),
@@ -2573,9 +2576,183 @@ main:has(.landing-hero-ua),
   border-radius: var(--radius-pill);
   background: rgba(255, 122, 46, 0.1);
   border: 1px solid rgba(255, 122, 46, 0.25);
-  font-size: 0.78rem;
+  font-size: 0.86rem;
+  line-height: 1.5;
   color: var(--accent);
 }
+
+/* --- Source des titres : MP3 libres ou YouTube ---------------------------- */
+/* Le choix de la source n'est pas décoratif : un fichier MP3 se lit écran
+   éteint, s'épingle hors ligne et s'enregistre ; un clip YouTube, non. */
+.musique-source-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.source-toggle {
+  display: inline-flex;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.source-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  min-height: 46px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.source-btn svg { flex: 0 0 auto; }
+
+.source-btn-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.source-btn-text strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: inherit;
+}
+
+.source-btn-text small {
+  font-size: 0.7rem;
+  color: var(--muted-dark);
+}
+
+.source-btn.active {
+  background: var(--gradient-cyan);
+  color: #04121c;
+  box-shadow: 0 4px 14px var(--glow-cyan);
+}
+
+.source-btn.active .source-btn-text small { color: rgba(4, 18, 28, 0.72); }
+.source-btn:hover:not(.active) { color: #fff; }
+
+.source-note {
+  max-width: 640px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Un MP3 n'a pas d'image : le bouton « Vidéo » reste visible mais doit
+   avouer qu'il ne peut rien faire, au lieu de ouvrir un plein écran vide. */
+.mode-btn:disabled,
+.mode-btn.is-blocked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mode-btn:disabled:hover { background: transparent; }
+
+/* --- Carte d'un fichier MP3 : durée, poids, enregistrement ---------------- */
+.mp3-meta-line { gap: 6px; flex-wrap: wrap; }
+
+.mp3-meta {
+  font-size: 0.72rem;
+  color: var(--muted-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp3-dot {
+  color: var(--muted-dark);
+  font-size: 0.72rem;
+  margin: 0 4px;
+}
+
+.music-get-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--accent-cyan);
+  font-family: var(--font);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.music-get-btn:hover { background: rgba(56, 189, 248, 0.18); }
+.music-get-btn:active { transform: scale(0.97); }
+
+/* --- Rayons découverts et fournisseurs --------------------------------- */
+/* Les deux rangées sont remplies depuis /api/mp3 : un rayon retiré côté serveur
+   disparaît de l'interface, et un fournisseur sans clé ne propose pas un bouton
+   qui ne pourrait que se plaindre. */
+.musique-choice-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  margin: -6px 0 18px;
+}
+
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.choice-btn {
+  font-family: var(--font);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  min-height: 34px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.choice-btn:hover { color: #fff; border-color: var(--border-hover); }
+
+.choice-btn.active {
+  color: #04121c;
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
+/* Le crédit d’auteur, exigé par les licences Creative Commons : discret mais
+   réel, et cliquable jusqu’au texte de la licence. */
+.music-credit {
+  align-self: flex-start;
+  font-size: 0.66rem;
+  letter-spacing: 0.3px;
+  text-transform: lowercase;
+  color: var(--muted-dark);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--muted-dark);
+}
+
+.music-credit:hover { color: var(--gold); border-bottom-color: var(--gold); }
 
 .musique-search-form {
   max-width: 580px;
@@ -3115,7 +3292,10 @@ main:has(.landing-hero-ua),
   .hero-copy h2 { font-size: 1.5rem; }
   .hero-copy p { font-size: 0.82rem; }
   .hero-play { width: 52px; height: 52px; }
-  main { padding: 16px 14px 60px; padding-top: calc(var(--header-h, 110px) + 12px); }
+  main {
+    padding: 16px 14px 60px;
+    padding-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px) + 12px);
+  }
   .grid { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 14px; }
   .footer-container { grid-template-columns: 1fr; }
   .footer-bottom { flex-direction: column; text-align: center; }
@@ -3204,24 +3384,61 @@ main:has(.landing-hero-ua),
   min-height: 50px;
 }
 .omni-bar-progress {
-  /* La ligne fait 3 px, mais la zone tactile fait 7 px : on peut attraper la
-     progression du bout du pouce. `content-box` est indispensable ici, sinon
-     le padding écrase la hauteur utile (boîte globale en border-box). */
+  /* La ligne fait 5 px mais la zone tactile en fait une vingtaine : on
+     attrape la progression du bout du pouce, sans viser un cheveu. Le
+     prolongement se fait par un pseudo-élément (et non par du padding) pour ne
+     pas gonfler la hauteur utile de la barre. */
+  position: relative;
   box-sizing: content-box;
-  height: 3px;
-  padding: 4px 0 0;
-  background: rgba(255, 255, 255, 0.1);
+  height: 5px;
+  padding: 6px 0 0;
+  background: rgba(255, 255, 255, 0.14);
   background-clip: content-box;
   cursor: pointer;
-  overflow: hidden;
   border-radius: 14px 14px 0 0;
   touch-action: none;
 }
+
+.omni-bar-progress::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -11px;
+  bottom: -7px;
+}
+
 .omni-bar-progress-fill {
+  position: relative;
   height: 100%;
   width: 0%;
+  min-width: 6px;
+  border-radius: 9999px;
   background: var(--gradient);
+  box-shadow: 0 0 10px rgba(255, 122, 46, 0.45);
   transition: width 0.4s linear;
+}
+
+/* Le grain brillant qui matérialise « où on en est » : sans lui, la barre ne
+   dit rien et on ne devine pas qu'elle se touche. */
+.omni-bar-progress-fill::after,
+.omni-modal-progress-fill::after {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 12px rgba(255, 122, 46, 0.9), 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+/* Pendant un glissement, aucune animation : le repère colle au doigt. */
+body.seeking .omni-bar-progress-fill,
+body.seeking .omni-modal-progress-fill {
+  transition: none;
 }
 .omni-bar-cover {
   flex-shrink: 0;
@@ -3472,18 +3689,24 @@ body[data-player-playing="true"] .omni-vinyl { animation: omni-spin 12s linear i
 .omni-modal-artist { color: var(--muted); font-size: 0.8rem; }
 .omni-modal-status { color: var(--accent); font-size: 0.72rem; margin-top: 6px; font-weight: 600; }
 .omni-modal-progress {
+  box-sizing: content-box;
   width: 100%;
-  height: 6px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.12);
-  margin: 20px 0 6px;
+  height: 8px;
+  padding: 12px 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  background-clip: content-box;
+  margin: 12px 0;
   cursor: pointer;
-  overflow: hidden;
   touch-action: none;
 }
+
 .omni-modal-progress-fill {
+  position: relative;
   height: 100%;
   width: 0%;
+  min-width: 8px;
+  border-radius: 9999px;
   background: var(--gradient);
   transition: width 0.4s linear;
 }
@@ -3786,22 +4009,125 @@ body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
 .bottom-nav-item.active { color: var(--accent); }
 .bottom-nav-item:active { transform: scale(0.94); }
 
-/* --- Bannière hors ligne --- */
+/* ================================================================
+   BANDEAU D'ÉTAT DU RÉSEAU
+   ----------------------------------------------------------------
+   Il était minuscule (0,8 rem, 6 px de gras) et posé par-dessus le
+   logo : à peine visible et il cassait l'en-tête. Le voici en vrai
+   bandeau — texte clair, icône, actions tactiles de 40 px —
+   et il se cale sous le header au lieu de le recouvrir.
+   ================================================================ */
 .offline-banner {
   position: fixed;
-  top: 0;
+  top: var(--header-h, 96px);
   left: 0;
   right: 0;
-  z-index: 1400;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  min-height: 56px;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(135deg, #b45309 0%, #7c2d12 100%);
+  color: #fff7ed;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  border-bottom: 1px solid rgba(255, 247, 237, 0.22);
+  text-align: left;
+}
+
+.offline-banner-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.offline-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+.offline-banner-text strong {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.offline-banner-text > span {
+  color: rgba(255, 247, 237, 0.86);
+  font-size: 0.84rem;
+}
+
+.offline-banner-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 6px 12px;
-  background: #b45309;
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.offline-banner-btn,
+.offline-banner-close {
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-pill);
+  transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.offline-banner-btn {
+  min-height: 40px;
+  padding: 9px 16px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #fff7ed;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 247, 237, 0.4);
+}
+
+.offline-banner-btn.primary {
+  background: #fff7ed;
+  color: #7c2d12;
+  border-color: #fff7ed;
+}
+
+.offline-banner-btn:active { transform: scale(0.97); }
+.offline-banner-btn:disabled { opacity: 0.6; cursor: progress; }
+
+.offline-banner-close {
+  width: 40px;
+  height: 40px;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: rgba(255, 247, 237, 0.8);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.offline-banner-close:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+
+@media (max-width: 620px) {
+  .offline-banner {
+    justify-content: flex-start;
+    gap: 8px 10px;
+    padding: 10px 12px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  }
+  .offline-banner-icon { width: 28px; height: 28px; }
+  .offline-banner-text { flex: 1 1 100%; font-size: 0.9rem; }
+  .offline-banner-text strong { font-size: 0.96rem; }
+  .offline-banner-text > span { font-size: 0.8rem; }
+  .offline-banner-actions { flex: 1 1 auto; }
+  .offline-banner-btn { padding: 9px 13px; font-size: 0.82rem; }
 }
 
 /* --- Bouton favori sur les cartes --- */
@@ -4236,7 +4562,10 @@ body.has-audio-bar .sponsor-gift {
   .logo-text { font-size: 0.95rem; letter-spacing: 1px; }
   .icon-btn { width: 34px; height: 34px; }
 
-  main { padding: 14px 12px 40px; padding-top: calc(var(--header-h, 96px) + 10px); }
+  main {
+    padding: 14px 12px 40px;
+    padding-top: calc(var(--header-h, 96px) + var(--top-banner-h, 0px) + 10px);
+  }
 
   .grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
   .card-info { padding: 8px 9px 10px; gap: 2px; }
@@ -4278,7 +4607,7 @@ body.has-audio-bar .sponsor-gift {
   .mode-btn { padding: 6px 11px; gap: 8px; }
   .mode-btn-text strong { font-size: 0.76rem; }
   .mode-btn-text small { font-size: 0.62rem; }
-  .data-saver-notice { font-size: 0.68rem; padding: 5px 10px; line-height: 1.45; }
+  .data-saver-notice { font-size: 0.8rem; padding: 9px 12px; line-height: 1.5; gap: 9px; }
 
   .library-page .library-header { margin-bottom: 16px; }
   .library-intro { font-size: 0.8rem; }
@@ -4380,28 +4709,36 @@ body.has-audio-bar .sponsor-gift {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  top: calc(var(--header-h, 96px) + 8px);
+  top: calc(var(--header-h, 96px) + var(--top-banner-h, 0px) + 10px);
   z-index: 1500;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px 8px 14px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 52px;
+  padding: 10px 12px 10px 18px;
   border-radius: var(--radius-pill);
   background: rgba(18, 22, 31, 0.97);
   border: 1px solid rgba(56, 189, 248, 0.4);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
-  font-size: 0.74rem;
+  font-size: 0.92rem;
   font-weight: 600;
+  line-height: 1.4;
   color: #fff;
   max-width: calc(100% - 24px);
 }
-.omni-update-bar button {
+.omni-update-bar-label { flex: 1 1 auto; min-width: 0; }
+
+.omni-update-bar button,
+.omni-update-bar-btn {
   font: inherit;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #04070d;
   background: var(--accent-cyan);
   border-radius: var(--radius-pill);
-  padding: 6px 12px;
+  min-height: 40px;
+  padding: 9px 16px;
   cursor: pointer;
 }
 .omni-update-bar button.ghost {
@@ -4411,7 +4748,9 @@ body.has-audio-bar .sponsor-gift {
   font-size: 1rem;
   line-height: 1;
 }
-body.is-offline .offline-banner + .omni-update-bar { top: 34px; }
+
+/* Le bandeau d'état et la barre de mise à jour ne se connaissent pas :
+   c'est la variable --top-banner-h qui les empile proprement. */
 
 /* --- Espace hors ligne : compteurs et jauge --- */
 .saver-stats { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px; }
@@ -4482,6 +4821,10 @@ body.is-offline .offline-banner + .omni-update-bar { top: 34px; }
 .mode-toggle { width: 100%; }
 .mode-btn { flex: 1; justify-content: center; }
 .data-saver-notice { margin-top: 10px; max-width: 100%; }
+.source-toggle { width: 100%; }
+.source-btn { flex: 1; justify-content: center; }
+.source-note { max-width: 100%; }
+.musique-card-mp3 .card-info { gap: 3px; }
 
 /* Sur écran tactile, aucun effet de survol ne doit rester « collé » après un
    tap (une carte soulevée ou grossie qui ne redescend plus donne
@@ -4709,4 +5052,46 @@ html:has(body.modal-open),
 html:has(body.media-fullscreen),
 html:has(body.drawer-open) {
   overflow: hidden;
+}
+
+/* Bandeau d'état visible : le header se détache, pour qu'on ne croie pas
+   qu'il s'agit d'une barre de statut du navigateur. */
+html.has-top-banner .topbar {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+}
+
+/* ================================================================
+   APPLICATION INSTALLÉE (mode autonome)
+   ----------------------------------------------------------------
+   Dans la fenêtre de l'application installée, il n'y a plus de barre
+   d'URL ni de bouton précédent, et l'encoche du téléphone mange le haut
+   de l'écran : le header prend donc la marge de sécurité, et les
+   propositions d'installation — inutiles puisqu'on y est déjà —
+   s'effacent.
+   ================================================================ */
+@media (display-mode: standalone) {
+  .topbar-inner {
+    height: auto;
+    min-height: 64px;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* Le drapeau est posé par app-shell.js : filet de sécurité pour les
+   navigateurs qui ne connaissent pas la règle précédente. */
+html[data-display-mode="standalone"] .topbar-inner {
+  height: auto;
+  min-height: 64px;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+html[data-display-mode="standalone"] .install-card,
+html[data-display-mode="standalone"] .drawer-install-btn {
+  display: none;
+}
+
+/* Un bandeau d'état visible ne doit jamais manger le fil de progression. */
+.pjax-bar {
+  top: var(--top-banner-h, 0px);
 }
