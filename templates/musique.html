@@ -103,6 +103,24 @@
     <p>Essayez le nom d'un autre artiste, ou un titre en anglais.</p>
   </div>
 
+  <!-- Recherche « MP3 libre » aboutie mais vide : la page explique le rayon au
+       lieu de rester blanche, et propose la MÊME recherche côté YouTube.
+       Cet encart ne sort que d'une recherche qui a répondu — une panne de
+       réseau passe par le message d'erreur, jamais par ici. -->
+  <div id="musique-mp3-fallback" class="mp3-fallback" hidden>
+    <h3>Aucun titre libre pour cette recherche</h3>
+    <p>
+      Le rayon <strong>MP3 libre</strong> ne rassemble que des fichiers publiés par des
+      artistes indépendants qui en autorisent la copie (Internet Archive, Jamendo). Les
+      titres des grandes maisons de disques n'y sont pas, et personne n'a le droit de les
+      y déposer. Ce que vous cherchez existe donc probablement en clip sur YouTube.
+    </p>
+    <button type="button" class="mp3-fallback-btn" id="mp3-fallback-youtube">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3"></rect><polygon points="10 9 15 12 10 15 10 9"></polygon></svg>
+      <span>Chercher « <span id="mp3-fallback-query"></span> » sur YouTube</span>
+    </button>
+  </div>
+
   <div id="musique-loading" class="empty-state" hidden>
     <div class="music-loading-spinner"></div>
     <p>Recherche des flux audio…</p>

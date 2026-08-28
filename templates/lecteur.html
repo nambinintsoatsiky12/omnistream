@@ -10,10 +10,40 @@
 
     <!-- CONTROLS -->
     <div class="scan-toolbar">
+      {# Le français reste proposé en premier, mais aucune langue n'est exclue :
+         beaucoup de séries n'existent qu'en coréen, espagnol ou portugais. #}
       <select id="scan-lang" class="scan-select" aria-label="Langue des scans">
-        <option value="fr">🇫🇷 Version Française (VF)</option>
+        <option value="fr" selected>🇫🇷 Version Française (VF)</option>
+        <option value="">🌐 Toutes les langues</option>
         <option value="en">🇬🇧 English (VA)</option>
+        <option value="es">🇪🇸 Español</option>
+        <option value="es-la">🌎 Español (Latino)</option>
+        <option value="pt-br">🇧🇷 Português (Brasil)</option>
+        <option value="it">🇮🇹 Italiano</option>
+        <option value="de">🇩🇪 Deutsch</option>
+        <option value="ru">🇷🇺 Русский</option>
+        <option value="pl">🇵🇱 Polski</option>
+        <option value="tr">🇹🇷 Türkçe</option>
+        <option value="id">🇮🇩 Bahasa Indonesia</option>
+        <option value="vi">🇻🇳 Tiếng Việt</option>
+        <option value="th">🇹🇭 ไทย</option>
+        <option value="ko">🇰🇷 한국어</option>
+        <option value="ja">🇯🇵 日本語</option>
+        <option value="ja-ro">🇯🇵 日本語 (rōmaji)</option>
+        <option value="zh">🇨🇳 中文</option>
+        <option value="zh-hans">🇨🇳 简体中文</option>
+        <option value="ar">🇸🇦 العربية</option>
+        <option value="hi">🇮🇳 हिन्दी</option>
       </select>
+
+      {# Aucun filtre de contenu n'est appliqué par défaut : MangaDex masquait
+         sinon la moitié des séries sous prétexte qu'elles ne sont pas « safe ».
+         Le filtre revient uniquement si le lecteur le demande. #}
+      <label class="scan-toggle" for="scan-rating">
+        <input type="checkbox" id="scan-rating">
+        <span>Contenu « sûr » uniquement</span>
+      </label>
+
       <button id="scan-load" class="scan-action-btn">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
         <span>Recharger</span>
@@ -21,7 +51,13 @@
     </div>
   </div>
 
+  {# La série retenue reste affichée : le statut, lui, change à chaque étape et
+     le lecteur doit pouvoir vérifier sur quelle œuvre il est tombé. #}
+  <div id="scan-series" class="scan-series" hidden></div>
   <div id="scan-status" class="scan-status-indicator">Initialisation du lecteur MangaDex...</div>
+  {# Dit ce qui a été écarté pour arriver à un résultat : un filtre retiré
+     automatiquement doit rester visible, jamais silencieux. #}
+  <div id="scan-notice" class="scan-notice" role="status" hidden></div>
 
   <!-- CHAPTER NAVIGATION BAR -->
   <div id="scan-nav-top" class="scan-nav-bar" hidden>
@@ -61,8 +97,11 @@
   if (!root) return;
   const title = root.dataset.title || "";
   const langSelect = document.getElementById("scan-lang");
+  const ratingBox = document.getElementById("scan-rating");
   const loadBtn = document.getElementById("scan-load");
   const statusEl = document.getElementById("scan-status");
+  const seriesEl = document.getElementById("scan-series");
+  const noticeEl = document.getElementById("scan-notice");
   const pagesEl = document.getElementById("scan-pages");
   const navTop = document.getElementById("scan-nav-top");
   const navBottom = document.getElementById("scan-nav");
@@ -76,6 +115,26 @@
   let chapters = [];
   let currentChapter = 0;
 
+  function langue() { return langSelect ? langSelect.value : "fr"; }
+  function filtreContenu() { return ratingBox && ratingBox.checked ? "safe" : null; }
+
+  function dire(texte) { if (statusEl) statusEl.textContent = texte; }
+  function charger(texte) {
+    if (statusEl) statusEl.innerHTML = `<span class="spinner-small"></span> ${texte}`;
+  }
+  function preciser(texte) {
+    if (!noticeEl) return;
+    if (!texte) { noticeEl.hidden = true; noticeEl.textContent = ""; return; }
+    noticeEl.hidden = false;
+    noticeEl.textContent = texte;
+  }
+  function nommerSerie(nom, manga) {
+    if (!seriesEl) return;
+    const annee = manga && manga.attributes && manga.attributes.year;
+    seriesEl.hidden = false;
+    seriesEl.textContent = annee ? `Série retenue : ${nom} (${annee})` : `Série retenue : ${nom}`;
+  }
+
   async function api(endpoint, params) {
     const qs = new URLSearchParams({ endpoint, ...params });
     const r = await fetch(`/api/mangadex_proxy?${qs}`);
@@ -83,37 +142,169 @@
     return r.json();
   }
 
+  /* ------------------------------------------------------------------
+     CHOIX DE LA SÉRIE : le titre qui ressemble le plus à la requête,
+     pas simplement le premier résultat renvoyé par MangaDex.
+     ------------------------------------------------------------------ */
+  function normaliser(valeur) {
+    return String(valeur || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")        // sans accents
+      .replace(/[^\p{L}\p{N}]+/gu, " ")       // sans ponctuation, toute écriture
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function variantes(manga) {
+    const attrs = manga.attributes || {};
+    const groupes = [attrs.title || {}].concat(attrs.altTitles || []);
+    const titres = [];
+    groupes.forEach(function (groupe) {
+      Object.keys(groupe || {}).forEach(function (code) {
+        if (groupe[code]) titres.push(groupe[code]);
+      });
+    });
+    return titres;
+  }
+
+  function ressemblance(manga, voulu) {
+    let score = 0;
+    variantes(manga).forEach(function (brut) {
+      const nom = normaliser(brut);
+      if (!nom) return;
+      let ici = 0;
+      if (nom === voulu) {
+        ici = 100;
+      } else if (nom.indexOf(voulu) === 0 || voulu.indexOf(nom) === 0) {
+        ici = 80;
+      } else if (nom.indexOf(voulu) !== -1 || voulu.indexOf(nom) !== -1) {
+        ici = 60;
+      } else {
+        const mots = voulu.split(" ").filter(Boolean);
+        const trouves = mots.filter(function (mot) { return nom.indexOf(mot) !== -1; }).length;
+        if (mots.length) ici = Math.round(40 * (trouves / mots.length));
+      }
+      score = Math.max(score, ici);
+    });
+    return score;
+  }
+
+  function choisirSerie(resultats, voulu) {
+    const classes = resultats.map(function (manga) {
+      const attrs = manga.attributes || {};
+      return {
+        manga,
+        score: ressemblance(manga, voulu),
+        annee: Number(attrs.year) || 0,
+        suivi: Number(attrs.followedCount) || 0
+      };
+    });
+    classes.sort(function (a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      // Une série non datée (souvent un travail de fan) passe derrière une
+      // publication datée ; entre deux datées, la plus ancienne est l'originale.
+      const aa = a.annee || Infinity;
+      const bb = b.annee || Infinity;
+      if (aa !== bb) return aa - bb;
+      if (aa === Infinity) return b.suivi - a.suivi;
+      return 0;
+    });
+    return classes.length ? classes[0].manga : null;
+  }
+
+  // Premier titre lisible, dans n'importe quelle langue : MangaDex renvoie
+  // {ja-ro: …, en: …, fr: …} et beaucoup de séries n'ont ni fr ni en.
+  function titreAffiche(manga) {
+    const attrs = manga.attributes || {};
+    const titres = attrs.title || {};
+    const prefere = ["fr", "en", "ja-ro", "ja", "ko", "zh", "zh-hans", "es"];
+    for (const code of prefere) {
+      if (titres[code]) return titres[code];
+    }
+    const autres = Object.keys(titres);
+    if (autres.length && titres[autres[0]]) return titres[autres[0]];
+    return title;
+  }
+
+  async function rechercherSeries(params) {
+    const data = await api("/manga", params);
+    return (data.data || []).filter(function (m) { return m && m.attributes && m.attributes.title; });
+  }
+
   async function searchManga() {
-    statusEl.innerHTML = `<span class="spinner-small"></span> Recherche de l'œuvre originale sur MangaDex...`;
-    const data = await api("/manga", { title, "limit": "5", "contentRating[]": "safe" });
-    const results = (data.data || []).filter(m => m.attributes && m.attributes.title);
+    preciser("");
+    charger("Recherche de l'œuvre originale sur MangaDex...");
+    const base = { title, limit: "20", "order[year]": "asc" };
+    const filtre = filtreContenu();
+    let results = await rechercherSeries(
+      filtre ? { ...base, "contentRating[]": filtre } : base
+    );
+    if (!results.length && filtre) {
+      // Un filtre qui vide la page ne doit pas passer pour « ce manga
+      // n'existe pas » : on relance sans lui, et on le dit.
+      results = await rechercherSeries(base);
+      if (results.length) {
+        preciser("Aucune série avec le filtre « contenu sûr » : filtre retiré, tous les résultats sont affichés.");
+      }
+    }
     if (!results.length) {
-      statusEl.textContent = "Aucun scan trouvé pour ce titre. Essayez avec le nom original du manga.";
+      dire("Aucun scan trouvé pour ce titre. Essayez avec le nom original du manga.");
       return;
     }
-    mangaId = results[0].id;
-    const mangaTitle = results[0].attributes.title.fr || results[0].attributes.title.en || title;
-    statusEl.textContent = `Manga identifié : ${mangaTitle}`;
+    const serie = choisirSerie(results, normaliser(title));
+    if (!serie) { dire("Aucun scan exploitable pour ce titre."); return; }
+    mangaId = serie.id;
+    const nomSerie = titreAffiche(serie);
+    nommerSerie(nomSerie, serie);
+    dire(`Manga identifié : ${nomSerie}`);
     await loadChapters();
+  }
+
+  /* ------------------------------------------------------------------
+     CHAPITRES : une échelle de replis. On part du filtre demandé, puis
+     on retire ce qui empêche de lire — en l'écrivant à l'écran.
+     ------------------------------------------------------------------ */
+  async function recupererChapitres(lang, filtre) {
+    const params = { "order[chapter]": "asc", limit: "500" };
+    if (lang) params["translatedLanguage[]"] = lang;
+    if (filtre) params["contentRating[]"] = filtre;
+    const data = await api(`/manga/${mangaId}/feed`, params);
+    return (data.data || []).filter(function (c) { return c && c.attributes; });
   }
 
   async function loadChapters() {
     if (!mangaId) return;
-    const lang = langSelect ? langSelect.value : "fr";
-    statusEl.innerHTML = `<span class="spinner-small"></span> Chargement des chapitres disponibles...`;
-    const data = await api(`/manga/${mangaId}/feed`, {
-      "translatedLanguage[]": lang,
-      "order[chapter]": "asc",
-      "limit": "500",
-      "contentRating[]": "safe"
-    });
-    chapters = (data.data || []).filter(c => c.attributes && c.attributes.chapter);
+    const demande = langue();
+    const filtre = filtreContenu();
+    charger("Chargement des chapitres disponibles...");
+
+    const essais = [{ lang: demande, filtre }];
+    if (filtre) essais.push({ lang: demande, filtre: null });
+    if (demande) essais.push({ lang: "", filtre });
+    if (demande && filtre) essais.push({ lang: "", filtre: null });
+
+    let retenus = [];
+    let retenu = null;
+    for (const essai of essais) {
+      retenus = await recupererChapitres(essai.lang, essai.filtre);
+      if (retenus.length) { retenu = essai; break; }
+    }
+    chapters = retenus.filter(function (c) { return c.attributes.chapter; });
     if (!chapters.length) {
-      statusEl.textContent = "Aucun chapitre disponible dans cette langue.";
+      dire(demande
+        ? "Aucun chapitre trouvé, dans aucune langue. Cette série n'a pas encore de scan lisible ici."
+        : "Aucun chapitre disponible pour cette série.");
       if (navTop) navTop.hidden = true;
       if (navBottom) navBottom.hidden = true;
       return;
     }
+
+    const relaches = [];
+    if (filtre && !retenu.filtre) relaches.push("filtre « contenu sûr » retiré");
+    if (demande && !retenu.lang) relaches.push("chapitres en toutes langues, pas seulement en français");
+    preciser(relaches.length ? `Aucun chapitre avec tous les filtres : ${relaches.join(", ")}.` : "");
+
     currentChapter = 0;
     if (navTop) navTop.hidden = false;
     if (navBottom) navBottom.hidden = false;
@@ -125,7 +316,7 @@
     if (!ch) return;
     const chNum = ch.attributes.chapter || "?";
     if (labelEl) labelEl.textContent = `Chapitre ${chNum} (${currentChapter + 1} / ${chapters.length})`;
-    statusEl.innerHTML = `<span class="spinner-small"></span> Chargement des planches du Chapitre ${chNum}...`;
+    charger(`Chargement des planches du Chapitre ${chNum}...`);
     pagesEl.replaceChildren();
 
     try {
@@ -141,13 +332,25 @@
         img.src = `${baseUrl}/data/${hash}/${filename}`;
         img.alt = `Planche ${i + 1}`;
         img.loading = "lazy";
+        img.decoding = "async";
         img.className = "scan-page-img";
+        // Le serveur d'images MangaDex est externe : s'il ne répond pas, on
+        // affiche un message à la place de l'icône d'image cassée.
+        img.addEventListener("error", function () {
+          if (!img.isConnected) return;
+          wrap.classList.add("is-broken");
+          img.remove();
+          const message = document.createElement("div");
+          message.className = "scan-page-error";
+          message.textContent = `Planche ${i + 1} indisponible : le serveur d'images n'a pas répondu.`;
+          wrap.appendChild(message);
+        });
         wrap.appendChild(img);
         return wrap;
       }));
-      statusEl.textContent = `Chapitre ${chNum} prêt (${pages.length} pages)`;
-    } catch(err) {
-      statusEl.textContent = "Erreur lors du chargement des images de ce chapitre.";
+      dire(`Chapitre ${chNum} prêt (${pages.length} pages)`);
+    } catch (err) {
+      dire("Erreur lors du chargement des images de ce chapitre.");
     }
   }
 
@@ -167,25 +370,35 @@
     }
   }
 
-  if (loadBtn) loadBtn.addEventListener("click", () => {
+  function relancer() {
     mangaId = null;
     chapters = [];
+    currentChapter = 0;
     pagesEl.replaceChildren();
+    preciser("");
+    if (seriesEl) { seriesEl.hidden = true; seriesEl.textContent = ""; }
     if (navTop) navTop.hidden = true;
     if (navBottom) navBottom.hidden = true;
-    searchManga().catch(e => { statusEl.textContent = e.message; });
-  });
+    searchManga().catch(function (e) { dire(e.message); });
+  }
 
-  if (langSelect) langSelect.addEventListener("change", () => {
-    loadChapters().catch(e => { statusEl.textContent = e.message; });
-  });
+  if (loadBtn) loadBtn.addEventListener("click", relancer);
+  if (langSelect) {
+    langSelect.addEventListener("change", function () {
+      if (mangaId) loadChapters().catch(function (e) { dire(e.message); });
+      else relancer();
+    });
+  }
+  // Changer le filtre de contenu change aussi la série choisie : on repart
+  // de la recherche.
+  if (ratingBox) ratingBox.addEventListener("change", relancer);
 
   if (prevBtn) prevBtn.addEventListener("click", goPrev);
   if (nextBtn) nextBtn.addEventListener("click", goNext);
   if (prevBtnBottom) prevBtnBottom.addEventListener("click", goPrev);
   if (nextBtnBottom) nextBtnBottom.addEventListener("click", goNext);
 
-  searchManga().catch(e => { statusEl.textContent = e.message; });
+  relancer();
 })();
 </script>
 {% endblock %}

@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import time
+import unicodedata
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -140,6 +141,13 @@ JAMENDO_API_URL = "https://api.jamendo.com/v3.0/tracks/"
 # Les tendances Jamendo sont peuplées par trois ou quatre artistes très actifs :
 # sans plafond, la page ne montrerait qu'eux.
 JAMENDO_PER_ARTIST = 2
+# L'API Jamendo ne donne aucun `filesize`. Le poids réel se lit dans le
+# `Content-Length` du fichier lui-même : une requête HEAD (jamais le fichier),
+# gardée une semaine — un morceau ne change pas de taille.
+JAMENDO_SIZE_TTL = 7 * 86400
+# Nombre de HEAD menés de front. Assez pour qu'une page de 30 pistes ne coûte
+# qu'un aller-retour, assez peu pour ne pas marteler le CDN de l'artiste.
+JAMENDO_SIZE_WORKERS = 8
 JAMENDO_CLIENT_ID = os.environ.get("JAMENDO_CLIENT_ID", "").strip()
 SPONSOR_SMARTLINK_URL = os.environ.get(
     "SPONSOR_SMARTLINK_URL", "https://omg10.com/4/11645531"
@@ -159,11 +167,28 @@ BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
 # variante deux fois plus légère (≈ 3 Mo économisés par page de 20 cartes sur
 # un forfait mobile). Les grandes fiches gardent les definitions pleines.
 CARD_IMG_BASE = "https://image.tmdb.org/t/p/w342"
+# Une carte de téléphone mesure ~115 px de large (3 colonnes) : la w342 y est
+# gaspillée. Les deux variantes partent dans un `srcset` et c'est le
+# navigateur qui tranche selon la place réelle et la densité de l'écran.
+CARD_IMG_SMALL_BASE = "https://image.tmdb.org/t/p/w154"
+# Place réellement occupée par une affiche, exprimée comme la grille la calcule
+# (3 colonnes sous 480 px, 4 jusqu'à 768 px, puis ~200 px). C'est cette valeur
+# qui permet au navigateur de descendre sur la w154 au lieu de la w342.
+CARD_SIZES = (
+    "(max-width: 480px) calc((100vw - 44px) / 3), "
+    "(max-width: 768px) calc((100vw - 60px) / 4), 200px"
+)
 CARD_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
 # Fresque de l'accueil : les affiches y font ~180 px de large dans une colonne
 # animée. La variante w185 (≈ 15-25 Ko) suffit largement et divise par 4 la
-# facture Mo de la page d'accueil (32 affiches uniques).
+# facture Mo de la page d'accueil (24 affiches uniques, 6 par colonne).
 WALL_IMG_BASE = "https://image.tmdb.org/t/p/w185"
+# 4 colonnes × 6 affiches : c'est tout ce que la fresque montre. Chaque image
+# est doublée dans le gabarit pour la boucle de défilement, mais une affiche de
+# plus ne remplirait aucune case visible — seulement le forfait du visiteur.
+WALL_COLUMNS = 4
+WALL_PER_COLUMN = 6
+WALL_POSTER_COUNT = WALL_COLUMNS * WALL_PER_COLUMN
 
 WESTERN_ORIGINS = "US|GB|FR|CA|DE|ES|IT|BE"
 MAX_PAGES = 25
@@ -176,39 +201,42 @@ MANGADEX_UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Affiches de secours de la fresque, quand TMDB ne répond pas. Elles sont en
+# w185 comme le reste du mur : une page d'accueil en panne d'API n'a aucune
+# raison de coûter plus cher en Mo qu'une page qui marche.
 _FALLBACK_POSTERS = [
-    "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
-    "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
-    "https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
-    "https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
-    "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
-    "https://image.tmdb.org/t/p/w500/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
-    "https://image.tmdb.org/t/p/w500/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg",
-    "https://image.tmdb.org/t/p/w500/fqL8TuhvC3B00q9jV22Yq0Cswv9.jpg",
-    "https://image.tmdb.org/t/p/w500/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
-    "https://image.tmdb.org/t/p/w500/fHpKWv1m46Z8a4WkE814e4hG4oV.jpg",
-    "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
-    "https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg",
-    "https://image.tmdb.org/t/p/w500/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
-    "https://image.tmdb.org/t/p/w500/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",
-    "https://image.tmdb.org/t/p/w500/ty8TGRuvJLPUmAR1H1nRIsgwvim.jpg",
-    "https://image.tmdb.org/t/p/w500/cMD9Ygz11VJbzAghURwe3ya69IR.jpg",
-    "https://image.tmdb.org/t/p/w500/q719jXXEzOoYaps6qFsP9llNGj.jpg",
-    "https://image.tmdb.org/t/p/w500/cMYCDADoLKLbB83g4WnJegaZimC.jpg",
-    "https://image.tmdb.org/t/p/w500/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg",
-    "https://image.tmdb.org/t/p/w500/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
-    "https://image.tmdb.org/t/p/w500/or06FN3Dka5tukK1e9sl16pB3iy.jpg",
-    "https://image.tmdb.org/t/p/w500/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg",
-    "https://image.tmdb.org/t/p/w500/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg",
-    "https://image.tmdb.org/t/p/w500/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg",
-    "https://image.tmdb.org/t/p/w500/6oom5QYQ2yQTMJIbnvbkBL9cDK6.jpg",
-    "https://image.tmdb.org/t/p/w500/wuMc08IPKEatf9rnMNX2IDx0qav.jpg",
-    "https://image.tmdb.org/t/p/w500/qNBAXBIQlnOThrVvA6mA2B5ggV6.jpg",
-    "https://image.tmdb.org/t/p/w500/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
-    "https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg",
-    "https://image.tmdb.org/t/p/w500/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
-    "https://image.tmdb.org/t/p/w500/A7dLx3U5d8o82mKkK4gY12X1yX1.jpg",
-    "https://image.tmdb.org/t/p/w500/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg",
+    "https://image.tmdb.org/t/p/w185/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+    "https://image.tmdb.org/t/p/w185/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
+    "https://image.tmdb.org/t/p/w185/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
+    "https://image.tmdb.org/t/p/w185/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+    "https://image.tmdb.org/t/p/w185/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+    "https://image.tmdb.org/t/p/w185/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
+    "https://image.tmdb.org/t/p/w185/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg",
+    "https://image.tmdb.org/t/p/w185/fqL8TuhvC3B00q9jV22Yq0Cswv9.jpg",
+    "https://image.tmdb.org/t/p/w185/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
+    "https://image.tmdb.org/t/p/w185/fHpKWv1m46Z8a4WkE814e4hG4oV.jpg",
+    "https://image.tmdb.org/t/p/w185/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+    "https://image.tmdb.org/t/p/w185/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg",
+    "https://image.tmdb.org/t/p/w185/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
+    "https://image.tmdb.org/t/p/w185/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",
+    "https://image.tmdb.org/t/p/w185/ty8TGRuvJLPUmAR1H1nRIsgwvim.jpg",
+    "https://image.tmdb.org/t/p/w185/cMD9Ygz11VJbzAghURwe3ya69IR.jpg",
+    "https://image.tmdb.org/t/p/w185/q719jXXEzOoYaps6qFsP9llNGj.jpg",
+    "https://image.tmdb.org/t/p/w185/cMYCDADoLKLbB83g4WnJegaZimC.jpg",
+    "https://image.tmdb.org/t/p/w185/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg",
+    "https://image.tmdb.org/t/p/w185/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
+    "https://image.tmdb.org/t/p/w185/or06FN3Dka5tukK1e9sl16pB3iy.jpg",
+    "https://image.tmdb.org/t/p/w185/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg",
+    "https://image.tmdb.org/t/p/w185/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg",
+    "https://image.tmdb.org/t/p/w185/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg",
+    "https://image.tmdb.org/t/p/w185/6oom5QYQ2yQTMJIbnvbkBL9cDK6.jpg",
+    "https://image.tmdb.org/t/p/w185/wuMc08IPKEatf9rnMNX2IDx0qav.jpg",
+    "https://image.tmdb.org/t/p/w185/qNBAXBIQlnOThrVvA6mA2B5ggV6.jpg",
+    "https://image.tmdb.org/t/p/w185/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
+    "https://image.tmdb.org/t/p/w185/74xTEgt7R36Fpooo50r9T25onhq.jpg",
+    "https://image.tmdb.org/t/p/w185/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
+    "https://image.tmdb.org/t/p/w185/A7dLx3U5d8o82mKkK4gY12X1yX1.jpg",
+    "https://image.tmdb.org/t/p/w185/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg",
 ]
 
 _LANDING_NEWS_ARTICLES = [
@@ -332,7 +360,7 @@ def template_promotional_context():
 @app.context_processor
 def template_asset_context():
     """Versionne les assets statiques : finis les CSS/JS périmés sur mobile."""
-    return {"asset_version": ASSET_VERSION}
+    return {"asset_version": ASSET_VERSION, "poster_sizes": CARD_SIZES}
 
 
 @app.context_processor
@@ -362,6 +390,34 @@ def add_security_headers(response):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault(
         "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+    )
+    return response
+
+
+# L'accueil et l'espace Musique sont les deux portes d'entrée : leur contenu
+# bouge à l'échelle de la journée, pas de la seconde. Vingt-cinq secondes de
+# cache évitent de repayer les appels TMDB à chaque aller-retour, sans jamais
+# servir un catalogue franchement périmé.
+PAGE_CACHE_CONTROL = "public, max-age=25"
+CACHED_PAGE_ENDPOINTS = {"index", "musiques"}
+# La navigation interne (app-shell.js) récupère le HTML par `fetch` pour ne pas
+# couper la lecture en cours : sa réponse n'est pas affichée telle quelle et le
+# Service Worker ne la range pas dans son cache de pages. La garder 25 s
+# afficherait une page en retard sur l'onglet demandé — elle est donc exclue.
+PJAX_HEADER = "X-Requested-With"
+PJAX_HEADER_VALUE = "omni-pjax"
+
+
+def _is_internal_navigation():
+    return request.headers.get(PJAX_HEADER, "") == PJAX_HEADER_VALUE
+
+
+@app.after_request
+def add_page_cache(response):
+    if request.endpoint not in CACHED_PAGE_ENDPOINTS or response.status_code != 200:
+        return response
+    response.headers["Cache-Control"] = (
+        "no-store" if _is_internal_navigation() else PAGE_CACHE_CONTROL
     )
     return response
 
@@ -586,6 +642,9 @@ def normalize_card(item, media_type):
         "date": date,
         "rating": _rating(item.get("vote_average")),
         "poster": _tmdb_image_url(CARD_IMG_BASE, item.get("poster_path")),
+        # Même affiche en w154 : les grilles de téléphone n'affichent pas plus
+        # large, et c'est le navigateur qui choisit via `srcset`.
+        "poster_small": _tmdb_image_url(CARD_IMG_SMALL_BASE, item.get("poster_path")),
         "backdrop": _tmdb_image_url(CARD_BACKDROP_BASE, item.get("backdrop_path")),
         "overview": str(item.get("overview") or ""),
         "original_language": item.get("original_language"),
@@ -656,10 +715,13 @@ def base_discover_params(tab):
     if tab == "series":
         return "tv", {"sort_by": "popularity.desc"}
     if tab == "animes":
+        # L'onglet s'appelle « Animes », pas « Animes japonais » : ce qui le
+        # définit, c'est le genre Animation (16). Exiger le pays JP en écartait
+        # Solo Leveling (Corée), Link Click (Chine) ou tout ce qui n'est pas
+        # produit au Japon — l'onglet se vidait de tout ce qui n'est pas nippon.
         return "tv", {
             "sort_by": "popularity.desc",
             "with_genres": "16",
-            "with_origin_country": "JP",
         }
     if tab == "animation_occidentale":
         return "movie", {
@@ -703,12 +765,9 @@ def search_by_tab(tab, query):
 
     if tab == "animes":
         data = tmdb_get("/search/tv", {"query": query, "include_adult": "true"})
-        results = [
-            i
-            for i in _result_items(data)
-            if 16 in (i.get("genre_ids") or [])
-            and "JP" in (i.get("origin_country") or [])
-        ]
+        # Le genre Animation suffit : le filtre sur le pays d'origine faisait
+        # répondre « aucun résultat » à une recherche d'animé coréen ou chinois.
+        results = [i for i in _result_items(data) if 16 in (i.get("genre_ids") or [])]
         return [normalize_card(i, "tv") for i in results if i.get("poster_path")]
 
     if tab == "animation_occidentale":
@@ -721,6 +780,186 @@ def search_by_tab(tab, query):
         return [normalize_card(i, "movie") for i in results if i.get("poster_path")]
 
     return []
+
+
+# ---------------------------------------------------------------------------
+# AniList — animes et mangas du monde entier
+# ---------------------------------------------------------------------------
+# TMDB ne connaît pas les mangas et classe mal les animes non japonais : la
+# recherche du haut de page répondait « aucun résultat » à Solo Leveling. AniList
+# est un catalogue dédié, en GraphQL public, sans clé d'API — une seule requête
+# pour les deux types.
+ANILIST_URL = "https://graphql.anilist.co"
+ANILIST_TIMEOUT = 12
+ANILIST_PER_TYPE = 8
+ANILIST_CACHE_TTL = 900
+# Une panne ne doit pas être repayée à chaque frappe : l'erreur est gardée une
+# minute, le temps que la source revienne.
+ANILIST_ERROR_TTL = 60
+ANILIST_QUERY = """
+fragment champs on Media {
+  id
+  type
+  format
+  isAdult
+  seasonYear
+  countryOfOrigin
+  siteUrl
+  startDate { year }
+  title { romaji english native userPreferred }
+  coverImage { medium large }
+}
+query ($search: String, $perPage: Int) {
+  anime: Page(page: 1, perPage: $perPage) {
+    media(search: $search, type: ANIME, sort: SEARCH_MATCH) { ...champs }
+  }
+  manga: Page(page: 1, perPage: $perPage) {
+    media(search: $search, type: MANGA, sort: SEARCH_MATCH) { ...champs }
+  }
+}
+"""
+
+# Hôtes que le proxy d'images est autorisé à relayer. Tout ce qui n'est pas
+# dans cette liste n'est pas chargé du tout : une image refusée par le proxy
+# s'afficherait en icône cassée au milieu de la grille.
+IMAGE_PROXY_HOSTS = frozenset(
+    {
+        "uploads.mangadex.org",  # couvertures et fichiers MangaDex
+        # CDN d'AniList (s4 documenté, s5 à s7 en secours côté AniList)
+        "s4.anilist.co",
+        "s5.anilist.co",
+        "s6.anilist.co",
+        "s7.anilist.co",
+    }
+)
+
+
+def _image_proxy_url(raw):
+    """L'URL d'une image servie par NOTRE proxy, ou rien si l'hôte n'est pas sûr.
+
+    Rien vaut mieux qu'une image cassée : l'appelant n'affiche alors aucune
+    balise <img> du tout.
+    """
+    text = str(raw or "").strip()
+    if not text.startswith("https://"):
+        return ""
+    try:
+        parsed = urlsplit(text)
+        if parsed.port not in {None, 443} or parsed.username or parsed.password:
+            return ""
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return ""
+    if host not in IMAGE_PROXY_HOSTS:
+        return ""
+    return f"/api/manga_image?url={quote(text, safe='')}"
+
+
+def _anilist_title(node):
+    titles = node.get("title") if isinstance(node.get("title"), dict) else {}
+    for key in ("userPreferred", "english", "romaji", "native"):
+        value = str(titles.get(key) or "").strip()
+        if value:
+            return value[:160]
+    return ""
+
+
+def _anilist_year(node):
+    year = node.get("seasonYear")
+    if not year:
+        start = node.get("startDate")
+        year = start.get("year") if isinstance(start, dict) else None
+    return str(year or "")[:4]
+
+
+def _anilist_item(node, kind):
+    """Une entrée de la bande, ou None si elle n'est pas exploitable."""
+    if not isinstance(node, dict) or node.get("isAdult"):
+        return None
+    title = _anilist_title(node)
+    media_id = node.get("id")
+    if not title or not isinstance(media_id, int) or media_id <= 0:
+        return None
+    page = str(node.get("siteUrl") or "").strip()
+    if not page.startswith("https://anilist.co/"):
+        # La fiche se reconstruit sans risque : l'identifiant vient d'AniList.
+        page = f"https://anilist.co/{kind}/{media_id}"
+    cover = node.get("coverImage") if isinstance(node.get("coverImage"), dict) else {}
+    item = {
+        "id": media_id,
+        "kind": kind,
+        "title": title,
+        "year": _anilist_year(node),
+        "format": str(node.get("format") or "").upper()[:12],
+        "country": str(node.get("countryOfOrigin") or "")[:2],
+        "cover": _image_proxy_url(cover.get("medium") or cover.get("large")),
+        "url": page[:200],
+        "reader": "",
+    }
+    if kind == "manga":
+        # Un manga se lit ici : le bouton ouvre le lecteur de scan. Un anime
+        # n'a pas de bouton — un bouton qui ne ferait rien serait un mensonge.
+        item["reader"] = f"/lecteur-scan?titre={quote(title)}"
+    return item
+
+
+def anilist_band(query):
+    """La bande « Animes & mangas » : {"items": [...], "error": ""}.
+
+    Ne lève jamais d'exception vers la page : une source annexe en panne ne doit
+    pas emporter les résultats TMDB, mais elle ne doit pas non plus se taire —
+    le gabarit affiche le message d'erreur à sa place.
+    """
+    search = str(query or "").strip()
+    if not search:
+        return {"items": [], "error": ""}
+    cache_key = ("anilist", search.lower())
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+
+    payload = {"items": [], "error": ""}
+    try:
+        response = requests.post(
+            ANILIST_URL,
+            json={
+                "query": ANILIST_QUERY,
+                "variables": {"search": search[:120], "perPage": ANILIST_PER_TYPE},
+            },
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "OmniStream/1.0 (recherche animes et mangas)",
+            },
+            timeout=ANILIST_TIMEOUT,
+        )
+        data = response.json()
+    except requests.Timeout:
+        payload["error"] = "AniList met trop de temps à répondre. Réessayez."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+    except (requests.RequestException, ValueError):
+        app.logger.warning("Appel AniList impossible", exc_info=True)
+        payload["error"] = "AniList est temporairement indisponible."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+
+    if response.status_code == 429:
+        payload["error"] = "AniList limite le nombre de recherches : réessayez."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+    if response.status_code >= 400 or not isinstance(data, dict):
+        payload["error"] = "AniList a refusé la recherche."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+
+    root = data.get("data") if isinstance(data.get("data"), dict) else {}
+    items = []
+    for alias, kind in (("anime", "anime"), ("manga", "manga")):
+        bucket = root.get(alias)
+        nodes = bucket.get("media") if isinstance(bucket, dict) else None
+        for node in nodes or []:
+            item = _anilist_item(node, kind)
+            if item:
+                items.append(item)
+    payload["items"] = items
+    return _cache_set(cache_key, payload, ttl=ANILIST_CACHE_TTL)
 
 
 # ---------------------------------------------------------------------------
@@ -778,25 +1017,65 @@ def index():
         except UpstreamServiceError as error:
             app.logger.info("Données TMDB indisponibles : %s", error)
 
-        # Garantir au moins 32 affiches pour la fresque d'arrière-plan
-        if len(posters) < 32:
+        # La fresque tient en 4 colonnes de 6 affiches : 24 images uniques
+        # suffisent, chacune étant de toute façon doublée pour la boucle de
+        # défilement. Charger plus ne remplirait aucune case visible.
+        if len(posters) < WALL_POSTER_COUNT:
             posters = posters + [p for p in _FALLBACK_POSTERS if p not in posters]
-            if len(posters) < 32:
-                posters = (posters * 4)[:32]
+            if len(posters) < WALL_POSTER_COUNT:
+                posters = (posters * 4)[:WALL_POSTER_COUNT]
+        posters = posters[:WALL_POSTER_COUNT]
 
         return render_template(
             "landing.html",
             visits=visits,
             posters=posters,
+            wall_columns=WALL_COLUMNS,
+            wall_per_column=WALL_PER_COLUMN,
             news_articles=_LANDING_NEWS_ARTICLES,
             landing_page=True,
         )
 
     tab = requested_tab if requested_tab in ALL_TABS else "films"
     if query:
-        results = search_by_tab(tab, query)
-        return render_template("index.html", tab=tab, items=results, query=query)
-    return render_template("index.html", tab=tab, items=None, query="")
+        # Les deux sources partent EN PARALLÈLE : TMDB ne connaît pas les
+        # mangas, AniList ne remplace pas le catalogue de films. Les attendre
+        # l'une après l'autre ajouterait un aller-retour complet au résultat.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            catalogue = executor.submit(search_by_tab, tab, query)
+            animes = executor.submit(anilist_band, query)
+            try:
+                results = catalogue.result()
+                catalogue_error = ""
+            except UpstreamServiceError:
+                # TMDB en panne ne doit pas emporter la bande AniList : elle
+                # vient d'un autre catalogue et peut très bien avoir répondu.
+                # Un 503 cacherait le seul résultat disponible.
+                app.logger.warning("Recherche TMDB impossible", exc_info=True)
+                results = []
+                catalogue_error = (
+                    "Le catalogue de films et séries ne répond pas : seuls les "
+                    "animes et mangas ci-dessous sont à jour."
+                )
+            band = animes.result()
+        return render_template(
+            "index.html",
+            tab=tab,
+            items=results,
+            query=query,
+            anilist=band["items"],
+            anilist_error=band["error"],
+            catalogue_error=catalogue_error,
+        )
+    return render_template(
+        "index.html",
+        tab=tab,
+        items=None,
+        query="",
+        anilist=[],
+        anilist_error="",
+        catalogue_error="",
+    )
 
 
 def _extract_trailer_key(videos):
@@ -1351,6 +1630,18 @@ def _valid_mangadex_endpoint(endpoint):
     return False
 
 
+# Clés de classement que MangaDex documente pour chaque endpoint. Une valeur
+# hors de {asc, desc} est refusée.
+MANGADEX_ORDER_KEYS = {
+    "/manga": {"title", "year", "createdAt", "updatedAt", "followedCount", "relevance"},
+    "feed": {"chapter", "volume"},
+}
+# MangaDex accepte n'importe quelle langue (fr, en, ja, ko, zh-hans, pt-br…) :
+# la forme est bornée, la liste des langues ne l'est pas. Restreindre à « fr »
+# et « en » masquait des séries entières traduites ailleurs.
+MANGADEX_LANG_RE = re.compile(r"\A[a-z]{2,3}(?:-[a-z0-9]{2,10})?\Z")
+
+
 @app.route("/api/mangadex_proxy")
 def mangadex_proxy():
     endpoint = _limited_arg("endpoint", max_length=120)
@@ -1359,16 +1650,18 @@ def mangadex_proxy():
 
     if endpoint == "/manga":
         allowed_params = {"title", "limit", "offset", "contentRating[]"}
+        allowed_orders = MANGADEX_ORDER_KEYS["/manga"]
     elif endpoint.endswith("/feed"):
         allowed_params = {
             "translatedLanguage[]",
-            "order[chapter]",
             "limit",
             "offset",
             "contentRating[]",
         }
+        allowed_orders = MANGADEX_ORDER_KEYS["feed"]
     else:
         allowed_params = set()
+        allowed_orders = set()
 
     params = []
     valid_ratings = {"safe", "suggestive", "erotica", "pornographic"}
@@ -1376,7 +1669,11 @@ def mangadex_proxy():
         if key == "endpoint":
             continue
         valid_value = len(value) <= 300
-        if key in {"limit", "offset"}:
+        is_order = key.startswith("order[") and key.endswith("]")
+        if is_order:
+            field = key[len("order[") : -1]
+            valid_value = field in allowed_orders and value in {"asc", "desc"}
+        elif key in {"limit", "offset"}:
             try:
                 number = int(value)
                 valid_value = valid_value and number >= 0
@@ -1387,14 +1684,12 @@ def mangadex_proxy():
             except ValueError:
                 valid_value = False
         elif key == "translatedLanguage[]":
-            valid_value = value in {"fr", "en"}
-        elif key == "order[chapter]":
-            valid_value = value in {"asc", "desc"}
+            valid_value = bool(MANGADEX_LANG_RE.fullmatch(value))
         elif key == "contentRating[]":
             valid_value = value in valid_ratings
         elif key == "title":
             valid_value = bool(value.strip()) and len(value) <= 200
-        if key not in allowed_params or not valid_value:
+        if not valid_value or (not is_order and key not in allowed_params):
             abort(400, description="Paramètre MangaDex invalide.")
         params.append((key, value))
     if len(params) > 20:
@@ -1433,9 +1728,12 @@ def manga_image():
         or parsed.username
         or parsed.password
         or port not in {None, 443}
-        or (parsed.hostname or "").lower() != "uploads.mangadex.org"
+        # Liste explicite : les couvertures MangaDex ET le CDN d'AniList. Un
+        # hôte absent est refusé ici comme dans _image_proxy_url, qui ne
+        # produit alors aucune balise <img>.
+        or (parsed.hostname or "").lower() not in IMAGE_PROXY_HOSTS
     ):
-        abort(400, description="URL d'image MangaDex invalide.")
+        abort(400, description="URL d'image non autorisée.")
 
     response = None
     try:
@@ -1658,6 +1956,8 @@ MP3_SHELVES = {
         "terms": "",
         "collections": MP3_COLLECTIONS,
         "tag": "",
+        # Rien à vérifier : ce rayon n'annonce aucun sujet.
+        "names": (),
     },
     "madagascar": {
         "label": "Madagascar",
@@ -1667,6 +1967,11 @@ MP3_SHELVES = {
         ),
         "collections": MP3_COLLECTIONS,
         "tag": "madagascar",
+        # Côté Jamendo, le rayon se vérifie sur le NOM : un de ces mots, mot
+        # pour mot, dans le titre, l'album ou l'artiste. Sans ce contrôle, la
+        # recherche libre de l'API élargit aux artistes « similaires » et le
+        # rayon « Madagascar » se remplissait de titres sans aucun rapport.
+        "names": ("madagascar", "madagasikara", "malagasy", "salegy", "hira gasy"),
     },
     "live": {
         "label": "Concerts",
@@ -1893,6 +2198,60 @@ def _jamendo_license(value):
     return url, tail.replace("/", " ")[:40]
 
 
+def _jamendo_probe_size(url):
+    """Poids réel du fichier, en octets — 0 quand la source ne le dit pas.
+
+    L'API Jamendo ne donne aucun `filesize`, et l'interface n'a pas le droit
+    d'inventer un chiffre : sans poids, elle ne peut ni l'afficher ni prévenir
+    avant un téléchargement de 8 Mo sur un forfait mobile. On le demande donc à
+    la source par un HEAD (jamais le fichier lui-même) et on garde la réponse.
+    """
+    if not url:
+        return 0
+    cache_key = ("jamendo-size", url)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    size = 0
+    try:
+        response = requests.head(
+            url,
+            headers={"User-Agent": "OmniStream/1.0 (lecture hors ligne)"},
+            timeout=(4, 6),
+            allow_redirects=True,
+        )
+        # Une erreur a elle aussi un Content-Length — celui de sa page d'erreur.
+        # Seule une réponse de succès décrit le morceau.
+        if 200 <= response.status_code < 300:
+            size = max(
+                0,
+                int(_archive_number(response.headers.get("Content-Length"), int, 0)),
+            )
+    except requests.RequestException:
+        # Source injoignable ou lente : le poids reste inconnu, et l'interface
+        # l'écrit au lieu d'afficher un « 0 Ko » qui ferait croire à un fichier
+        # gratuit en octets.
+        size = 0
+    return _cache_set(cache_key, size, ttl=JAMENDO_SIZE_TTL)
+
+
+def _jamendo_fill_sizes(items, probes):
+    """Renseigne le poids réel de chaque piste, en une passe parallèle.
+
+    `probes` suit `items` : l'URL de téléchargement quand l'artiste autorise la
+    copie (c'est le fichier que le bouton MP3 enregistrera), sinon celle du
+    flux. Le surcoût n'est payé qu'à la première visite d'un rayon — la
+    réponse de /api/mp3 est gardée 15 minutes, chaque taille une semaine.
+    """
+    if not items:
+        return
+    workers = max(1, min(JAMENDO_SIZE_WORKERS, len(items)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        sizes = list(executor.map(_jamendo_probe_size, probes))
+    for item, size in zip(items, sizes, strict=True):
+        item["size"] = size
+
+
 def _jamendo_request(params, timeout=12):
     """GET sur l'API publique Jamendo (lecture seule, aucune clé privée)."""
     if not JAMENDO_CLIENT_ID:
@@ -1963,7 +2322,45 @@ def _jamendo_ladders(base, query):
     return [dict(base, order="popularity_total"), dict(base)]
 
 
-def _jamendo_items(query, page=1, limit=24, shelf="tout"):
+def _fold(value):
+    """Texte comparable : minuscule et sans accent (« Hira Gasy » = « hira gasy »)."""
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(char for char in text if not unicodedata.combining(char)).casefold()
+
+
+def _jamendo_shelf_patterns(names):
+    """Les mots du rayon, à retrouver mot pour mot (pas en morceau d'un autre)."""
+    return [
+        compiled
+        for compiled in (
+            re.compile(rf"(?<!\w){re.escape(_fold(name).strip())}(?!\w)")
+            for name in names
+            if str(name or "").strip()
+        )
+    ]
+
+
+def _jamendo_shelf_match(track, patterns):
+    """Le rayon figure-t-il, mot pour mot, dans un des NOMS du titre ?
+
+    La recherche libre de l'API (`search`) élargit aux tags et aux artistes
+    jugés « similaires » : c'est de là que venaient les titres sans aucun
+    rapport sous un libellé de rayon. On ne retient donc que les
+    correspondances exactes sur les trois champs de NOM (titre, album,
+    artiste) — un rayon qui ne rend que trois pistes honnêtes vaut mieux qu'un
+    rayon de trente titres qui n'ont rien à voir avec lui.
+
+    L'API a bien un filtre par nom (`namesearch`), mais il ne regarde que le
+    titre de la piste : il écarterait précisément les artistes malgaches dont
+    le morceau porte un autre nom. Le contrôle se fait donc ici.
+    """
+    if not patterns:
+        return True
+    noms = [_fold(track.get(field)) for field in ("name", "album_name", "artist_name")]
+    return any(pattern.search(nom) for pattern in patterns for nom in noms)
+
+
+def _jamendo_items(query, page=1, limit=24, shelf="tout", with_sizes=False):
     """Pistes Jamendo normalisées dans le même moule que celles d'Archive.
 
     `audioformat`/`audiodlformat` = `mp32` (VBR) : le défaut de l'API est un
@@ -1971,6 +2368,10 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
     `include` demandé : l'attribution (`license_ccurl`) et la date
     (`releasedate`) sont déjà dans la réponse, et `include=stats` y ajoute une
     enveloppe de forme d'onde de plusieurs kilo-octets par piste.
+
+    `with_sizes` ajoute le poids réel de chaque fichier (HEAD sur la source) :
+    l'API ne le donne jamais, et l'interface en a besoin pour annoncer la
+    dépense avant un téléchargement.
     """
     shelf_conf = MP3_SHELVES.get(shelf) or MP3_SHELVES["tout"]
     size = max(1, min(50, int(limit)))
@@ -1983,11 +2384,20 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
     }
     if query:
         base["search"] = query[:120]
+        shelf_patterns = []
     elif shelf_conf["tag"]:
-        # L'API n'a pas de tag « malagasy » : le rayon est demande en recherche
-        # libre (elle couvre titre, album, artiste et tags) plutot qu'en `tags`,
-        # ou il ne rendrait que du vide.
+        # L'API n'a pas de tag « malagasy » : le rayon est demandé en recherche
+        # libre (elle couvre titre, album, artiste et tags) plutôt qu'en `tags`,
+        # où il ne rendrait que du vide. Cette recherche élargit aussi aux
+        # artistes « similaires » et ramenait des titres sans rapport avec le
+        # libellé affiché : les pistes sont donc revérifiées sur leur NOM, mot
+        # pour mot (`_jamendo_shelf_match`). Un rayon court vaut mieux qu'un
+        # rayon hors sujet — et les tendances générales ne viennent jamais
+        # boucher le trou (voir `_jamendo_ladders`).
         base["search"] = shelf_conf["tag"]
+        shelf_patterns = _jamendo_shelf_patterns(shelf_conf.get("names") or ())
+    else:
+        shelf_patterns = []
 
     results = []
     for params in _jamendo_ladders(base, query):
@@ -1997,12 +2407,20 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
             break
 
     items = []
+    # URL dont le `Content-Length` donne le poids réel, piste par piste (vide
+    # quand rien n'est à demander). Suit `items` pour rester aligné.
+    probes = []
     # Un artiste ne prend pas toute la page : deux pistes par artiste au maximum
     # quand on parcourt les tendances. En recherche, au contraire, on veut toutes
     # les pistes du titre demandé.
     per_artist = {}
     for track in results:
         if not isinstance(track, dict):
+            continue
+        # Sous un libellé de rayon, seuls les titres dont un NOM porte vraiment
+        # le mot du rayon sont retenus. Les autres viennent de l'élargissement
+        # de l'API (tags, artistes similaires) : hors sujet, donc écartés.
+        if not _jamendo_shelf_match(track, shelf_patterns):
             continue
         # Les identifiants arrivent en chaîne (« "id":"241" »), pas en nombre.
         track_id = _archive_number(track.get("id"), int, 0)
@@ -2014,9 +2432,10 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
         if not track_id or not stream:
             continue
         duration = int(_archive_number(track.get("duration"), int, 0))
-        # L'API ne donne pas la taille du fichier : on la laisse inconnue (la
-        # carte affiche alors « MP3 » sans chiffre) plutôt que d'inventer un
-        # « 0 Ko » qui ferait choisir un morceau sur un faux critère.
+        # L'API ne donne pas la taille du fichier : elle reste à 0 (l'interface
+        # écrit alors « poids inconnu ») plutôt que d'inventer un « 0 Ko » qui
+        # ferait choisir un morceau sur un faux critère. `with_sizes` la
+        # remplace par le poids réel lu sur la source.
         license_url, license_name = _jamendo_license(track.get("license_ccurl"))
         page_url = str(
             track.get("shareurl")
@@ -2050,12 +2469,16 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
         # Jamendo laisse chaque artiste autoriser ou non la copie de son morceau
         # (`audiodownload_allowed`, et `audiodownload` vide depuis août 2020
         # quand c'est non) : sans droit, aucun bouton ne doit exister.
-        if bool(track.get("audiodownload_allowed")) and _jamendo_https(
-            track.get("audiodownload")
-        ):
+        # Le poids, lui, se mesure sur ce même fichier quand il existe — c'est
+        # celui que le bouton MP3 enregistrera — et sinon sur le flux.
+        download_url = _jamendo_https(track.get("audiodownload"))
+        if bool(track.get("audiodownload_allowed")) and download_url:
             items[-1]["download"] = f"/mp3/jamendo/{track_id}.mp3?download=1"
+        probes.append(download_url or stream)
         if len(items) >= MP3_TOTAL:
             break
+    if with_sizes:
+        _jamendo_fill_sizes(items, probes)
     return items
 
 
@@ -2084,6 +2507,10 @@ def mp3_library():
     provider = _limited_arg("provider", "auto", 16)
     if provider not in {"auto", "archive", "jamendo"}:
         provider = "auto"
+    # `sizes=1` : la page veut le poids réel des fichiers Jamendo (un HEAD par
+    # piste, gardé une semaine). C'est ce qui lui permet d'annoncer « 8,4 Mo »
+    # avant un téléchargement au lieu d'afficher un poids inventé.
+    with_sizes = _limited_arg("sizes", "", 4) == "1"
     try:
         page = max(1, min(20, int(_limited_arg("page", "1", 6) or 1)))
     except ValueError:
@@ -2105,6 +2532,7 @@ def mp3_library():
         "search" if query else "trending",
         query.strip().lower(),
         page,
+        with_sizes,
     )
     cached = _cache_get(cache_key)
     if cached is not _CACHE_MISSING:
@@ -2115,7 +2543,11 @@ def mp3_library():
 
     if wants_jamendo:
         try:
-            items.extend(_jamendo_items(query, page=page, shelf=shelf))
+            items.extend(
+                _jamendo_items(
+                    query, page=page, shelf=shelf, with_sizes=with_sizes
+                )
+            )
         except UpstreamServiceError as error:
             # Une clé mal configurée ne doit pas vider la page : Archive prend
             # le relais, et le message explique où regarder.

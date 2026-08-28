@@ -69,16 +69,41 @@ h1, h2, h3 {
 
 html {
   font-size: 15px;
-  scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
+  /* `clip` et non `hidden` : `hidden` transforme <html> en conteneur de
+     défilement à part entière, et le navigateur doit alors le recalculer à
+     chaque frame du geste. `clip` coupe le débordement horizontal sans ce
+     coût — c'était la première cause de défilement pâteux sur téléphone. */
+  overflow-x: clip;
   /* Empêche le « font boosting » d'Android qui grossit arbitrairement les
      blocs de texte (l'impression que « tout est trop grand »). */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   /* Retard de double-tap supprimé sur les anciens navigateurs mobiles. */
   touch-action: manipulation;
+}
+
+/* Le défilement doux ne vaut que sur un pointeur fin (souris, pavé tactile).
+   Au doigt, il interpolate chaque geste à la place du navigateur : la remontée
+   en haut devient molle et le suivi du doigt prend du retard. */
+@media (hover: hover) and (pointer: fine) {
+  html { scroll-behavior: smooth; }
+}
+
+/* Pendant le défilement, TOUTES les boucles infinies sont mises en pause :
+   disque du lecteur, vinyle, fresque d'affiches de l'accueil, spinners et
+   pulsations. Chacune d'elles impose un repaint à 60 fps, précisément pendant
+   le geste qui doit rester fluide. La classe est posée ~180 ms à la fois par
+   app-shell.js (écoute passive), puis retirée dès que le doigt s'arrête. */
+html.is-scrolling .omni-bar-disc.spinning,
+html.is-scrolling .omni-vinyl,
+html.is-scrolling .poster-col-up,
+html.is-scrolling .poster-col-down,
+html.is-scrolling .icon-spinner,
+html.is-scrolling .musique-card.is-playing::after,
+html.is-scrolling .pjax-bar {
+  animation-play-state: paused;
 }
 
 body, button, input, select, textarea, a {
@@ -206,7 +231,10 @@ img {
   z-index: 100;
   background: rgba(9, 11, 16, 0.96);
   border-bottom: 1px solid var(--border);
-  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  /* Le fond n'est plus dans la liste : animer une barre pleine largeur à
+     chaque frame de défilement coûte plus cher que l'effet produit. Il ne
+     reste que le filet et l'ombre, deux couches bien moins lourdes. */
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .topbar.scrolled {
@@ -223,6 +251,19 @@ img {
 .topbar-landing.scrolled {
   background: rgba(7, 9, 13, 0.98);
   border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Au doigt (téléphone, tablette), le fond du header ne change même plus :
+   la bascule restait collée au seuil des 30 px et forçait un repaint complet
+   de la barre pendant le geste. L'ombre seule signale encore le défilement. */
+@media (hover: none), (pointer: coarse) {
+  .topbar,
+  .topbar-landing { transition: none; }
+  .topbar.scrolled { background: rgba(9, 11, 16, 0.96); }
+  .topbar-landing.scrolled {
+    background: rgba(9, 11, 16, 0.88);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
 }
 
 .topbar-inner {
@@ -1778,10 +1819,28 @@ main:has(.landing-hero-ua),
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border);
-  transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+  /* Une grille de trente cartes n'est plus mise en page ni peinte d'un seul
+     coup : ce qui est hors écran coûte une boîte de la taille annoncée, et
+     rien d'autre. `auto` garde la dernière hauteur réelle connue, donc aucun
+     saut de mise en page au retour dans la viewport. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+  /* Transition allégée : au doigt il n'y a pas de survol, et animer la
+     transformation plus l'ombre de chaque carte ne faisait que ralentir le
+     défilement. Il ne reste que le filet de bordure, le moins cher des trois. */
+  transition: border-color 0.16s ease;
   position: relative;
   display: flex;
   flex-direction: column;
+}
+
+/* L'effet de survol complet ne vaut que là où un survol existe : une souris
+   ou un pavé tactile. Sur téléphone, le tap ne passe jamais par là. */
+@media (hover: hover) and (pointer: fine) {
+  .card {
+    transition: transform 0.28s ease, box-shadow 0.28s ease,
+      border-color 0.28s ease;
+  }
 }
 
 .card:hover {
@@ -2152,6 +2211,177 @@ main:has(.landing-hero-ua),
   color: var(--muted);
   font-size: 0.88rem;
   max-width: 400px;
+}
+
+/* Recherche « MP3 libre » sans résultat : un encart qui explique le rayon et
+   propose la même recherche côté YouTube, plutôt qu'une page vide. */
+.mp3-fallback {
+  margin: 8px auto 0;
+  max-width: 620px;
+  padding: 22px 20px 24px;
+  border-radius: 14px;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  background: rgba(56, 189, 248, 0.06);
+  text-align: center;
+}
+.mp3-fallback h3 {
+  color: var(--text-bright);
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.mp3-fallback p {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+.mp3-fallback-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-bright);
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.16s ease;
+}
+.mp3-fallback-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.mp3-fallback-btn:active { transform: scale(0.98); }
+
+/* ================================================================
+   BANDE ANIMES & MANGAS (AniList) dans les résultats de recherche
+   ================================================================ */
+.anilist-band {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.anilist-head { margin-bottom: 14px; }
+.anilist-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-bright);
+}
+.anilist-note {
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.6;
+  max-width: 620px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+/* Une source en panne se dit : jamais de bande silencieusement vide. */
+.anilist-note-warn {
+  border-color: rgba(255, 122, 46, 0.4);
+  background: rgba(255, 122, 46, 0.08);
+}
+.anilist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+}
+.anilist-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--gradient-card);
+}
+.anilist-cover-link {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  background: var(--surface-2);
+}
+.anilist-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.anilist-cover-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  color: var(--muted-dark);
+  font-size: 0.7rem;
+  text-align: center;
+}
+.anilist-kind {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(8, 10, 14, 0.88);
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+}
+.anilist-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 11px 12px;
+}
+.anilist-name {
+  color: var(--text-bright);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.anilist-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted-dark);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.anilist-read {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 122, 46, 0.45);
+  background: rgba(255, 122, 46, 0.12);
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.anilist-read:active { transform: scale(0.98); }
+.anilist-read-plain {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+@media (max-width: 480px) {
+  .anilist-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .anilist-name { font-size: 0.72rem; }
+  .anilist-meta { font-size: 0.56rem; }
 }
 
 /* ================================================================
@@ -2926,6 +3156,8 @@ main:has(.landing-hero-ua),
 
 .scan-toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
 }
 
@@ -3012,6 +3244,57 @@ main:has(.landing-hero-ua),
   width: 100%;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+}
+
+/* Filtre de contenu : absent par défaut, remis seulement si demandé. */
+.scan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.scan-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* Série retenue : reste affichée pendant que le statut, lui, défile. */
+.scan-series {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+/* Ce qu'un repli a écarté : jamais de filtre retiré en silence. */
+.scan-notice {
+  margin: -8px 0 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 122, 46, 0.35);
+  background: rgba(255, 122, 46, 0.08);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* Planche injoignable : un message, pas une icône d'image cassée. */
+.scan-page-error {
+  padding: 42px 18px;
+  text-align: center;
+  color: var(--muted-dark);
+  font-size: 0.84rem;
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
 }
 
 /* Privacy Page */
@@ -4666,6 +4949,21 @@ body.has-audio-bar .sponsor-gift {
 .card-pin-btn.busy,
 .music-pin-btn.busy,
 .detail-icon-btn.busy { opacity: 0.6; pointer-events: none; }
+
+/* Bouton « à confirmer » : un fichier lourd se mérite deux taps. Le premier
+   l'arme — il vire à l'orange, la couleur de ce qui va être dépensé sur le
+   forfait — et le second, dans les 8 secondes, enregistre vraiment. */
+.music-pin-btn.is-confirm {
+  color: #fff;
+  border-color: var(--accent);
+  background: rgba(255, 122, 46, 0.92);
+  box-shadow: 0 0 0 3px rgba(255, 122, 46, 0.25);
+}
+.music-get-btn.is-confirm {
+  border-color: var(--accent);
+  background: rgba(255, 122, 46, 0.16);
+  color: var(--accent);
+}
 
 /* Le titre en cours d'écoute se reconnaît de loin. */
 .card.is-playing .poster,

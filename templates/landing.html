@@ -7,24 +7,19 @@
      ================================================================ -->
 <section class="landing-hero-ua">
   <div class="hero-ua-bg-wrap">
-    <!-- Animated Poster Wall Background -->
+    <!-- Fresque d'affiches : décor pur (aria-hidden), jamais du contenu.
+         6 affiches par colonne remplissent déjà toute la hauteur — au-delà,
+         aucune case visible ne les attend. Chaque colonne est jouée deux fois
+         pour que la boucle de défilement se recolle sans à-coup.
+         `decoding="async"` : le décodage ne bloque pas le fil principal.
+         `fetchpriority="low"` : ces images passent après tout ce que la page
+         doit vraiment montrer en premier (texte, boutons, recherche). -->
     <div class="poster-wall" aria-hidden="true">
-      <div class="poster-col poster-col-up">
-        {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-        {% for p in posters[0:8] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
+      {% for column in range(wall_columns) %}
+      <div class="poster-col {{ 'poster-col-up' if column is even else 'poster-col-down' }}">
+        {% for double in range(2) %}{% for p in posters[column * wall_per_column:(column + 1) * wall_per_column] %}<img src="{{ p }}" loading="lazy" decoding="async" fetchpriority="low" alt="">{% endfor %}{% endfor %}
       </div>
-      <div class="poster-col poster-col-down">
-        {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-        {% for p in posters[8:16] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-      </div>
-      <div class="poster-col poster-col-up">
-        {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-        {% for p in posters[16:24] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-      </div>
-      <div class="poster-col poster-col-down">
-        {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-        {% for p in posters[24:32] %}<img src="{{ p }}" loading="lazy" alt="">{% endfor %}
-      </div>
+      {% endfor %}
     </div>
     <div class="hero-ua-overlay"></div>
   </div>
