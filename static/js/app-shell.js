@@ -770,5 +770,43 @@
     document.body.classList.remove("drawer-open");
   }
 
+  /* =========================================================
+     5. DÉFILEMENT — pause des animations infinies
+     ========================================================= */
+  // Une classe `is-scrolling` est posée sur <html> pendant le geste, puis
+  // retirée ~180 ms après le dernier événement. Le CSS met en pause toutes les
+  // boucles infinies tant qu'elle est là (disque du lecteur, vinyle, fresque
+  // d'affiches de l'accueil, spinners) : chacune d'elles impose un repaint à
+  // 60 fps, exactement pendant le geste qui doit rester fluide.
+  //
+  // L'écoute est passive : le navigateur n'attend jamais ce script pour
+  // dessiner la frame suivante, et le travail se résume à un `classList` —
+  // ni lecture de `scrollY`, ni `getBoundingClientRect`, donc aucun « layout
+  // forcé » pendant le défilement.
+  const SCROLL_IDLE_DELAY = 180;
+  let scrollIdleTimer = 0;
+
+  function stopScrollingMark() {
+    document.documentElement.classList.remove("is-scrolling");
+    scrollIdleTimer = 0;
+  }
+
+  function markScrolling() {
+    const root = document.documentElement;
+    if (!root.classList.contains("is-scrolling")) root.classList.add("is-scrolling");
+    if (scrollIdleTimer) window.clearTimeout(scrollIdleTimer);
+    scrollIdleTimer = window.setTimeout(stopScrollingMark, SCROLL_IDLE_DELAY);
+  }
+
+  window.addEventListener("scroll", markScrolling, { passive: true });
+  // Un geste interrompu (onglet mis en arrière-plan, appel entrant) ne doit
+  // pas laisser la page figée dans son état « en pause ».
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && scrollIdleTimer) {
+      window.clearTimeout(scrollIdleTimer);
+      stopScrollingMark();
+    }
+  });
+
   updateBottomNavActive();
 })();

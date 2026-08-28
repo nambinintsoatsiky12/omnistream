@@ -69,16 +69,41 @@ h1, h2, h3 {
 
 html {
   font-size: 15px;
-  scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
+  /* `clip` et non `hidden` : `hidden` transforme <html> en conteneur de
+     défilement à part entière, et le navigateur doit alors le recalculer à
+     chaque frame du geste. `clip` coupe le débordement horizontal sans ce
+     coût — c'était la première cause de défilement pâteux sur téléphone. */
+  overflow-x: clip;
   /* Empêche le « font boosting » d'Android qui grossit arbitrairement les
      blocs de texte (l'impression que « tout est trop grand »). */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   /* Retard de double-tap supprimé sur les anciens navigateurs mobiles. */
   touch-action: manipulation;
+}
+
+/* Le défilement doux ne vaut que sur un pointeur fin (souris, pavé tactile).
+   Au doigt, il interpolate chaque geste à la place du navigateur : la remontée
+   en haut devient molle et le suivi du doigt prend du retard. */
+@media (hover: hover) and (pointer: fine) {
+  html { scroll-behavior: smooth; }
+}
+
+/* Pendant le défilement, TOUTES les boucles infinies sont mises en pause :
+   disque du lecteur, vinyle, fresque d'affiches de l'accueil, spinners et
+   pulsations. Chacune d'elles impose un repaint à 60 fps, précisément pendant
+   le geste qui doit rester fluide. La classe est posée ~180 ms à la fois par
+   app-shell.js (écoute passive), puis retirée dès que le doigt s'arrête. */
+html.is-scrolling .omni-bar-disc.spinning,
+html.is-scrolling .omni-vinyl,
+html.is-scrolling .poster-col-up,
+html.is-scrolling .poster-col-down,
+html.is-scrolling .icon-spinner,
+html.is-scrolling .musique-card.is-playing::after,
+html.is-scrolling .pjax-bar {
+  animation-play-state: paused;
 }
 
 body, button, input, select, textarea, a {
@@ -206,7 +231,10 @@ img {
   z-index: 100;
   background: rgba(9, 11, 16, 0.96);
   border-bottom: 1px solid var(--border);
-  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  /* Le fond n'est plus dans la liste : animer une barre pleine largeur à
+     chaque frame de défilement coûte plus cher que l'effet produit. Il ne
+     reste que le filet et l'ombre, deux couches bien moins lourdes. */
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .topbar.scrolled {
@@ -223,6 +251,19 @@ img {
 .topbar-landing.scrolled {
   background: rgba(7, 9, 13, 0.98);
   border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Au doigt (téléphone, tablette), le fond du header ne change même plus :
+   la bascule restait collée au seuil des 30 px et forçait un repaint complet
+   de la barre pendant le geste. L'ombre seule signale encore le défilement. */
+@media (hover: none), (pointer: coarse) {
+  .topbar,
+  .topbar-landing { transition: none; }
+  .topbar.scrolled { background: rgba(9, 11, 16, 0.96); }
+  .topbar-landing.scrolled {
+    background: rgba(9, 11, 16, 0.88);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
 }
 
 .topbar-inner {
@@ -1778,10 +1819,28 @@ main:has(.landing-hero-ua),
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--border);
-  transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+  /* Une grille de trente cartes n'est plus mise en page ni peinte d'un seul
+     coup : ce qui est hors écran coûte une boîte de la taille annoncée, et
+     rien d'autre. `auto` garde la dernière hauteur réelle connue, donc aucun
+     saut de mise en page au retour dans la viewport. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+  /* Transition allégée : au doigt il n'y a pas de survol, et animer la
+     transformation plus l'ombre de chaque carte ne faisait que ralentir le
+     défilement. Il ne reste que le filet de bordure, le moins cher des trois. */
+  transition: border-color 0.16s ease;
   position: relative;
   display: flex;
   flex-direction: column;
+}
+
+/* L'effet de survol complet ne vaut que là où un survol existe : une souris
+   ou un pavé tactile. Sur téléphone, le tap ne passe jamais par là. */
+@media (hover: hover) and (pointer: fine) {
+  .card {
+    transition: transform 0.28s ease, box-shadow 0.28s ease,
+      border-color 0.28s ease;
+  }
 }
 
 .card:hover {
