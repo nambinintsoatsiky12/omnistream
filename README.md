@@ -150,6 +150,27 @@ et la vidéo ne peuvent pas être stockés** : un titre lancé sans réseau pass
 attente (« Hors ligne · en attente de réseau ») et démarre seul au retour de la
 connexion.
 
+**Application installée** (PWA). Le manifeste est déclaré par la route
+`/manifest.webmanifest` — un mimetype garanti, sans lui Chrome le refuse et
+l'application ne se lance plus. Son identité (`id: "/"`) est figée et
+`start_url` pointe sur l'accueil nu, pré-enregistré par le worker : l'écran
+d'accueil n'est donc jamais lié à une URL que la coquille ne connaît pas.
+Le `display_override` accepte le repli `browser` : si le mode autonome n'est pas
+disponible, la fenêtre s'ouvre dans un onglet au lieu de rester vide. Si le
+réseau répond mal (instance Render qui se réveille, redéploiement en cours),
+le worker sert la dernière copie connue de la page, sinon sa page de secours
+intégrale — jamais un écran noir. Enfin, l'option « Installer » du menu des
+3 tirés ne dépend plus du seul événement Chrome : sans invitation native
+(iOS, visite courte), elle explique la marche à suivre au lieu de rester
+cachée, et elle s'efface d'elle-même une fois dans l'application.
+
+**Bandeau d'état.** Le message « hors ligne » et la barre « nouvelle version
+disponible » se calent sous le header, en 56 px minimum, avec de vrais boutons
+de 40 px (Réessayer, Mes enregistrements, masquer). La page récupère leur
+hauteur via `--top-banner-h`, donc rien n'est masqué ; en mode autonome, le
+header ajoute en plus `env(safe-area-inset-top)` pour ne pas passer sous
+l'encoche.
+
 **Données personnelles.** Favoris, historique et épinglages vivent dans IndexedDB
 (`omnistream-library`), sans plafond arbitraire, avec un miroir compact dans
 `localStorage` pour un premier affichage instantané. Une demande de stockage

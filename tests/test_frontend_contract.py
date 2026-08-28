@@ -14,6 +14,7 @@ Ces tests protègent contre les pannes réellement rencontrées sur téléphone 
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -145,6 +146,8 @@ def test_classes_js_existant_en_css(style_css):
         "omni-ctrl-main",
         "icon-spinner",
         "omni-update-bar",
+        "omni-update-bar-btn",
+        "omni-update-bar-label",
         "omni-toast",
         "offline-poster",
     )
@@ -256,3 +259,170 @@ def test_player_garde_une_politique_de_secours(player_js):
     """Si le flux audio seul échoue, le titre se lance quand même sur YouTube."""
     assert "AUDIO_FALLBACK_COOLDOWN" in player_js
     assert "startYouTubeFallback" in player_js
+
+
+# ---------------------------------------------------------------------------
+# Application installée (PWA), bandeau d'état et menu des « 3 tirés »
+# ---------------------------------------------------------------------------
+
+
+def manifest_data() -> dict:
+    return json.loads(read(STATIC / "manifest.webmanifest"))
+
+
+def shell_assets() -> set:
+    body = read(STATIC / "service-worker.js")
+    head = body.index("const SHELL_ASSETS")
+    block = body[head : body.index("];", head)]
+    return set(re.findall(r'"(/[^"]*)"', block))
+
+
+def test_le_manifeste_est_servi_par_sa_route_dediee(base_html):
+    """Un manifeste au mauvais mimetype est refusé par Chrome : la fenêtre
+    de l'application installée ne s'ouvre alors plus du tout."""
+    assert "url_for('manifest')" in base_html
+
+
+def test_url_de_lancement_pre_enregistree_par_le_worker():
+    """« Installer l'application », puis l'icône qui ne s'ouvre pas : la page
+    de lancement doit faire partie de la coquille pré-enregistrée, sans dépendre
+    d'un paramètre de suivi que le cache ne connaît pas."""
+    manifest = manifest_data()
+    shell = shell_assets()
+    assert manifest["start_url"] == "/", "start_url doit être une URL nue"
+    assert manifest["start_url"] in shell
+    for shortcut in manifest.get("shortcuts", []):
+        assert shortcut["url"].split("?")[0] in shell, shortcut["url"]
+    assert "source=" not in str(manifest)
+
+
+def test_identite_de_l_application_est_stable():
+    """Sans « id », chaque modification de start_url crée une autre
+    application : les icônes déjà posées sur l'écran d'accueil ne
+    pointent plus sur rien de connu. Le repli « browser » évite en outre la
+    fenêtre muette quand le mode autonome n'est pas disponible."""
+    manifest = manifest_data()
+    assert manifest.get("id") == "/"
+    assert manifest.get("display") == "standalone"
+    assert "browser" in manifest.get("display_override", [])
+    assert manifest.get("orientation") == "any"
+
+
+def test_le_worker_ignore_les_parametres_de_suivi(service_worker):
+    assert "IGNORED_PAGE_PARAMS" in service_worker
+    assert '"source"' in service_worker
+    assert "pageUrlWithoutTracking" in service_worker
+
+
+def test_le_worker_ne_laisse_jamais_la_fenetre_vide(service_worker):
+    """5xx (instance endormie, redéploiement) et hors-ligne ne doivent plus
+    donner une fenêtre grise ou noire : on sert la dernière copie
+    connue, sinon une page de secours fabriquée par le worker."""
+    assert "response.status >= 500" in service_worker
+    assert "lastKnownCopy" in service_worker
+    assert "navigationRescue" in service_worker
+    assert "RESCUE_HTML" in service_worker
+    assert "location.reload()" in service_worker
+
+
+def test_la_coquille_est_complementee_a_l_activation(service_worker):
+    install = service_worker.index('self.addEventListener("install"')
+    activate = service_worker.index('self.addEventListener("activate"')
+    assert "precacheShell();" in service_worker[install:activate]
+    assert "precacheShell();" in service_worker[activate : activate + 1400]
+
+
+def test_tous_les_liens_du_menu_menent_une_section():
+    """Le menu des « 3 tirés » ne doit plus proposer d'option morte :
+    chaque lien vers une section retrouve bien l'ancre correspondante."""
+    base = read(TEMPLATES / "base.html")
+    head = base.index('id="drawer-panel"')
+    drawer = base[head : base.index("</aside>", head)]
+    hrefs = re.findall(r'href="([^"]+)"', drawer)
+    assert hrefs, "le menu ne contient plus aucun lien"
+    markup = "".join(read(template) for template in sorted(TEMPLATES.glob("*.html")))
+    for href in hrefs:
+        if "#" not in href:
+            continue
+        anchor = href.split("#", 1)[1]
+        assert f'id="{anchor}"' in markup, f"section manquante pour {href}"
+
+
+def test_le_shell_sert_reellement_les_liens_a_ancre():
+    """Un lien « /#actualites » doit descendre jusqu'à la section, depuis la
+    méme page comme depuis une autre, et refermer le tiroir."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    assert "function hashOf" in shell
+    assert "scrollToHash(hash, true)" in shell
+    assert "navigate(url, true, hash)" in shell
+    assert "hashOf(location.hash)" in shell
+    head = shell.index('document.addEventListener("click", (event) => {')
+    handler = shell[head : shell.index("  });", head)]
+    assert "closeDrawer();" in handler
+
+
+def test_option_installer_reste_vivante_partout():
+    """Chrome n'émet « beforeinstallprompt » qu'une fois l'engagement atteint,
+    et pas du tout sur iOS : sans repli, l'option du menu restait cachée."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    assert "beforeinstallprompt" in shell
+    assert "showManualInstallHint" in shell
+    assert "INSTALL_HINT" in shell
+    assert "data-pwa-manual" in shell
+
+
+def test_mode_autonome_reconnaissable(base_html, style_css):
+    """Dans l'application installée, plus de proposition d'installation et le
+    header tient compte de l'encoche du téléphone."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    assert '(display-mode: standalone)' in shell
+    assert 'data-display-mode' in shell
+    assert 'html[data-display-mode="standalone"] .install-card' in style_css
+    assert "@media (display-mode: standalone)" in style_css
+
+
+def test_bandeau_etat_grand_et_actionnable(style_css):
+    """Le bandeau du haut était trop petit pour être vu : texte à taille
+    lisible, icône et vrais boutons de 40 px minimum."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    classes = (
+        "offline-banner-icon",
+        "offline-banner-text",
+        "offline-banner-actions",
+        "offline-banner-btn",
+        "offline-banner-close",
+    )
+    for name in classes:
+        assert f".{name}" in style_css, f"classe .{name} posée par JS sans style"
+        assert name in shell, f"le bandeau ne fabrique plus .{name}"
+    assert set(re.findall(r'data-banner-action="([a-z-]+)"', shell)) == {
+        "retry",
+        "offline",
+        "dismiss",
+    }
+
+    start = style_css.index(".offline-banner-text {")
+    block = style_css[start : style_css.index("}", start)]
+    size = re.search(r"font-size: *([0-9.]+)rem", block)
+    assert size and float(size.group(1)) >= 0.9, "le bandeau est toujours trop petit"
+    head = style_css.index(".offline-banner {")
+    rule = style_css[head : style_css.index("}", head)]
+    assert re.search(r"min-height: *[4-9][0-9]px", rule), "hauteur tactile insuffisante"
+
+
+def test_bandeau_ne_recouvre_plus_le_header(style_css):
+    head = style_css.index(".topbar {")
+    rule = style_css[head : style_css.index("}", head)]
+    assert "top: var(--top-banner-h, 0px)" in rule
+    attendu = "padding-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px)"
+    assert attendu in style_css
+    bandeau = style_css[style_css.index(".offline-banner {") :]
+    assert "env(safe-area-inset-top" in bandeau
+
+
+def test_barre_de_mise_a_jour_lisible(style_css):
+    head = style_css.index(".omni-update-bar {")
+    rule = style_css[head : style_css.index("}", head)]
+    assert re.search(r"font-size: *0\.9[0-9]*rem", rule), "barre toujours trop petite"
+    assert "min-height" in rule
+    assert "var(--top-banner-h, 0px)" in rule

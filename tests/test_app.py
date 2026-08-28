@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import requests
 
@@ -405,6 +407,26 @@ def test_manifest_served(client):
 
     assert response.status_code == 200
     assert b"OmniStream" in response.data
+
+
+def test_manifest_content_type_admis_par_chrome(client):
+    """Sans ce mimetype, le manifeste est rejeté et l'application installée
+    ne se lance plus du tout."""
+    response = client.get("/manifest.webmanifest")
+
+    content_type = response.headers.get("Content-Type", "")
+    assert content_type.startswith("application/manifest+json")
+
+
+def test_url_de_lancement_de_l_app_repond(client):
+    """Tout ce que l'icône de l'application peut ouvrir doit répondre 200."""
+    manifest = json.loads(client.get("/manifest.webmanifest").get_data(as_text=True))
+
+    assert manifest["id"] == "/"
+    for url in [manifest["start_url"], *[s["url"] for s in manifest["shortcuts"]]]:
+        assert client.get(url).status_code == 200, url
+    for icon in manifest["icons"]:
+        assert client.get(icon["src"]).status_code == 200, icon["src"]
 
 
 def test_bottom_nav_present(client):

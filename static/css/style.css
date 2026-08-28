@@ -197,7 +197,10 @@ img {
 
 .topbar {
   position: fixed;
-  top: 0;
+  /* Le bandeau d'état du réseau se loge au-dessus du header :
+     c'est lui que l'on déplace, pour ne pas écraser le logo ni la
+     barre de recherche. */
+  top: var(--top-banner-h, 0px);
   left: 0;
   right: 0;
   z-index: 100;
@@ -1723,13 +1726,13 @@ main {
   margin: 0 auto;
   width: 100%;
   padding: 24px 36px 60px;
-  padding-top: calc(var(--header-h, 110px) + 16px);
+  padding-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px) + 16px);
   flex: 1;
 }
 
 /* Les ancres (#actualites...) s'arrêtent sous le header fixe */
 section[id] {
-  scroll-margin-top: calc(var(--header-h, 110px) + 20px);
+  scroll-margin-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px) + 20px);
 }
 
 main:has(.landing-hero-ua),
@@ -2573,7 +2576,8 @@ main:has(.landing-hero-ua),
   border-radius: var(--radius-pill);
   background: rgba(255, 122, 46, 0.1);
   border: 1px solid rgba(255, 122, 46, 0.25);
-  font-size: 0.78rem;
+  font-size: 0.86rem;
+  line-height: 1.5;
   color: var(--accent);
 }
 
@@ -3115,7 +3119,10 @@ main:has(.landing-hero-ua),
   .hero-copy h2 { font-size: 1.5rem; }
   .hero-copy p { font-size: 0.82rem; }
   .hero-play { width: 52px; height: 52px; }
-  main { padding: 16px 14px 60px; padding-top: calc(var(--header-h, 110px) + 12px); }
+  main {
+    padding: 16px 14px 60px;
+    padding-top: calc(var(--header-h, 110px) + var(--top-banner-h, 0px) + 12px);
+  }
   .grid { grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 14px; }
   .footer-container { grid-template-columns: 1fr; }
   .footer-bottom { flex-direction: column; text-align: center; }
@@ -3786,22 +3793,125 @@ body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
 .bottom-nav-item.active { color: var(--accent); }
 .bottom-nav-item:active { transform: scale(0.94); }
 
-/* --- Bannière hors ligne --- */
+/* ================================================================
+   BANDEAU D'ÉTAT DU RÉSEAU
+   ----------------------------------------------------------------
+   Il était minuscule (0,8 rem, 6 px de gras) et posé par-dessus le
+   logo : à peine visible et il cassait l'en-tête. Le voici en vrai
+   bandeau — texte clair, icône, actions tactiles de 40 px —
+   et il se cale sous le header au lieu de le recouvrir.
+   ================================================================ */
 .offline-banner {
   position: fixed;
-  top: 0;
+  top: var(--header-h, 96px);
   left: 0;
   right: 0;
-  z-index: 1400;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  min-height: 56px;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(135deg, #b45309 0%, #7c2d12 100%);
+  color: #fff7ed;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  border-bottom: 1px solid rgba(255, 247, 237, 0.22);
+  text-align: left;
+}
+
+.offline-banner-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.offline-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+.offline-banner-text strong {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.offline-banner-text > span {
+  color: rgba(255, 247, 237, 0.86);
+  font-size: 0.84rem;
+}
+
+.offline-banner-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 6px 12px;
-  background: #b45309;
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.offline-banner-btn,
+.offline-banner-close {
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-pill);
+  transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.offline-banner-btn {
+  min-height: 40px;
+  padding: 9px 16px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #fff7ed;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 247, 237, 0.4);
+}
+
+.offline-banner-btn.primary {
+  background: #fff7ed;
+  color: #7c2d12;
+  border-color: #fff7ed;
+}
+
+.offline-banner-btn:active { transform: scale(0.97); }
+.offline-banner-btn:disabled { opacity: 0.6; cursor: progress; }
+
+.offline-banner-close {
+  width: 40px;
+  height: 40px;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: rgba(255, 247, 237, 0.8);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.offline-banner-close:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+
+@media (max-width: 620px) {
+  .offline-banner {
+    justify-content: flex-start;
+    gap: 8px 10px;
+    padding: 10px 12px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  }
+  .offline-banner-icon { width: 28px; height: 28px; }
+  .offline-banner-text { flex: 1 1 100%; font-size: 0.9rem; }
+  .offline-banner-text strong { font-size: 0.96rem; }
+  .offline-banner-text > span { font-size: 0.8rem; }
+  .offline-banner-actions { flex: 1 1 auto; }
+  .offline-banner-btn { padding: 9px 13px; font-size: 0.82rem; }
 }
 
 /* --- Bouton favori sur les cartes --- */
@@ -4236,7 +4346,10 @@ body.has-audio-bar .sponsor-gift {
   .logo-text { font-size: 0.95rem; letter-spacing: 1px; }
   .icon-btn { width: 34px; height: 34px; }
 
-  main { padding: 14px 12px 40px; padding-top: calc(var(--header-h, 96px) + 10px); }
+  main {
+    padding: 14px 12px 40px;
+    padding-top: calc(var(--header-h, 96px) + var(--top-banner-h, 0px) + 10px);
+  }
 
   .grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
   .card-info { padding: 8px 9px 10px; gap: 2px; }
@@ -4278,7 +4391,7 @@ body.has-audio-bar .sponsor-gift {
   .mode-btn { padding: 6px 11px; gap: 8px; }
   .mode-btn-text strong { font-size: 0.76rem; }
   .mode-btn-text small { font-size: 0.62rem; }
-  .data-saver-notice { font-size: 0.68rem; padding: 5px 10px; line-height: 1.45; }
+  .data-saver-notice { font-size: 0.8rem; padding: 9px 12px; line-height: 1.5; gap: 9px; }
 
   .library-page .library-header { margin-bottom: 16px; }
   .library-intro { font-size: 0.8rem; }
@@ -4380,28 +4493,36 @@ body.has-audio-bar .sponsor-gift {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  top: calc(var(--header-h, 96px) + 8px);
+  top: calc(var(--header-h, 96px) + var(--top-banner-h, 0px) + 10px);
   z-index: 1500;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px 8px 14px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 52px;
+  padding: 10px 12px 10px 18px;
   border-radius: var(--radius-pill);
   background: rgba(18, 22, 31, 0.97);
   border: 1px solid rgba(56, 189, 248, 0.4);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
-  font-size: 0.74rem;
+  font-size: 0.92rem;
   font-weight: 600;
+  line-height: 1.4;
   color: #fff;
   max-width: calc(100% - 24px);
 }
-.omni-update-bar button {
+.omni-update-bar-label { flex: 1 1 auto; min-width: 0; }
+
+.omni-update-bar button,
+.omni-update-bar-btn {
   font: inherit;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #04070d;
   background: var(--accent-cyan);
   border-radius: var(--radius-pill);
-  padding: 6px 12px;
+  min-height: 40px;
+  padding: 9px 16px;
   cursor: pointer;
 }
 .omni-update-bar button.ghost {
@@ -4411,7 +4532,9 @@ body.has-audio-bar .sponsor-gift {
   font-size: 1rem;
   line-height: 1;
 }
-body.is-offline .offline-banner + .omni-update-bar { top: 34px; }
+
+/* Le bandeau d'état et la barre de mise à jour ne se connaissent pas :
+   c'est la variable --top-banner-h qui les empile proprement. */
 
 /* --- Espace hors ligne : compteurs et jauge --- */
 .saver-stats { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px; }
@@ -4709,4 +4832,46 @@ html:has(body.modal-open),
 html:has(body.media-fullscreen),
 html:has(body.drawer-open) {
   overflow: hidden;
+}
+
+/* Bandeau d'état visible : le header se détache, pour qu'on ne croie pas
+   qu'il s'agit d'une barre de statut du navigateur. */
+html.has-top-banner .topbar {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+}
+
+/* ================================================================
+   APPLICATION INSTALLÉE (mode autonome)
+   ----------------------------------------------------------------
+   Dans la fenêtre de l'application installée, il n'y a plus de barre
+   d'URL ni de bouton précédent, et l'encoche du téléphone mange le haut
+   de l'écran : le header prend donc la marge de sécurité, et les
+   propositions d'installation — inutiles puisqu'on y est déjà —
+   s'effacent.
+   ================================================================ */
+@media (display-mode: standalone) {
+  .topbar-inner {
+    height: auto;
+    min-height: 64px;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+/* Le drapeau est posé par app-shell.js : filet de sécurité pour les
+   navigateurs qui ne connaissent pas la règle précédente. */
+html[data-display-mode="standalone"] .topbar-inner {
+  height: auto;
+  min-height: 64px;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+html[data-display-mode="standalone"] .install-card,
+html[data-display-mode="standalone"] .drawer-install-btn {
+  display: none;
+}
+
+/* Un bandeau d'état visible ne doit jamais manger le fil de progression. */
+.pjax-bar {
+  top: var(--top-banner-h, 0px);
 }
