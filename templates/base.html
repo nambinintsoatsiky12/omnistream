@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,600;1,700&family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=18">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=19">
 <script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v=1" defer></script>
 <meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
@@ -80,6 +80,7 @@
 
   <!-- CATEGORY TABS -->
   {% if tab is defined and tab %}
+  <div class="tabs-wrap" id="tabs-wrap">
   <nav class="tabs" aria-label="Catégories principales">
     <a href="{{ url_for('index', tab='films') }}" class="{{ 'active' if tab=='films' or not tab else '' }}">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line></svg>
@@ -106,6 +107,7 @@
       Films ≥ 8.5
     </a>
   </nav>
+  </div>
   {% endif %}
 </header>
 
@@ -382,6 +384,25 @@
   }
   updateHeaderHeight();
   window.addEventListener("resize", updateHeaderHeight);
+  // Robustesse : la hauteur du header peut aussi changer sans resize
+  // (chargement des polices, rotation, apparition des onglets…).
+  if (window.ResizeObserver && header) {
+    new ResizeObserver(updateHeaderHeight).observe(header);
+  }
+
+  // Barre d'onglets : fondus latéraux pour montrer qu'elle défile
+  const tabsBar = document.querySelector(".tabs");
+  const tabsWrap = document.getElementById("tabs-wrap");
+  if (tabsBar && tabsWrap) {
+    const updateTabsFade = () => {
+      const maxScroll = tabsBar.scrollWidth - tabsBar.clientWidth;
+      tabsWrap.classList.toggle("at-end", tabsBar.scrollLeft >= maxScroll - 4);
+      tabsWrap.classList.toggle("at-start", tabsBar.scrollLeft <= 4);
+    };
+    tabsBar.addEventListener("scroll", updateTabsFade, { passive: true });
+    window.addEventListener("resize", updateTabsFade);
+    updateTabsFade();
+  }
 })();
 </script>
 
