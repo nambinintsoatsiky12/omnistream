@@ -47,13 +47,6 @@
     </button>
   </form>
 
-  <!-- HIDDEN 1PX AUDIO FRAME FOR ZERO-VIDEO-BANDWIDTH PLAYBACK -->
-  <div class="audio-hidden-frame" aria-hidden="true">
-    <iframe id="musique-player" src="about:blank" title="Flux audio discret" tabindex="-1"
-      referrerpolicy="strict-origin-when-cross-origin"
-      allow="autoplay; encrypted-media"></iframe>
-  </div>
-
   <!-- SECTION TITLE & RESULTS -->
   <div class="musique-section-header">
     <h2 id="musique-section-title" class="musique-grid-title">🔥 Tendances du moment</h2>
@@ -72,116 +65,6 @@
   <div id="musique-loading" class="empty-state" hidden>
     <div class="music-loading-spinner"></div>
     <p>Recherche des meilleurs flux audio...</p>
-  </div>
-</div>
-
-<!-- FLOATING BOTTOM AUDIO PLAYER (VRAI LECTEUR PRO MP3) -->
-<div id="audio-bar" class="audio-bar" hidden>
-  <div class="audio-bar-inner">
-    <!-- DISC / COVER ART -->
-    <div class="audio-bar-cover-wrap">
-      <div class="audio-bar-disc" id="audio-bar-disc">
-        <img id="audio-bar-img" src="" alt="" class="audio-bar-thumb" hidden>
-        <svg id="audio-bar-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-      </div>
-      <div class="audio-pulse-ring"></div>
-    </div>
-
-    <!-- META -->
-    <div class="audio-bar-meta">
-      <div class="audio-bar-title" id="audio-bar-title">Sélectionnez une musique</div>
-      <div class="audio-bar-subline">
-        <span class="audio-bar-channel" id="audio-bar-channel">OmniStream Player</span>
-        <span class="audio-bar-badge">MP3 Bas Débit</span>
-      </div>
-      <!-- PROGRESS LINE -->
-      <div class="audio-progress-bar">
-        <div class="audio-progress-fill" id="audio-progress-fill"></div>
-      </div>
-    </div>
-
-    <!-- EQUALIZER VISUALIZER -->
-    <div class="audio-bar-eq" id="audio-bar-eq" aria-hidden="true">
-      <span></span><span></span><span></span><span></span><span></span>
-    </div>
-
-    <!-- ACTION CONTROLS -->
-    <div class="audio-bar-controls">
-      <button type="button" class="audio-ctrl-btn" id="audio-bar-expand" title="Agrandir le lecteur" aria-label="Agrandir le lecteur">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-      </button>
-
-      <button type="button" class="audio-ctrl-btn stop-btn" id="audio-bar-stop" title="Arrêter" aria-label="Arrêter la lecture">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- FULL-SCREEN EXPANDED AUDIO MODAL (GRAND LECTEUR MUSIQUE PRO) -->
-<div id="expanded-audio-modal" class="expanded-audio-modal" aria-hidden="true">
-  <div class="modal-backdrop-blur"></div>
-  <div class="expanded-modal-content">
-    <button type="button" class="modal-close-btn" id="modal-close-btn" aria-label="Réduire le lecteur">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-    </button>
-
-    <div class="expanded-vinyl-container">
-      <div class="vinyl-record" id="modal-vinyl">
-        <div class="vinyl-grooves"></div>
-        <img id="modal-cover-img" src="" alt="Pochette" class="vinyl-center-img">
-      </div>
-    </div>
-
-    <div class="expanded-track-info">
-      <span class="expanded-status-badge">LECTURE AUDIO HAUTE QUALITÉ · BAS DÉBIT</span>
-      <h2 class="expanded-track-title" id="modal-track-title">Titre du morceau</h2>
-      <p class="expanded-track-artist" id="modal-track-artist">Artiste / Chaîne</p>
-    </div>
-
-    <!-- WAVE VISUALIZER -->
-    <div class="expanded-wave-visualizer" id="expanded-wave">
-      <span></span><span></span><span></span><span></span><span></span>
-      <span></span><span></span><span></span><span></span><span></span>
-      <span></span><span></span><span></span><span></span><span></span>
-    </div>
-
-    <!-- DATA SAVER INFO CARD -->
-    <div class="modal-saver-card">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-      <div>
-        <strong>Économiseur de Mégaoctets (Mo) actif</strong>
-        <p>Ce lecteur diffuse la bande sonore sans télécharger les images vidéo lourdes.</p>
-      </div>
-    </div>
-
-    <!-- CONTROLS -->
-    <div class="expanded-controls-row">
-      <button type="button" class="expanded-action-btn" id="modal-stop-btn">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-        <span>Arrêter</span>
-      </button>
-      <button type="button" class="expanded-action-btn primary" id="modal-minimize-btn">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-        <span>Réduire en barre</span>
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- OVERLAY VIDÉO VRAI PLEIN ÉCRAN (MODE MP4 / VIDÉO 100VW x 100VH) -->
-<div id="video-overlay" class="video-overlay" aria-hidden="true">
-  <div class="video-topbar">
-    <button type="button" class="video-back-btn" id="video-close" aria-label="Fermer le plein écran">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-      <span>Retour</span>
-    </button>
-    <div class="video-topbar-title" id="video-title">Vidéo plein écran</div>
-    <div class="video-badge-4k">HD 1080P</div>
-  </div>
-
-  <div class="video-cinema-stage">
-    <iframe id="video-fullscreen-player" class="video-fullscreen-frame" src="about:blank" title="Lecteur vidéo plein écran" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
   </div>
 </div>
 

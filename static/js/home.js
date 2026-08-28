@@ -162,6 +162,39 @@
     return badge;
   }
 
+  function favPayload(item) {
+    return {
+      media_type: item.media_type,
+      id: Number(item.id),
+      title: String(item.title || "Sans titre"),
+      poster: safeImageUrl(item.poster || item.backdrop),
+      tab,
+    };
+  }
+
+  function createFavButton(item) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "card-fav-btn";
+    btn.setAttribute("aria-label", "Ajouter à ma liste");
+    const payload = favPayload(item);
+    const refresh = () => {
+      const on = window.OmniLibrary && window.OmniLibrary.isFavorite(payload);
+      btn.classList.toggle("on", !!on);
+      btn.innerHTML = on
+        ? '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+    };
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.OmniLibrary) window.OmniLibrary.toggleFavorite(payload);
+      refresh();
+    });
+    refresh();
+    return btn;
+  }
+
   function createCard(item, index) {
     const href = detailUrl(item);
     if (!href) return null;
@@ -180,6 +213,7 @@
     }
 
     poster.appendChild(createRatingBadge(item.rating));
+    poster.appendChild(createFavButton(item));
 
     const info = document.createElement("div");
     info.className = "card-info";

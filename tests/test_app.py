@@ -353,12 +353,13 @@ def test_musique_page_loads(client):
     assert response.status_code == 200
     assert b"Audio" in response.data
     assert b"Vid\xc3\xa9o" in response.data
-    # Mode Audio : iframe cachée en 1px + barre de lecteur
-    assert b"audio-hidden-frame" in response.data
-    assert b"audio-bar" in response.data
-    # Mode Vidéo : overlay vrai plein écran
-    assert b"video-overlay" in response.data
-    assert b"video-fullscreen-frame" in response.data
+    # La lecture est désormais assurée par le lecteur global persistant
+    # (présent dans le gabarit de base), pour continuer entre les pages.
+    assert b"omni-audio-bar" in response.data
+    assert b"global-player-dock" in response.data
+    # Mode Vidéo : overlay vrai plein écran global
+    assert b"global-video-overlay" in response.data
+    assert b"musique.js" in response.data
 
 
 def test_privacy_page_loads(client):
@@ -366,6 +367,52 @@ def test_privacy_page_loads(client):
 
     assert response.status_code == 200
     assert b"Confidentialit\xc3\xa9" in response.data
+
+
+def test_library_page_loads(client):
+    response = client.get("/bibliotheque")
+
+    assert response.status_code == 200
+    assert b"continue-grid" in response.data
+    assert b"favorites-grid" in response.data
+
+
+def test_downloads_page_loads(client):
+    response = client.get("/telechargements")
+
+    assert response.status_code == 200
+    assert b"offline-grid" in response.data
+    assert b"saver-stats" in response.data
+
+
+def test_offline_page_loads(client):
+    response = client.get("/offline")
+
+    assert response.status_code == 200
+    assert b"hors ligne" in response.data.lower()
+
+
+def test_service_worker_served(client):
+    response = client.get("/service-worker.js")
+
+    assert response.status_code == 200
+    assert "javascript" in response.headers.get("Content-Type", "")
+    assert response.headers.get("Service-Worker-Allowed") == "/"
+
+
+def test_manifest_served(client):
+    response = client.get("/manifest.webmanifest")
+
+    assert response.status_code == 200
+    assert b"OmniStream" in response.data
+
+
+def test_bottom_nav_present(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert b"bottom-nav" in response.data
+    assert b"global-player-dock" in response.data
 
 
 def test_no_auth_routes_exist(client):

@@ -398,6 +398,26 @@ def template_promotional_context():
     }
 
 
+@app.context_processor
+def template_navigation_context():
+    """Détermine l'onglet actif de la barre de navigation basse (mobile)."""
+    endpoint = request.endpoint
+    active = ""
+    if endpoint == "index":
+        tab = request.args.get("tab")
+        if not tab and not request.args.get("q"):
+            active = "home"
+        elif tab == "films":
+            active = "films"
+    elif endpoint == "musiques":
+        active = "musique"
+    elif endpoint == "telechargements":
+        active = "downloads"
+    elif endpoint == "bibliotheque":
+        active = "library"
+    return {"active_nav": active}
+
+
 @app.after_request
 def add_security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -843,6 +863,34 @@ def index():
     return render_template("index.html", tab=tab, items=None, query="")
 
 
+def _extract_trailer_key(videos):
+    """Retourne l'identifiant YouTube de la meilleure bande-annonce, sinon ''."""
+    if not isinstance(videos, dict):
+        return ""
+    results = videos.get("results")
+    if not isinstance(results, list):
+        return ""
+
+    def score(video):
+        vtype = str(video.get("type") or "").lower()
+        priority = {"trailer": 0, "teaser": 1, "clip": 2}.get(vtype, 3)
+        official_bonus = 0 if video.get("official") else 1
+        return (priority, official_bonus)
+
+    candidates = [
+        video
+        for video in results
+        if isinstance(video, dict)
+        and str(video.get("site") or "").lower() == "youtube"
+        and isinstance(video.get("key"), str)
+        and re.fullmatch(r"[A-Za-z0-9_-]{11}", video.get("key"))
+    ]
+    if not candidates:
+        return ""
+    candidates.sort(key=score)
+    return candidates[0]["key"]
+
+
 @app.route("/details/<media_type>/<int:item_id>")
 def details(media_type, item_id):
     if media_type not in {"movie", "tv"} or item_id <= 0:
@@ -852,7 +900,7 @@ def details(media_type, item_id):
     origin_tab = requested_origin if requested_origin in ALL_TABS else "films"
     data = tmdb_get(
         f"/{media_type}/{item_id}",
-        {"append_to_response": "credits", "language": "fr-FR"},
+        {"append_to_response": "credits,videos", "language": "fr-FR"},
     )
 
     title = data.get("title") or data.get("name") or "Sans titre"
@@ -894,6 +942,17 @@ def details(media_type, item_id):
     if not isinstance(origin_country, list):
         origin_country = []
 
+    trailer_key = _extract_trailer_key(data.get("videos"))
+    if not trailer_key:
+        # Repli : cherche une bande-annonce en anglais si la version FR n'en a pas.
+        try:
+            videos_en = tmdb_get(
+                f"/{media_type}/{item_id}/videos", {"language": "en-US"}
+            )
+            trailer_key = _extract_trailer_key(videos_en)
+        except UpstreamServiceError:
+            trailer_key = ""
+
     item = {
         "id": item_id,
         "media_type": media_type,
@@ -908,6 +967,7 @@ def details(media_type, item_id):
         "runtime": data.get("runtime") or episode_runtime,
         "original_language": data.get("original_language"),
         "origin_country": origin_country,
+        "trailer_key": trailer_key,
     }
     return render_template("detail.html", item=item, tab=origin_tab)
 
@@ -1636,6 +1696,48 @@ def _format_youtube_items(raw_items, id_is_object):
 @app.route("/confidentialite")
 def privacy():
     return render_template("privacy.html")
+
+
+@app.route("/telechargements")
+def telechargements():
+    """Espace hors ligne : bibliothèque enregistrée (gérée côté client)."""
+    return render_template("telechargements.html")
+
+
+@app.route("/bibliotheque")
+def bibliotheque():
+    """Espace personnel : Ma Liste, Continuer à regarder (côté client)."""
+    return render_template("bibliotheque.html")
+
+
+@app.route("/offline")
+def offline():
+    """Page affichée par le Service Worker quand il n'y a pas de réseau."""
+    return render_template("offline.html")
+
+
+@app.get("/service-worker.js")
+def service_worker():
+    """Sert le Service Worker PWA depuis la racine (portée maximale)."""
+    response = send_from_directory(
+        os.path.join(app.root_path, "static"),
+        "service-worker.js",
+        mimetype="application/javascript",
+        max_age=0,
+        conditional=False,
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return send_from_directory(
+        os.path.join(app.root_path, "static"),
+        "manifest.webmanifest",
+        mimetype="application/manifest+json",
+    )
 
 
 @app.get("/sw.js")

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Mon espace — OmniStream{% endblock %}
+{% block content %}
+<div class="library-page">
+  <div class="library-header">
+    <span class="section-kicker">ESPACE PERSONNEL · 100% PRIVÉ</span>
+    <h1 class="search-title">Mon OmniStream</h1>
+    <p class="library-intro">
+      Vos favoris et votre historique sont enregistrés uniquement sur cet appareil.
+      Aucun compte, aucune donnée envoyée, aucun Mo dépensé.
+    </p>
+  </div>
+
+  <!-- Bloc installation PWA -->
+  <div class="install-card" data-pwa-install hidden>
+    <div class="install-card-icon">
+      <img src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" width="48" height="48">
+    </div>
+    <div class="install-card-body">
+      <strong>Installer l'application OmniStream</strong>
+      <p>Ajoutez OmniStream à votre écran d'accueil pour un accès rapide et une utilisation hors ligne.</p>
+    </div>
+    <button type="button" class="install-card-btn" data-pwa-install>Installer</button>
+  </div>
+
+  <!-- Continuer à regarder / écouter -->
+  <section class="library-section">
+    <div class="library-section-head">
+      <h2>Reprendre</h2>
+      <button type="button" class="library-clear" data-clear="continue">Vider</button>
+    </div>
+    <div class="grid" id="continue-grid"></div>
+    <div class="library-empty" id="continue-empty" hidden>
+      <p>Rien à reprendre pour l'instant. Lancez un film, une série ou une musique !</p>
+    </div>
+  </section>
+
+  <!-- Ma liste (favoris) -->
+  <section class="library-section">
+    <div class="library-section-head">
+      <h2>Ma Liste</h2>
+      <button type="button" class="library-clear" data-clear="favorites">Vider</button>
+    </div>
+    <div class="grid" id="favorites-grid"></div>
+    <div class="library-empty" id="favorites-empty" hidden>
+      <p>Votre liste est vide. Touchez le ❤ sur un titre pour l'ajouter ici.</p>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/library-page.js') }}?v=1"></script>
+{% endblock %}
