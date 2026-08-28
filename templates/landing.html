@@ -116,7 +116,8 @@
       {% for art in news_articles %}
       <article class="ua-news-card reveal">
         <div class="ua-news-card-img-wrap">
-          <img src="{{ art.image }}" alt="{{ art.title }}" loading="lazy" class="ua-news-card-img">
+          <img src="{{ art.image }}" alt="{{ art.title }}" loading="lazy" class="ua-news-card-img"
+               onerror="this.onerror=null;this.src='{{ art.fallback | default(url_for('static', filename='images/univ-cinema.jpg')) }}';">
           <span class="ua-news-badge">{{ art.badge }}</span>
         </div>
         <div class="ua-news-card-body">
@@ -145,7 +146,7 @@
     <div class="ua-campus-header-row reveal">
       <div class="ua-campus-title-col">
         <span class="ua-section-kicker">UNIVERS OMNISTREAM</span>
-        <h2 class="ua-section-title white">
+        <h2 class="ua-section-title">
           Plus qu'un simple streaming,<br>
           un univers complet
         </h2>
@@ -198,7 +199,7 @@
   <div class="ua-media-container">
     <div class="ua-media-header reveal">
       <span class="ua-section-kicker">MÉDIAS DU STREAMING</span>
-      <h2 class="ua-section-title white">Au Cœur du Son &amp; de l'Image</h2>
+      <h2 class="ua-section-title">Au Cœur du Son &amp; de l'Image</h2>
       <p class="ua-media-sub">
         Restez connecté à vos divertissements préférés grâce à nos lecteurs officiels. Musique en direct, fiches complètes et mode vidéo plein écran.
       </p>
@@ -339,7 +340,7 @@
 
       <div class="about-text-content reveal">
         <span class="ua-section-kicker">DIRECTION DU PROJET</span>
-        <h2 class="ua-section-title white">Une Vision Moderne du Streaming</h2>
+        <h2 class="ua-section-title">Une Vision Moderne du Streaming</h2>
         <p class="about-lead">
           OmniStream est une plateforme web indépendante créée par <strong>NAMBININTSOA Tsiky Fandresena</strong> à Antananarivo, Madagascar.
         </p>

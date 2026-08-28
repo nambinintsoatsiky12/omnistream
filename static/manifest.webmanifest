@@ -1,0 +1,54 @@
+{
+  "name": "OmniStream — Films, Séries, Animés & Musique",
+  "short_name": "OmniStream",
+  "description": "Films, séries, animés, mangas et musique en accès libre. Mode économiseur de données et lecture hors ligne à Madagascar.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
+  "categories": ["entertainment", "music", "video"],
+  "icons": [
+    {
+      "src": "/static/images/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/images/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/images/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Musique",
+      "short_name": "Musique",
+      "url": "/musiques?source=pwa",
+      "icons": [{ "src": "/static/images/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Films",
+      "short_name": "Films",
+      "url": "/?tab=films&source=pwa",
+      "icons": [{ "src": "/static/images/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mes téléchargements",
+      "short_name": "Hors ligne",
+      "url": "/telechargements?source=pwa",
+      "icons": [{ "src": "/static/images/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

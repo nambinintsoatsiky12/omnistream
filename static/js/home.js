@@ -162,6 +162,39 @@
     return badge;
   }
 
+  function favPayload(item) {
+    return {
+      media_type: item.media_type,
+      id: Number(item.id),
+      title: String(item.title || "Sans titre"),
+      poster: safeImageUrl(item.poster || item.backdrop),
+      tab,
+    };
+  }
+
+  function createFavButton(item) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "card-fav-btn";
+    btn.setAttribute("aria-label", "Ajouter à ma liste");
+    const payload = favPayload(item);
+    const refresh = () => {
+      const on = window.OmniLibrary && window.OmniLibrary.isFavorite(payload);
+      btn.classList.toggle("on", !!on);
+      btn.innerHTML = on
+        ? '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+    };
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (window.OmniLibrary) window.OmniLibrary.toggleFavorite(payload);
+      refresh();
+    });
+    refresh();
+    return btn;
+  }
+
   function createCard(item, index) {
     const href = detailUrl(item);
     if (!href) return null;
@@ -180,6 +213,7 @@
     }
 
     poster.appendChild(createRatingBadge(item.rating));
+    poster.appendChild(createFavButton(item));
 
     const info = document.createElement("div");
     info.className = "card-info";
@@ -226,10 +260,21 @@
       const data = await requestJson(heroUrl(), heroController.signal);
       if (currentGeneration !== generation) return;
       const rawItems = Array.isArray(data.items) ? data.items : [];
+      // Défilement « infini » : aucun film / animé ne doit revenir deux fois
+      // dans le même cycle. On déduplique donc strictement par identifiant.
+      const seenIds = new Set();
+      const uniqueItems = [];
+      for (const item of rawItems) {
+        if (!detailUrl(item)) continue;
+        const key = `${item.media_type}-${item.id}`;
+        if (seenIds.has(key)) continue;
+        seenIds.add(key);
+        uniqueItems.push(item);
+      }
       const items = seededShuffle(
-        rawItems.filter((item) => detailUrl(item)),
+        uniqueItems,
         `hero-${tab}-${activeGenre}-${sessionSeed}`,
-      ).slice(0, 5);
+      ).slice(0, 12);
       if (items.length === 0) {
         hideHero();
         return;
@@ -401,7 +446,62 @@
     });
   }
 
+  function renderResumeRow() {
+    const row = document.getElementById("resume-row");
+    const scroller = document.getElementById("resume-scroller");
+    if (!row || !scroller || !window.OmniLibrary) return;
+    const items = window.OmniLibrary.getContinue().slice(0, 15);
+    if (!items.length) {
+      row.hidden = true;
+      return;
+    }
+    const cards = items.map((item) => {
+      const card = document.createElement("div");
+      card.className = "resume-card";
+      const img = safeImageUrl(item.poster || item.thumbnail);
+      const isMusic = item.type === "music";
+      const href = isMusic
+        ? null
+        : (["movie", "tv"].includes(item.media_type) && item.id
+            ? `/details/${item.media_type}/${item.id}?tab=${encodeURIComponent(item.tab || tab)}`
+            : null);
+
+      const media = document.createElement(href ? "a" : "button");
+      media.className = "resume-poster";
+      if (href) media.href = href;
+      else media.type = "button";
+      if (img) {
+        media.innerHTML = `<img src="${img}" alt="" loading="lazy">`;
+      } else {
+        media.classList.add("poster-placeholder");
+      }
+      const play = document.createElement("span");
+      play.className = "resume-play";
+      play.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+      media.appendChild(play);
+      if (isMusic) {
+        media.addEventListener("click", () => {
+          if (window.OmniPlayer) window.OmniPlayer.play(item, "audio");
+        });
+        const tag = document.createElement("span");
+        tag.className = "resume-tag";
+        tag.textContent = "MP3";
+        media.appendChild(tag);
+      }
+
+      const t = document.createElement("div");
+      t.className = "resume-title";
+      t.textContent = item.title || "Sans titre";
+      card.append(media, t);
+      return card;
+    });
+    scroller.replaceChildren(...cards);
+    row.hidden = false;
+  }
+
   loadHero();
   loadPills();
   loadMore();
+  renderResumeRow();
+  document.addEventListener("omni:library-change", renderResumeRow);
 })();

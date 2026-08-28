@@ -58,6 +58,15 @@
       <div class="hero-dots" id="hero-dots"></div>
     </section>
 
+    <!-- REPRENDRE (historique local) -->
+    <section class="resume-row" id="resume-row" hidden>
+      <div class="resume-head">
+        <h2>Reprendre</h2>
+        <a href="{{ url_for('bibliotheque') }}" class="resume-seeall">Tout voir</a>
+      </div>
+      <div class="resume-scroller" id="resume-scroller"></div>
+    </section>
+
     <!-- GENRE PILLS -->
     <nav class="pills" id="pills" aria-label="Filtres de genres"></nav>
 
@@ -78,6 +87,6 @@
 
 {% block scripts %}
 {% if not query %}
-  <script src="{{ url_for('static', filename='js/home.js') }}?v=6"></script>
+  <script src="{{ url_for('static', filename='js/home.js') }}?v=8"></script>
 {% endif %}
 {% endblock %}

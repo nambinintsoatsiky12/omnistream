@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Hors ligne & Économiseur de données — OmniStream{% endblock %}
+{% block content %}
+<div class="library-page">
+  <div class="library-header">
+    <span class="section-kicker">MODE HORS LIGNE · ÉCONOMISEUR DE Mo</span>
+    <h1 class="search-title">Hors ligne &amp; Données</h1>
+    <p class="library-intro">
+      OmniStream fonctionne même sans connexion pour tout ce que vous avez déjà
+      consulté, et met en cache les images pour ne pas les recharger. Pensé pour
+      les petits forfaits à Madagascar.
+    </p>
+  </div>
+
+  <!-- Installation -->
+  <div class="install-card" data-pwa-install hidden>
+    <div class="install-card-icon">
+      <img src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" width="48" height="48">
+    </div>
+    <div class="install-card-body">
+      <strong>Installer l'application</strong>
+      <p>Accès direct depuis l'écran d'accueil + ouverture hors ligne.</p>
+    </div>
+    <button type="button" class="install-card-btn" data-pwa-install>Installer</button>
+  </div>
+
+  <!-- Stockage / cache -->
+  <section class="library-section">
+    <div class="library-section-head">
+      <h2>Espace enregistré</h2>
+      <button type="button" class="library-clear" id="clear-cache-btn">Vider le cache</button>
+    </div>
+    <div class="saver-stats" id="saver-stats">
+      <div class="saver-stat saver-stat-highlight">
+        <span class="saver-stat-val" id="stat-saved">0 Ko</span>
+        <span class="saver-stat-lbl">Données économisées</span>
+      </div>
+      <div class="saver-stat">
+        <span class="saver-stat-val" id="stat-offline">0</span>
+        <span class="saver-stat-lbl">Éléments épinglés</span>
+      </div>
+      <div class="saver-stat">
+        <span class="saver-stat-val" id="stat-imgs">0</span>
+        <span class="saver-stat-lbl">Images en cache</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Éléments épinglés hors ligne -->
+  <section class="library-section">
+    <div class="library-section-head">
+      <h2>Épinglé pour hors ligne</h2>
+      <button type="button" class="library-clear" data-clear="offline">Tout retirer</button>
+    </div>
+    <div class="grid" id="offline-grid"></div>
+    <div class="library-empty" id="offline-empty" hidden>
+      <p>Aucun élément épinglé. Sur une fiche, touchez « Épingler hors ligne » pour garder l'affiche et les infos accessibles sans réseau.</p>
+    </div>
+  </section>
+
+  <!-- Explication honnête -->
+  <section class="library-section">
+    <div class="saver-note">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+      <div>
+        <strong>Bon à savoir</strong>
+        <p>La lecture vidéo/audio provient de YouTube et TMDB, dont les conditions
+        interdisent le téléchargement des fichiers. OmniStream enregistre donc les
+        <em>informations et images</em> pour la navigation hors ligne, et réutilise
+        le cache pour économiser vos Mo — sans jamais retélécharger deux fois la même image.</p>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/downloads.js') }}?v=2"></script>
+{% endblock %}
