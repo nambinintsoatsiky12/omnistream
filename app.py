@@ -290,6 +290,7 @@ _LANDING_NEWS_ARTICLES = [
             "avec une immersion visuelle et sonore totale."
         ),
         "image": "https://image.tmdb.org/t/p/w780/xOMo8BRK7PfcJv9JCnx7s520QIe.jpg",
+        "fallback": "/static/images/univ-cinema.jpg",
         "link": "/details/movie/693134?tab=films",
     },
     {
@@ -301,6 +302,7 @@ _LANDING_NEWS_ARTICLES = [
             "avec fiches de personnages complètes."
         ),
         "image": "https://image.tmdb.org/t/p/w780/2rmK7mnchw9Xr3XdiTFSxTTLXqv.jpg",
+        "fallback": "/static/images/univ-cinema.jpg",
         "link": "/details/tv/94605?tab=series",
     },
     {
@@ -312,6 +314,7 @@ _LANDING_NEWS_ARTICLES = [
             "française et originale sous-titrée."
         ),
         "image": "https://image.tmdb.org/t/p/w780/yB2svtBxYQI2btL52Taf7l4bwdU.jpg",
+        "fallback": "/static/images/univ-manga.jpg",
         "link": "/details/tv/1429?tab=animes",
     },
     {
@@ -345,6 +348,7 @@ _LANDING_NEWS_ARTICLES = [
             "grâce à l'intelligence artificielle intégrée."
         ),
         "image": "https://image.tmdb.org/t/p/w780/rLb2cwF3Pazuxaj0sRXQ037tGI1.jpg",
+        "fallback": "/static/images/univ-cinema.jpg",
         "link": "/details/movie/872585?tab=films",
     },
 ]
@@ -989,7 +993,7 @@ def api_hero():
 
     seen = set()
     candidates = []
-    for item in top_rated[:8] + trending[:8] + newest[:8]:
+    for item in top_rated[:12] + trending[:12] + newest[:12]:
         item_id = item.get("id")
         if item_id is not None and item_id not in seen:
             seen.add(item_id)
@@ -1000,7 +1004,7 @@ def api_hero():
     random.Random(  # nosec B311
         f"{int(time.time() // 900)}-{tab}"
     ).shuffle(pool)
-    return jsonify({"items": (anchors + pool)[:10]})
+    return jsonify({"items": (anchors + pool)[:16]})
 
 
 @app.route("/api/list")

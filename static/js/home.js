@@ -226,10 +226,21 @@
       const data = await requestJson(heroUrl(), heroController.signal);
       if (currentGeneration !== generation) return;
       const rawItems = Array.isArray(data.items) ? data.items : [];
+      // Défilement « infini » : aucun film / animé ne doit revenir deux fois
+      // dans le même cycle. On déduplique donc strictement par identifiant.
+      const seenIds = new Set();
+      const uniqueItems = [];
+      for (const item of rawItems) {
+        if (!detailUrl(item)) continue;
+        const key = `${item.media_type}-${item.id}`;
+        if (seenIds.has(key)) continue;
+        seenIds.add(key);
+        uniqueItems.push(item);
+      }
       const items = seededShuffle(
-        rawItems.filter((item) => detailUrl(item)),
+        uniqueItems,
         `hero-${tab}-${activeGenre}-${sessionSeed}`,
-      ).slice(0, 5);
+      ).slice(0, 12);
       if (items.length === 0) {
         hideHero();
         return;
