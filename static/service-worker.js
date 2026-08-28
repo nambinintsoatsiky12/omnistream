@@ -20,7 +20,7 @@
  *    réelle (épinglage hors ligne), de la consulter et de la vider.
  */
 
-const VERSION = "omnistream-v3";
+const VERSION = "omnistream-v4";
 const SHELL_CACHE = `${VERSION}-shell`;
 const STATIC_CACHE = `${VERSION}-static`;
 const IMAGE_CACHE = `${VERSION}-images`;

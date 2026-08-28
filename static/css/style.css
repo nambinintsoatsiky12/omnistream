@@ -169,18 +169,21 @@ img {
 }
 
 /* Scroll reveal animations */
-/* Révélation au défilement : le masque n'existe QUE si JavaScript tourne,
-   sinon une page entièrement vide s'afficherait chez les visiteurs prudents
-   (navigateur sans JS, script bloqué, extension de confidentialité). */
+/* Révélation au défilement : le masque n'est JAMAIS posé par le CSS seul.
+   C'est JavaScript qui ajoute `.js-hide` juste avant d'observer les blocs
+   (voir OmniReveal dans app-shell.js). Ainsi, si un script échoue, si la
+   navigation interne (PJAX) n'exécute pas le script de la page, ou si le
+   navigateur bloque JavaScript, le contenu reste TOUJOURS visible : il n'y
+   a plus jamais de page d'accueil vide. */
 .reveal {
   transition: opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-html.js .reveal {
+.reveal.js-hide {
   opacity: 0;
   transform: translateY(22px);
 }
 @media (prefers-reduced-motion: reduce) {
-  html.js .reveal { opacity: 1; transform: none; }
+  .reveal.js-hide { opacity: 1; transform: none; }
 }
 
 .reveal.in-view {

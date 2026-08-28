@@ -64,6 +64,55 @@
   };
 
   /* =========================================================
+     0bis. RÉVÉLATION AU DÉFILEMENT (page d'accueil)
+     =========================================================
+     Ce gestionnaire vit ici (et non dans la page d'accueil) parce que la
+     navigation interne remplace le contenu sans exécuter les scripts de la
+     page : avant, l'accueil arrivait donc avec tous ses blocs encore
+     invisibles (opacity:0) et rien ne s'affichait. Il se branche une seule
+     fois, puis traite chaque nouveau contenu (chargement initial, navigation
+     PJAX, retour de l'historique) de façon idempotente. */
+  window.OmniReveal = {
+    scan() {
+      const els = document.querySelectorAll(".reveal:not(.in-view):not(.js-hide)");
+      if (!els.length) return;
+      if (!("IntersectionObserver" in window)) {
+        // Navigateur ancien : on révèle tout, sans animation.
+        els.forEach((el) => el.classList.add("in-view"));
+        return;
+      }
+      // Le masque est posé par JavaScript, juste avant l'observation : si le
+      // script échouait avant cette ligne, le contenu resterait visible.
+      els.forEach((el) => el.classList.add("js-hide"));
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add("in-view");
+          entry.target.classList.remove("js-hide");
+          io.unobserve(entry.target);
+        });
+      }, { threshold: 0.1 });
+      els.forEach((el) => io.observe(el));
+      // Filet de sécurité : aucun contenu ne doit rester invisible si
+      // l'observateur ne se déclenche pas (page restaurée, scroll gelé…).
+      window.setTimeout(() => {
+        els.forEach((el) => {
+          el.classList.add("in-view");
+          el.classList.remove("js-hide");
+        });
+      }, 2500);
+    },
+  };
+
+  document.addEventListener("omni:page-loaded", () => window.OmniReveal.scan());
+  window.addEventListener("pageshow", () => window.OmniReveal.scan());
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => window.OmniReveal.scan(), { once: true });
+  } else {
+    window.OmniReveal.scan();
+  }
+
+  /* =========================================================
      1. SERVICE WORKER
      ========================================================= */
   let waitingWorker = null;
