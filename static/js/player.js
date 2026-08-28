@@ -26,13 +26,32 @@
   const LAST_KEY = "omni:last-track";
   const QUEUE_KEY = "omni:queue";
 
+  // Mode audio « MP3 » : le son est servi SANS la piste vidéo (vrai flux audio
+  // seul, ~128 kbps ≈ 1 Mo/min au lieu de 10-20 Mo/min pour un clip vidéo).
+  // Les métadonnées de flux sont demandées à des instances publiques
+  // Piped/Invidious ; en cas d'échec complet, on retombe sur le lecteur
+  // YouTube en qualité minimale — le titre se lance toujours.
+  const AUDIO_STREAM_KEY = "omni:audio-stream";
+  const AUDIO_FALLBACK_COOLDOWN = 10 * 60 * 1000; // 10 min avant de réessayer
+  const AUDIO_PROVIDERS = [
+    { kind: "piped", url: (id) => `https://pipedapi.kavin.rocks/streams/${id}` },
+    { kind: "piped", url: (id) => `https://pipedapi.adminforge.de/streams/${id}` },
+    { kind: "piped", url: (id) => `https://pipedapi.ducks.party/streams/${id}` },
+    { kind: "piped", url: (id) => `https://pipedapi.leptons.xyz/streams/${id}` },
+    { kind: "piped", url: (id) => `https://pipedapi.reallyaweso.me/streams/${id}` },
+    { kind: "invidious", url: (id) => `https://inv.nadeko.net/api/v1/videos/${id}` },
+    { kind: "invidious", url: (id) => `https://yewtu.be/api/v1/videos/${id}` },
+    { kind: "invidious", url: (id) => `https://invidious.f5.si/api/v1/videos/${id}` },
+  ];
+
   const state = {
     apiStatus: "idle", // idle | loading | ready | error
     player: null,
     playerReady: false,
     pendingTrack: null,
     current: null, // {id,title,channel,thumbnail}
-    mode: "audio",
+    mode: "audio", // audio = flux MP3 économe · video = YouTube plein écran
+    transport: "yt", // "yt" = lecteur YouTube · "audio" = flux audio seul
     status: "idle", // idle | loading | playing | paused | offline | error
     error: "",
     hint: "",
@@ -49,6 +68,16 @@
   };
 
   const keepAlive = { ctx: null, gain: null, osc: null };
+
+  // Transport audio seul (élément <audio> natif + flux audio YouTube).
+  const audioT = {
+    el: null,
+    url: "",
+    abort: null,
+    resolving: false,
+    failedAt: 0,
+    providerIndex: -1,
+  };
 
   /* ================================================================== *
    * Petits utilitaires DOM / stockage
@@ -152,6 +181,27 @@
     createPlayer();
   }
 
+  // Options du lecteur YouTube selon le mode. En audio, YouTube n'est qu'un
+  // secours : on demande la plus petite qualité (vq=small, 240p) pour que la
+  // bascule ne fasse pas exploser la consommation de données.
+  function playerVarsForMode() {
+    const vars = {
+      autoplay: 1,
+      playsinline: 1,
+      controls: 1,
+      disablekb: 1,
+      modestbranding: 1,
+      rel: 0,
+      iv_load_policy: 3,
+      origin: window.location.origin,
+    };
+    if (state.mode === "audio") {
+      vars.controls = 0;
+      vars.vq = "small"; // qualité minimale : le son reste bon (~96-128 kbps)
+    }
+    return vars;
+  }
+
   function createPlayer() {
     if (state.player || !window.YT || !window.YT.Player) return;
     const host = $("global-yt-host");
@@ -160,16 +210,7 @@
       state.player = new window.YT.Player("global-yt-host", {
         height: "100%",
         width: "100%",
-        playerVars: {
-          autoplay: 1,
-          playsinline: 1,
-          controls: 1,
-          disablekb: 1,
-          modestbranding: 1,
-          rel: 0,
-          iv_load_policy: 3,
-          origin: window.location.origin,
-        },
+        playerVars: playerVarsForMode(),
         events: {
           onReady: onPlayerReady,
           onStateChange: onPlayerStateChange,
@@ -179,6 +220,22 @@
     } catch (_error) {
       state.player = null;
     }
+  }
+
+  // Reconstruit le lecteur YouTube après un changement de mode : les options
+  // « vq=small » de l'audio ne doivent jamais brider la vidéo plein écran.
+  function rebuildYouTubePlayer() {
+    if (state.player && typeof state.player.destroy === "function") {
+      try {
+        state.player.destroy();
+      } catch (_error) {
+        /* noop */
+      }
+    }
+    state.player = null;
+    state.playerReady = false;
+    state.pendingTrack = null;
+    createPlayer();
   }
 
   function onPlayerReady() {
@@ -210,6 +267,239 @@
     // Le morceau suivant de la file prend le relais, si possible.
     if (!playNextInQueue(true)) {
       toast(state.error, "warn");
+    }
+  }
+
+  /* ================================================================== *
+   * Flux AUDIO SEUL (mode MP3 / économiseur de Mo)
+   * ================================================================== *
+   * Le son d'un titre YouTube est téléchargé sans la piste vidéo : un vrai
+   * flux audio (~1 Mo/min à 128 kbps), exactement comme un fichier MP3, et
+   * avec la QUALITÉ SONORE COMPLÈTE du titre (la piste audio est servie
+   * telle quelle par YouTube). Les métadonnées de flux sont demandées à des
+   * instances publiques Piped/Invidious (aucune clé, aucun compte) ; en cas
+   * d'indisponibilité, on retombe sur le lecteur YouTube en qualité minimale
+   * — le titre se lance toujours, quoi qu'il arrive.
+   * ------------------------------------------------------------------ */
+  function pickAudioStream(data, kind) {
+    const list = kind === "piped"
+      ? data && Array.isArray(data.audioStreams) ? data.audioStreams : []
+      : data && Array.isArray(data.adaptiveFormats)
+        ? data.adaptiveFormats.filter((f) => /^audio\//.test(String(f.type || "")))
+        : [];
+    if (!list.length) return null;
+    let best = null;
+    let bestScore = -1;
+    for (let index = 0; index < list.length; index += 1) {
+      const stream = list[index];
+      if (!stream || typeof stream.url !== "string" || !stream.url) continue;
+      const mime = String(stream.mimeType || stream.type || "");
+      const bitrate = Number(stream.bitrate) || 0;
+      let score = 0;
+      if (/audio\/mp4/.test(mime)) score += 100; // AAC 128 kbps ≈ MP3
+      if (/opus/.test(mime)) score += 90;
+      if (bitrate >= 96000 && bitrate <= 200000) score += 40; // 96-160 kbps
+      else if (bitrate > 0 && bitrate < 96000) score += 10;
+      if (score > bestScore) {
+        bestScore = score;
+        best = stream;
+      }
+    }
+    if (!best) return null;
+    return {
+      url: best.url,
+      mime: String(best.mimeType || best.type || "audio/mp4").split(";")[0].trim() || "audio/mp4",
+    };
+  }
+
+  function readAudioStreamCache(videoId) {
+    try {
+      const raw = window.localStorage.getItem(AUDIO_STREAM_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || data.id !== videoId) return null;
+      if (Date.now() - Number(data.at || 0) > 45 * 60 * 1000) return null;
+      return data.url || null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function writeAudioStreamCache(videoId, url) {
+    try {
+      window.localStorage.setItem(AUDIO_STREAM_KEY, JSON.stringify({ id: videoId, url, at: Date.now() }));
+    } catch (_error) {
+      /* quota atteint : la lecture reste possible sans cache */
+    }
+  }
+
+  // Interroge les fournisseurs dans l'ordre (le dernier qui a marché d'abord),
+  // avec un délai court par instance, et s'arrête au premier flux valide.
+  async function resolveAudioStreamUrl(videoId, signal) {
+    const cached = readAudioStreamCache(videoId);
+    if (cached) return cached;
+    const order = [];
+    for (let index = 0; index < AUDIO_PROVIDERS.length; index += 1) {
+      if (index === audioT.providerIndex) order.unshift(index);
+      else order.push(index);
+    }
+    for (let position = 0; position < order.length; position += 1) {
+      const provider = AUDIO_PROVIDERS[order[position]];
+      if (signal && signal.aborted) return null;
+      const ctrl = new AbortController();
+      const onOuterAbort = () => ctrl.abort();
+      if (signal) signal.addEventListener("abort", onOuterAbort, { once: true });
+      const timer = window.setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const response = await fetch(provider.url(videoId), {
+          headers: { Accept: "application/json" },
+          signal: ctrl.signal,
+        });
+        if (!response.ok) continue;
+        const data = await response.json();
+        const picked = pickAudioStream(data, provider.kind);
+        if (picked && picked.url) {
+          audioT.providerIndex = order[position];
+          writeAudioStreamCache(videoId, picked.url);
+          return picked.url;
+        }
+      } catch (_error) {
+        /* fournisseur injoignable : on essaie le suivant */
+      } finally {
+        window.clearTimeout(timer);
+        if (signal) signal.removeEventListener("abort", onOuterAbort);
+      }
+    }
+    return null;
+  }
+
+  function ensureAudioElement() {
+    if (audioT.el) return audioT.el;
+    const el = new Audio();
+    el.preload = "none";
+    el.setAttribute("playsinline", "");
+    el.addEventListener("playing", () => setStatus("playing"));
+    el.addEventListener("pause", () => {
+      if (state.status !== "error" && state.status !== "offline") setStatus("paused");
+      saveResumePoint();
+    });
+    el.addEventListener("ended", () => {
+      localRemoveResume();
+      if (!playNextInQueue(false)) setStatus("paused", "File terminée.");
+    });
+    el.addEventListener("waiting", () => {
+      if (state.status === "playing" || state.status === "loading") setStatus("loading");
+    });
+    el.addEventListener("error", () => {
+      if (state.status === "loading" || state.status === "playing") onAudioStreamError();
+    });
+    // Position de reprise : dès que la durée est connue, on se recale.
+    el.addEventListener("loadedmetadata", () => {
+      const resumeAt = state.resumeTime || 0;
+      state.resumeTime = 0;
+      if (resumeAt > 0 && el.duration && el.duration > resumeAt + 2) {
+        try {
+          el.currentTime = resumeAt;
+        } catch (_error) {
+          /* noop */
+        }
+      }
+    });
+    audioT.el = el;
+    return el;
+  }
+
+  function onAudioStreamError() {
+    state.error = "Le flux audio n'a pas pu démarrer.";
+    setStatus("error");
+    if (!playNextInQueue(true)) {
+      toast(state.error, "warn");
+    }
+  }
+
+  function stopAudioTransport() {
+    if (audioT.abort) {
+      try {
+        audioT.abort.abort();
+      } catch (_error) {
+        /* noop */
+      }
+      audioT.abort = null;
+    }
+    if (audioT.el) {
+      try {
+        audioT.el.pause();
+        audioT.el.removeAttribute("src");
+        audioT.el.load();
+      } catch (_error) {
+        /* noop */
+      }
+    }
+    audioT.url = "";
+    audioT.resolving = false;
+    if (state.transport === "audio") state.transport = "yt";
+  }
+
+  // Lance le flux audio seul ; en cas d'échec complet, retombe sur YouTube
+  // (qualité minimale) pour que le titre se lance quand même.
+  async function startAudioStream(track, options) {
+    const opts = options || {};
+    if (!track || !isValidId(track.id)) return;
+    if (isOffline()) {
+      state.waitingNetwork = true;
+      setStatus("offline", "Hors ligne — lecture dès le retour du réseau.");
+      return;
+    }
+    // Après un échec récent, on ne martèle pas les instances : on passe
+    // directement au secours YouTube pendant quelques minutes.
+    if (Date.now() - audioT.failedAt < AUDIO_FALLBACK_COOLDOWN) {
+      startYouTubeFallback(track, opts);
+      return;
+    }
+    if (audioT.abort) {
+      try {
+        audioT.abort.abort();
+      } catch (_error) {
+        /* noop */
+      }
+    }
+    audioT.abort = new AbortController();
+    audioT.resolving = true;
+    setStatus("loading", "Préparation du flux audio…");
+    try {
+      const url = await resolveAudioStreamUrl(String(track.id), audioT.abort.signal);
+      // Un autre titre a été lancé pendant la résolution : on abandonne.
+      if (!state.current || state.current.id !== String(track.id)) return;
+      // Résolution annulée (pause pendant la préparation) : on ne relance rien.
+      if (audioT.abort === null || audioT.abort.signal.aborted) {
+        setStatus("paused");
+        return;
+      }
+      if (!url) {
+        audioT.failedAt = Date.now();
+        toast("Flux audio indisponible — bascule en mode économe.", "info");
+        startYouTubeFallback(track, opts);
+        return;
+      }
+      const el = ensureAudioElement();
+      el.src = url;
+      audioT.url = url;
+      state.transport = "audio";
+      if (opts.resumePosition) state.resumeTime = opts.resumePosition;
+      try {
+        await el.play();
+        // L'événement « playing » posera l'état ; si l'autoplay est refusé,
+        // on invite à toucher ▶ (comportement identique au lecteur YouTube).
+      } catch (_error) {
+        if (state.status !== "playing") setStatus("paused", "Touchez ▶ pour démarrer la lecture.");
+      }
+    } catch (_error) {
+      if (state.current && state.current.id === String(track.id)) {
+        audioT.failedAt = Date.now();
+        startYouTubeFallback(track, opts);
+      }
+    } finally {
+      audioT.resolving = false;
     }
   }
 
@@ -267,9 +557,13 @@
     state.startTimer = window.setTimeout(() => {
       state.startTimer = null;
       if (state.status !== "loading") return;
-      const blocked = state.player && typeof state.player.getPlayerState === "function"
-        ? state.player.getPlayerState() !== 1
-        : true;
+      let blocked = true;
+      if (state.transport === "audio") {
+        const el = audioT.el;
+        blocked = !el || el.paused || el.readyState < 2;
+      } else if (state.player && typeof state.player.getPlayerState === "function") {
+        blocked = state.player.getPlayerState() !== 1;
+      }
       if (blocked) {
         setStatus("paused", "Touchez ▶ pour démarrer la lecture.");
       }
@@ -335,6 +629,20 @@
   function startStream(options) {
     const opts = options || {};
     if (!state.current) return;
+    if (state.mode === "audio") {
+      // MP3 : flux audio seul (consommation ~1 Mo/min, son complet).
+      startAudioStream(state.current, opts);
+      return;
+    }
+    startYouTubeFallback(state.current, opts);
+  }
+
+  // Secours / mode vidéo : lecteur YouTube classique, chargé paresseusement.
+  function startYouTubeFallback(track, options) {
+    const opts = options || {};
+    // Le transport actif devient YouTube (un flux audio seul qui tournait est
+    // de toute façon arrêté par le chargement d'une vidéo).
+    stopAudioTransport();
     if (!state.playerReady || !state.player) {
       setStatus("loading", "Chargement du lecteur…");
       loadYouTubeApi().then((ok) => {
@@ -345,9 +653,9 @@
         createPlayer();
         if (state.player && state.playerReady) {
           if (opts.resumePosition) state.resumeTime = opts.resumePosition;
-          realLoad(state.current);
+          realLoad(track);
         } else {
-          state.pendingTrack = Object.assign({}, state.current, {
+          state.pendingTrack = Object.assign({}, track, {
             startAt: opts.resumePosition || 0,
           });
           setStatus("loading", "Préparation du flux…");
@@ -356,7 +664,7 @@
       return;
     }
     if (opts.resumePosition) state.resumeTime = opts.resumePosition;
-    realLoad(state.current);
+    realLoad(track);
   }
 
   function setQueue(list, index) {
@@ -410,8 +718,9 @@
   function playPrevInQueue() {
     if (!state.queue.length) return false;
     // Rejoue depuis le début si on est déjà avancé, comme un vrai lecteur.
-    if (state.lastPosition > 3 && state.player && typeof state.player.seekTo === "function") {
-      state.player.seekTo(0, true);
+    const canSeek = state.transport === "audio" ? Boolean(audioT.el) : Boolean(state.player);
+    if (state.lastPosition > 3 && canSeek) {
+      transportSeek(0);
       return true;
     }
     const prev = state.queueIndex - 1;
@@ -419,11 +728,49 @@
     return playAt(prev, true);
   }
 
+  // Seek générique (audio seul ou lecteur YouTube).
+  function transportSeek(target) {
+    if (state.transport === "audio") {
+      const el = audioT.el;
+      if (!el) return;
+      try {
+        el.currentTime = Math.max(0, target || 0);
+      } catch (_error) {
+        /* noop */
+      }
+      return;
+    }
+    if (state.player && typeof state.player.seekTo === "function") {
+      try {
+        state.player.seekTo(target || 0, true);
+      } catch (_error) {
+        /* noop */
+      }
+    }
+  }
+
   /* ================================================================== *
    * Transport
    * ================================================================== */
   function pause() {
-    if (state.player && typeof state.player.pauseVideo === "function") {
+    if (state.transport === "audio") {
+      if (audioT.el && !audioT.el.paused) {
+        try {
+          audioT.el.pause();
+        } catch (_error) {
+          /* noop */
+        }
+      } else if (state.status === "loading" && audioT.abort) {
+        // Pause pendant la préparation du flux : on annule la résolution,
+        // sinon la musique démarrerait malgré tout dès la réponse reçue.
+        try {
+          audioT.abort.abort();
+        } catch (_error) {
+          /* noop */
+        }
+        audioT.abort = null;
+      }
+    } else if (state.player && typeof state.player.pauseVideo === "function") {
       try {
         state.player.pauseVideo();
       } catch (_error) {
@@ -431,8 +778,8 @@
       }
     }
     saveResumePoint();
-    // Bascule immédiate de l'icône : l'événement YouTube peut traîner d'un
-    // demi-segment sur une connexion 3G.
+    // Bascule immédiate de l'icône : l'événement du lecteur peut traîner
+    // d'un demi-segment sur une connexion 3G.
     if (state.status === "playing") setStatus("paused");
   }
 
@@ -443,6 +790,27 @@
       return;
     }
     if (!state.current) return;
+    if (state.transport === "audio") {
+      if (audioT.el && audioT.el.src) {
+        setStatus("loading", "Reprise…");
+        try {
+          const promise = audioT.el.play();
+          if (promise && typeof promise.catch === "function") {
+            promise.catch(() => {
+              if (state.status !== "playing") {
+                setStatus("paused", "Touchez ▶ pour démarrer la lecture.");
+              }
+            });
+          }
+          armStartWatchdog();
+          return;
+        } catch (_error) {
+          /* on repasse par un chargement complet */
+        }
+      }
+      startStream({ resumePosition: readResumePoint() });
+      return;
+    }
     if (state.player && typeof state.player.playVideo === "function") {
       setStatus("loading", "Reprise…");
       try {
@@ -471,6 +839,7 @@
   }
 
   function close() {
+    stopAudioTransport();
     if (state.player && typeof state.player.stopVideo === "function") {
       try {
         state.player.stopVideo();
@@ -576,7 +945,31 @@
       render();
       return;
     }
+    const changed = state.mode !== mode;
     state.mode = mode;
+    if (changed) {
+      // Bascule propre de transport : on libère l'ancien et on relance le
+      // titre courant dans le nouveau, à la position où on en était.
+      if (mode === "audio") {
+        if (state.player && typeof state.player.stopVideo === "function") {
+          try {
+            state.player.stopVideo();
+          } catch (_error) {
+            /* noop */
+          }
+        }
+        rebuildYouTubePlayer();
+        if (state.current) {
+          startAudioStream(state.current, { resumePosition: state.lastPosition || 0 });
+        }
+      } else {
+        stopAudioTransport();
+        rebuildYouTubePlayer();
+        if (state.current) {
+          startYouTubeFallback(state.current, { resumePosition: state.lastPosition || 0 });
+        }
+      }
+    }
     applyModeLayout();
     render();
   }
@@ -646,7 +1039,12 @@
     if (!state.current) return;
     let time = state.lastPosition;
     try {
-      if (state.player && typeof state.player.getCurrentTime === "function") {
+      if (state.transport === "audio") {
+        if (audioT.el) {
+          const live = audioT.el.currentTime;
+          if (live > 0) time = live;
+        }
+      } else if (state.player && typeof state.player.getCurrentTime === "function") {
         const live = state.player.getCurrentTime();
         if (live > 0) time = live;
       }
@@ -675,24 +1073,32 @@
   }
 
   function tick() {
-    const player = state.player;
-    if (!player || typeof player.getCurrentTime !== "function") return;
     let duration = 0;
     let current = 0;
-    try {
-      duration = player.getDuration() || 0;
-      current = player.getCurrentTime() || 0;
-    } catch (_error) {
-      return;
+    if (state.transport === "audio") {
+      const el = audioT.el;
+      if (!el) return;
+      try {
+        duration = el.duration || 0;
+        current = el.currentTime || 0;
+      } catch (_error) {
+        return;
+      }
+    } else {
+      const player = state.player;
+      if (!player || typeof player.getCurrentTime !== "function") return;
+      try {
+        duration = player.getDuration() || 0;
+        current = player.getCurrentTime() || 0;
+      } catch (_error) {
+        return;
+      }
     }
     state.lastPosition = current;
     state.lastDuration = duration;
     if (state.dragging) return;
     const percent = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
-    const fill = $("omni-bar-progress-fill");
-    const modalFill = $("omni-modal-progress-fill");
-    if (fill) fill.style.width = `${percent}%`;
-    if (modalFill) modalFill.style.width = `${percent}%`;
+    updateProgressUi(percent);
     const cur = $("omni-modal-time-cur");
     const dur = $("omni-modal-time-dur");
     if (cur) cur.textContent = fmtTime(current);
@@ -705,6 +1111,13 @@
     }
   }
 
+  function updateProgressUi(percent) {
+    const fill = $("omni-bar-progress-fill");
+    const modalFill = $("omni-modal-progress-fill");
+    if (fill) fill.style.width = `${percent}%`;
+    if (modalFill) modalFill.style.width = `${percent}%`;
+  }
+
   function fmtTime(seconds) {
     const value = Math.max(0, Math.floor(seconds || 0));
     const minutes = Math.floor(value / 60);
@@ -713,6 +1126,27 @@
   }
 
   function seekToPercent(percent) {
+    const clamped = Math.max(0, Math.min(1, percent));
+    const pct = clamped * 100;
+    if (state.transport === "audio") {
+      const el = audioT.el;
+      if (!el) return;
+      let duration = 0;
+      try {
+        duration = el.duration || 0;
+      } catch (_error) {
+        return;
+      }
+      if (duration <= 0) return;
+      try {
+        el.currentTime = duration * clamped;
+        state.lastPosition = el.currentTime || duration * clamped;
+        updateProgressUi(pct);
+      } catch (_error) {
+        /* noop */
+      }
+      return;
+    }
     const player = state.player;
     if (!player || typeof player.getDuration !== "function") return;
     let duration = 0;
@@ -722,15 +1156,11 @@
       return;
     }
     if (duration <= 0) return;
-    const target = duration * Math.max(0, Math.min(1, percent));
+    const target = duration * clamped;
     try {
       player.seekTo(target, true);
       state.lastPosition = target;
-      const fill = $("omni-bar-progress-fill");
-      const modalFill = $("omni-modal-progress-fill");
-      const pct = `${Math.max(0, Math.min(100, percent * 100))}%`;
-      if (fill) fill.style.width = pct;
-      if (modalFill) modalFill.style.width = pct;
+      updateProgressUi(pct);
     } catch (_error) {
       /* noop */
     }
@@ -960,9 +1390,19 @@
   }
 
   function nudge(delta) {
+    const target = Math.max(0, (state.lastDuration ? state.lastPosition : 0) + delta);
+    if (state.transport === "audio") {
+      const el = audioT.el;
+      if (!el) return;
+      try {
+        el.currentTime = target;
+      } catch (_error) {
+        /* noop */
+      }
+      return;
+    }
     if (!state.player || typeof state.player.seekTo !== "function") return;
     try {
-      const target = Math.max(0, (state.lastDuration ? state.lastPosition : 0) + delta);
       state.player.seekTo(target, true);
     } catch (_error) {
       /* noop */
@@ -1035,6 +1475,8 @@
   function startResync() {
     if (state.resyncTimer) return;
     state.resyncTimer = window.setInterval(() => {
+      // En flux audio seul, les événements de l'élément <audio> suffisent.
+      if (state.transport === "audio") return;
       if (!state.player || typeof state.player.getPlayerState !== "function") return;
       let value;
       try {
@@ -1131,7 +1573,11 @@
       else if (action === "expand") openModal();
       else if (action === "minimize") closeModal();
       else if (action === "stop" || action === "close") close();
-      else if (action === "retry") startStream({ resumePosition: state.lastPosition || 0 });
+      else if (action === "retry") {
+        // « Réessayer » relance aussi la résolution du flux audio seul.
+        audioT.failedAt = 0;
+        startStream({ resumePosition: state.lastPosition || 0 });
+      }
       else if (action === "mode-audio") setMode("audio");
       else if (action === "mode-video") setMode("video");
       else if (action === "close-video") setMode("audio");

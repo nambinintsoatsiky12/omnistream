@@ -35,6 +35,22 @@ La page vitrine reste accessible quand TMDB est absent ou momentanément en
 panne. Les routes qui ont réellement besoin d'une API renvoient alors un
 message d'erreur explicite.
 
+## Économie de données (forfaits mobiles)
+
+Le mode **Audio (MP3)** de l'espace musique ne télécharge pas le clip vidéo :
+il lit le **flux audio seul** du titre YouTube (~128 kbps, ≈ 1 Mo/min), avec
+la qualité sonore complète. Les métadonnées de flux sont demandées à des
+instances publiques Piped/Invidious (aucune clé requise) ; si aucune n'est
+joignable, le lecteur retombe automatiquement sur YouTube en qualité minimale
+pour que le titre se lance quand même. Le mode **Vidéo (MP4)** reste en
+qualité normale.
+
+Autres économies intégrées : fresque de l'accueil servie en petites affiches
+`w185` (≈ 4× plus légères), polices limitées aux graisses réellement
+utilisées, appels TMDB de l'accueil lancés en parallèle (affichage plus
+rapide), Service Worker qui met en cache CSS/JS/images/pages après la
+première visite (revisites à 0 Mo).
+
 ## Configuration
 
 | Variable | Utilité |

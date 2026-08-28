@@ -422,3 +422,55 @@ def test_no_auth_routes_exist(client):
     assert client.get("/mot-de-passe-oublie").status_code == 404
     assert client.get("/supprimer-compte").status_code == 404
     assert client.get("/admin").status_code == 404
+
+
+def test_landing_wall_uses_light_posters(client, monkeypatch):
+    """La fresque de l'accueil demande des affiches w185 (≈ 4× moins de Mo)."""
+    from app import WALL_IMG_BASE
+
+    assert WALL_IMG_BASE.endswith("/w185")
+
+    def fake_tmdb_get(path, params=None):
+        return {
+            "results": [
+                {
+                    "id": index,
+                    "vote_average": 7.5,
+                    "poster_path": f"/p{index}.jpg",
+                    "backdrop_path": f"/b{index}.jpg",
+                    "overview": "Synopsis",
+                    "original_language": "fr",
+                    "title": f"Titre {index}",
+                    "name": f"Titre {index}",
+                    "release_date": "2026-01-01",
+                    "first_air_date": "2026-01-01",
+                    "origin_country": ["FR"],
+                }
+                for index in range(1, 40)
+            ]
+        }
+
+    monkeypatch.setattr(app_module, "tmdb_get", fake_tmdb_get)
+    response = client.get("/")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "https://image.tmdb.org/t/p/w185/p1.jpg" in html
+    assert "/w500/p1.jpg" not in html
+
+
+def test_landing_page_ne_calcule_plus_de_listes_vitrines(client, monkeypatch):
+    """L'accueil ne paie plus 3 appels TMDB pour des listes jamais affichées."""
+    from app import render_template as original_render
+
+    seen = {}
+
+    def spy_render(template_name, **context):
+        seen.update(context)
+        return original_render(template_name, **context)
+
+    monkeypatch.setattr(app_module, "render_template", spy_render)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "featured_movies" not in seen
+    assert "featured_series" not in seen
+    assert "featured_animes" not in seen

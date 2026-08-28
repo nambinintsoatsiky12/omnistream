@@ -205,3 +205,54 @@ def test_vignettes_allegees_pour_les_grilles():
     assert card["poster"].startswith(CARD_IMG_BASE)
     assert card["backdrop"].startswith(CARD_BACKDROP_BASE)
     assert "/w342/" in card["poster"] and "/w780/" in card["backdrop"]
+
+
+def test_reveal_ne_masque_jamais_le_contenu_sans_js(style_css):
+    """L'accueil ne peut plus rester vide : le masque n'est posé QUE par JS.
+
+    Avant, `html.js .reveal { opacity: 0 }` cachait toute la page quand le
+    script de révélation ne tournait pas (navigation interne, script bloqué).
+    """
+    assert ".reveal.js-hide" in style_css
+    assert "html.js .reveal" not in style_css
+
+
+def test_omni_reveal_est_gerce_par_le_shell():
+    """La révélation au défilement survit à la navigation interne (PJAX)."""
+    shell = read(STATIC / "js" / "app-shell.js")
+    assert "window.OmniReveal" in shell
+    assert "omni:page-loaded" in shell
+    assert "js-hide" in shell
+    landing = read(TEMPLATES / "landing.html")
+    assert "OmniReveal.scan" in landing
+    assert 'querySelectorAll(".reveal")' not in landing  # ancien script retiré
+
+
+def test_mode_audio_utilise_un_flux_audio_seul(player_js):
+    """MP3 = flux audio seul (sans la piste vidéo) : c'est l'économie de Mo.
+
+    Le son est servi à ~128 kbps (≈ 1 Mo/min) avec la qualité sonore complète,
+    au lieu de télécharger le clip vidéo entier comme avant.
+    """
+    for needle in (
+        "AUDIO_PROVIDERS",
+        "startAudioStream",
+        "pickAudioStream",
+        "ensureAudioElement",
+        "state.transport",
+        'vars.vq = "small"',
+        "stopAudioTransport",
+    ):
+        assert needle in player_js, f"morceau du flux audio manquant : {needle}"
+
+
+def test_bascule_audio_video_reconstruit_le_lecteur(player_js):
+    """Le mode vidéo ne doit jamais être bridé par les options de l'audio."""
+    assert "rebuildYouTubePlayer" in player_js
+    assert "startYouTubeFallback" in player_js
+
+
+def test_player_garde_une_politique_de_secours(player_js):
+    """Si le flux audio seul échoue, le titre se lance quand même sur YouTube."""
+    assert "AUDIO_FALLBACK_COOLDOWN" in player_js
+    assert "startYouTubeFallback" in player_js
