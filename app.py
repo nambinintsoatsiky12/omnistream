@@ -715,10 +715,13 @@ def base_discover_params(tab):
     if tab == "series":
         return "tv", {"sort_by": "popularity.desc"}
     if tab == "animes":
+        # L'onglet s'appelle « Animes », pas « Animes japonais » : ce qui le
+        # définit, c'est le genre Animation (16). Exiger le pays JP en écartait
+        # Solo Leveling (Corée), Link Click (Chine) ou tout ce qui n'est pas
+        # produit au Japon — l'onglet se vidait de tout ce qui n'est pas nippon.
         return "tv", {
             "sort_by": "popularity.desc",
             "with_genres": "16",
-            "with_origin_country": "JP",
         }
     if tab == "animation_occidentale":
         return "movie", {
@@ -762,12 +765,9 @@ def search_by_tab(tab, query):
 
     if tab == "animes":
         data = tmdb_get("/search/tv", {"query": query, "include_adult": "true"})
-        results = [
-            i
-            for i in _result_items(data)
-            if 16 in (i.get("genre_ids") or [])
-            and "JP" in (i.get("origin_country") or [])
-        ]
+        # Le genre Animation suffit : le filtre sur le pays d'origine faisait
+        # répondre « aucun résultat » à une recherche d'animé coréen ou chinois.
+        results = [i for i in _result_items(data) if 16 in (i.get("genre_ids") or [])]
         return [normalize_card(i, "tv") for i in results if i.get("poster_path")]
 
     if tab == "animation_occidentale":
@@ -780,6 +780,186 @@ def search_by_tab(tab, query):
         return [normalize_card(i, "movie") for i in results if i.get("poster_path")]
 
     return []
+
+
+# ---------------------------------------------------------------------------
+# AniList — animes et mangas du monde entier
+# ---------------------------------------------------------------------------
+# TMDB ne connaît pas les mangas et classe mal les animes non japonais : la
+# recherche du haut de page répondait « aucun résultat » à Solo Leveling. AniList
+# est un catalogue dédié, en GraphQL public, sans clé d'API — une seule requête
+# pour les deux types.
+ANILIST_URL = "https://graphql.anilist.co"
+ANILIST_TIMEOUT = 12
+ANILIST_PER_TYPE = 8
+ANILIST_CACHE_TTL = 900
+# Une panne ne doit pas être repayée à chaque frappe : l'erreur est gardée une
+# minute, le temps que la source revienne.
+ANILIST_ERROR_TTL = 60
+ANILIST_QUERY = """
+fragment champs on Media {
+  id
+  type
+  format
+  isAdult
+  seasonYear
+  countryOfOrigin
+  siteUrl
+  startDate { year }
+  title { romaji english native userPreferred }
+  coverImage { medium large }
+}
+query ($search: String, $perPage: Int) {
+  anime: Page(page: 1, perPage: $perPage) {
+    media(search: $search, type: ANIME, sort: SEARCH_MATCH) { ...champs }
+  }
+  manga: Page(page: 1, perPage: $perPage) {
+    media(search: $search, type: MANGA, sort: SEARCH_MATCH) { ...champs }
+  }
+}
+"""
+
+# Hôtes que le proxy d'images est autorisé à relayer. Tout ce qui n'est pas
+# dans cette liste n'est pas chargé du tout : une image refusée par le proxy
+# s'afficherait en icône cassée au milieu de la grille.
+IMAGE_PROXY_HOSTS = frozenset(
+    {
+        "uploads.mangadex.org",  # couvertures et fichiers MangaDex
+        # CDN d'AniList (s4 documenté, s5 à s7 en secours côté AniList)
+        "s4.anilist.co",
+        "s5.anilist.co",
+        "s6.anilist.co",
+        "s7.anilist.co",
+    }
+)
+
+
+def _image_proxy_url(raw):
+    """L'URL d'une image servie par NOTRE proxy, ou rien si l'hôte n'est pas sûr.
+
+    Rien vaut mieux qu'une image cassée : l'appelant n'affiche alors aucune
+    balise <img> du tout.
+    """
+    text = str(raw or "").strip()
+    if not text.startswith("https://"):
+        return ""
+    try:
+        parsed = urlsplit(text)
+        if parsed.port not in {None, 443} or parsed.username or parsed.password:
+            return ""
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return ""
+    if host not in IMAGE_PROXY_HOSTS:
+        return ""
+    return f"/api/manga_image?url={quote(text, safe='')}"
+
+
+def _anilist_title(node):
+    titles = node.get("title") if isinstance(node.get("title"), dict) else {}
+    for key in ("userPreferred", "english", "romaji", "native"):
+        value = str(titles.get(key) or "").strip()
+        if value:
+            return value[:160]
+    return ""
+
+
+def _anilist_year(node):
+    year = node.get("seasonYear")
+    if not year:
+        start = node.get("startDate")
+        year = start.get("year") if isinstance(start, dict) else None
+    return str(year or "")[:4]
+
+
+def _anilist_item(node, kind):
+    """Une entrée de la bande, ou None si elle n'est pas exploitable."""
+    if not isinstance(node, dict) or node.get("isAdult"):
+        return None
+    title = _anilist_title(node)
+    media_id = node.get("id")
+    if not title or not isinstance(media_id, int) or media_id <= 0:
+        return None
+    page = str(node.get("siteUrl") or "").strip()
+    if not page.startswith("https://anilist.co/"):
+        # La fiche se reconstruit sans risque : l'identifiant vient d'AniList.
+        page = f"https://anilist.co/{kind}/{media_id}"
+    cover = node.get("coverImage") if isinstance(node.get("coverImage"), dict) else {}
+    item = {
+        "id": media_id,
+        "kind": kind,
+        "title": title,
+        "year": _anilist_year(node),
+        "format": str(node.get("format") or "").upper()[:12],
+        "country": str(node.get("countryOfOrigin") or "")[:2],
+        "cover": _image_proxy_url(cover.get("medium") or cover.get("large")),
+        "url": page[:200],
+        "reader": "",
+    }
+    if kind == "manga":
+        # Un manga se lit ici : le bouton ouvre le lecteur de scan. Un anime
+        # n'a pas de bouton — un bouton qui ne ferait rien serait un mensonge.
+        item["reader"] = f"/lecteur-scan?titre={quote(title)}"
+    return item
+
+
+def anilist_band(query):
+    """La bande « Animes & mangas » : {"items": [...], "error": ""}.
+
+    Ne lève jamais d'exception vers la page : une source annexe en panne ne doit
+    pas emporter les résultats TMDB, mais elle ne doit pas non plus se taire —
+    le gabarit affiche le message d'erreur à sa place.
+    """
+    search = str(query or "").strip()
+    if not search:
+        return {"items": [], "error": ""}
+    cache_key = ("anilist", search.lower())
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+
+    payload = {"items": [], "error": ""}
+    try:
+        response = requests.post(
+            ANILIST_URL,
+            json={
+                "query": ANILIST_QUERY,
+                "variables": {"search": search[:120], "perPage": ANILIST_PER_TYPE},
+            },
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "OmniStream/1.0 (recherche animes et mangas)",
+            },
+            timeout=ANILIST_TIMEOUT,
+        )
+        data = response.json()
+    except requests.Timeout:
+        payload["error"] = "AniList met trop de temps à répondre. Réessayez."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+    except (requests.RequestException, ValueError):
+        app.logger.warning("Appel AniList impossible", exc_info=True)
+        payload["error"] = "AniList est temporairement indisponible."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+
+    if response.status_code == 429:
+        payload["error"] = "AniList limite le nombre de recherches : réessayez."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+    if response.status_code >= 400 or not isinstance(data, dict):
+        payload["error"] = "AniList a refusé la recherche."
+        return _cache_set(cache_key, payload, ttl=ANILIST_ERROR_TTL)
+
+    root = data.get("data") if isinstance(data.get("data"), dict) else {}
+    items = []
+    for alias, kind in (("anime", "anime"), ("manga", "manga")):
+        bucket = root.get(alias)
+        nodes = bucket.get("media") if isinstance(bucket, dict) else None
+        for node in nodes or []:
+            item = _anilist_item(node, kind)
+            if item:
+                items.append(item)
+    payload["items"] = items
+    return _cache_set(cache_key, payload, ttl=ANILIST_CACHE_TTL)
 
 
 # ---------------------------------------------------------------------------
@@ -858,9 +1038,44 @@ def index():
 
     tab = requested_tab if requested_tab in ALL_TABS else "films"
     if query:
-        results = search_by_tab(tab, query)
-        return render_template("index.html", tab=tab, items=results, query=query)
-    return render_template("index.html", tab=tab, items=None, query="")
+        # Les deux sources partent EN PARALLÈLE : TMDB ne connaît pas les
+        # mangas, AniList ne remplace pas le catalogue de films. Les attendre
+        # l'une après l'autre ajouterait un aller-retour complet au résultat.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            catalogue = executor.submit(search_by_tab, tab, query)
+            animes = executor.submit(anilist_band, query)
+            try:
+                results = catalogue.result()
+                catalogue_error = ""
+            except UpstreamServiceError:
+                # TMDB en panne ne doit pas emporter la bande AniList : elle
+                # vient d'un autre catalogue et peut très bien avoir répondu.
+                # Un 503 cacherait le seul résultat disponible.
+                app.logger.warning("Recherche TMDB impossible", exc_info=True)
+                results = []
+                catalogue_error = (
+                    "Le catalogue de films et séries ne répond pas : seuls les "
+                    "animes et mangas ci-dessous sont à jour."
+                )
+            band = animes.result()
+        return render_template(
+            "index.html",
+            tab=tab,
+            items=results,
+            query=query,
+            anilist=band["items"],
+            anilist_error=band["error"],
+            catalogue_error=catalogue_error,
+        )
+    return render_template(
+        "index.html",
+        tab=tab,
+        items=None,
+        query="",
+        anilist=[],
+        anilist_error="",
+        catalogue_error="",
+    )
 
 
 def _extract_trailer_key(videos):
