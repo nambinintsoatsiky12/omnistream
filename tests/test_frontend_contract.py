@@ -654,3 +654,15 @@ def test_le_credit_de_licence_est_affiche_et_style():
     assert ".choice-btn" in style
     assert ".choice-btn.active" in style
     assert ".musique-choice-rows" in style
+
+
+def test_un_lien_signe_qui_a_vecu_ne_tue_pas_la_lecture():
+    """Les URL de Jamendo sont signees et vivent quelques minutes : un morceau
+    repris depuis la barre du lecteur apres une longue pause doit repartir par
+    le relais du serveur (qui resout une adresse fraiche) avant d'etre declare
+    en panne."""
+    player = read(STATIC / "js" / "player.js")
+    assert "function retryThroughRelay" in player
+    assert "if (retryThroughRelay()) return;" in player
+    assert 'relay.startsWith("/mp3/")' in player
+    assert "__omniRelayed" in player
