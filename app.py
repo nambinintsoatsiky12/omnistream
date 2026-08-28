@@ -140,6 +140,13 @@ JAMENDO_API_URL = "https://api.jamendo.com/v3.0/tracks/"
 # Les tendances Jamendo sont peuplées par trois ou quatre artistes très actifs :
 # sans plafond, la page ne montrerait qu'eux.
 JAMENDO_PER_ARTIST = 2
+# L'API Jamendo ne donne aucun `filesize`. Le poids réel se lit dans le
+# `Content-Length` du fichier lui-même : une requête HEAD (jamais le fichier),
+# gardée une semaine — un morceau ne change pas de taille.
+JAMENDO_SIZE_TTL = 7 * 86400
+# Nombre de HEAD menés de front. Assez pour qu'une page de 30 pistes ne coûte
+# qu'un aller-retour, assez peu pour ne pas marteler le CDN de l'artiste.
+JAMENDO_SIZE_WORKERS = 8
 JAMENDO_CLIENT_ID = os.environ.get("JAMENDO_CLIENT_ID", "").strip()
 SPONSOR_SMARTLINK_URL = os.environ.get(
     "SPONSOR_SMARTLINK_URL", "https://omg10.com/4/11645531"
@@ -1949,6 +1956,60 @@ def _jamendo_license(value):
     return url, tail.replace("/", " ")[:40]
 
 
+def _jamendo_probe_size(url):
+    """Poids réel du fichier, en octets — 0 quand la source ne le dit pas.
+
+    L'API Jamendo ne donne aucun `filesize`, et l'interface n'a pas le droit
+    d'inventer un chiffre : sans poids, elle ne peut ni l'afficher ni prévenir
+    avant un téléchargement de 8 Mo sur un forfait mobile. On le demande donc à
+    la source par un HEAD (jamais le fichier lui-même) et on garde la réponse.
+    """
+    if not url:
+        return 0
+    cache_key = ("jamendo-size", url)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    size = 0
+    try:
+        response = requests.head(
+            url,
+            headers={"User-Agent": "OmniStream/1.0 (lecture hors ligne)"},
+            timeout=(4, 6),
+            allow_redirects=True,
+        )
+        # Une erreur a elle aussi un Content-Length — celui de sa page d'erreur.
+        # Seule une réponse de succès décrit le morceau.
+        if 200 <= response.status_code < 300:
+            size = max(
+                0,
+                int(_archive_number(response.headers.get("Content-Length"), int, 0)),
+            )
+    except requests.RequestException:
+        # Source injoignable ou lente : le poids reste inconnu, et l'interface
+        # l'écrit au lieu d'afficher un « 0 Ko » qui ferait croire à un fichier
+        # gratuit en octets.
+        size = 0
+    return _cache_set(cache_key, size, ttl=JAMENDO_SIZE_TTL)
+
+
+def _jamendo_fill_sizes(items, probes):
+    """Renseigne le poids réel de chaque piste, en une passe parallèle.
+
+    `probes` suit `items` : l'URL de téléchargement quand l'artiste autorise la
+    copie (c'est le fichier que le bouton MP3 enregistrera), sinon celle du
+    flux. Le surcoût n'est payé qu'à la première visite d'un rayon — la
+    réponse de /api/mp3 est gardée 15 minutes, chaque taille une semaine.
+    """
+    if not items:
+        return
+    workers = max(1, min(JAMENDO_SIZE_WORKERS, len(items)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        sizes = list(executor.map(_jamendo_probe_size, probes))
+    for item, size in zip(items, sizes, strict=True):
+        item["size"] = size
+
+
 def _jamendo_request(params, timeout=12):
     """GET sur l'API publique Jamendo (lecture seule, aucune clé privée)."""
     if not JAMENDO_CLIENT_ID:
@@ -2019,7 +2080,7 @@ def _jamendo_ladders(base, query):
     return [dict(base, order="popularity_total"), dict(base)]
 
 
-def _jamendo_items(query, page=1, limit=24, shelf="tout"):
+def _jamendo_items(query, page=1, limit=24, shelf="tout", with_sizes=False):
     """Pistes Jamendo normalisées dans le même moule que celles d'Archive.
 
     `audioformat`/`audiodlformat` = `mp32` (VBR) : le défaut de l'API est un
@@ -2027,6 +2088,10 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
     `include` demandé : l'attribution (`license_ccurl`) et la date
     (`releasedate`) sont déjà dans la réponse, et `include=stats` y ajoute une
     enveloppe de forme d'onde de plusieurs kilo-octets par piste.
+
+    `with_sizes` ajoute le poids réel de chaque fichier (HEAD sur la source) :
+    l'API ne le donne jamais, et l'interface en a besoin pour annoncer la
+    dépense avant un téléchargement.
     """
     shelf_conf = MP3_SHELVES.get(shelf) or MP3_SHELVES["tout"]
     size = max(1, min(50, int(limit)))
@@ -2053,6 +2118,9 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
             break
 
     items = []
+    # URL dont le `Content-Length` donne le poids réel, piste par piste (vide
+    # quand rien n'est à demander). Suit `items` pour rester aligné.
+    probes = []
     # Un artiste ne prend pas toute la page : deux pistes par artiste au maximum
     # quand on parcourt les tendances. En recherche, au contraire, on veut toutes
     # les pistes du titre demandé.
@@ -2070,9 +2138,10 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
         if not track_id or not stream:
             continue
         duration = int(_archive_number(track.get("duration"), int, 0))
-        # L'API ne donne pas la taille du fichier : on la laisse inconnue (la
-        # carte affiche alors « MP3 » sans chiffre) plutôt que d'inventer un
-        # « 0 Ko » qui ferait choisir un morceau sur un faux critère.
+        # L'API ne donne pas la taille du fichier : elle reste à 0 (l'interface
+        # écrit alors « poids inconnu ») plutôt que d'inventer un « 0 Ko » qui
+        # ferait choisir un morceau sur un faux critère. `with_sizes` la
+        # remplace par le poids réel lu sur la source.
         license_url, license_name = _jamendo_license(track.get("license_ccurl"))
         page_url = str(
             track.get("shareurl")
@@ -2106,12 +2175,16 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
         # Jamendo laisse chaque artiste autoriser ou non la copie de son morceau
         # (`audiodownload_allowed`, et `audiodownload` vide depuis août 2020
         # quand c'est non) : sans droit, aucun bouton ne doit exister.
-        if bool(track.get("audiodownload_allowed")) and _jamendo_https(
-            track.get("audiodownload")
-        ):
+        # Le poids, lui, se mesure sur ce même fichier quand il existe — c'est
+        # celui que le bouton MP3 enregistrera — et sinon sur le flux.
+        download_url = _jamendo_https(track.get("audiodownload"))
+        if bool(track.get("audiodownload_allowed")) and download_url:
             items[-1]["download"] = f"/mp3/jamendo/{track_id}.mp3?download=1"
+        probes.append(download_url or stream)
         if len(items) >= MP3_TOTAL:
             break
+    if with_sizes:
+        _jamendo_fill_sizes(items, probes)
     return items
 
 
@@ -2140,6 +2213,10 @@ def mp3_library():
     provider = _limited_arg("provider", "auto", 16)
     if provider not in {"auto", "archive", "jamendo"}:
         provider = "auto"
+    # `sizes=1` : la page veut le poids réel des fichiers Jamendo (un HEAD par
+    # piste, gardé une semaine). C'est ce qui lui permet d'annoncer « 8,4 Mo »
+    # avant un téléchargement au lieu d'afficher un poids inventé.
+    with_sizes = _limited_arg("sizes", "", 4) == "1"
     try:
         page = max(1, min(20, int(_limited_arg("page", "1", 6) or 1)))
     except ValueError:
@@ -2161,6 +2238,7 @@ def mp3_library():
         "search" if query else "trending",
         query.strip().lower(),
         page,
+        with_sizes,
     )
     cached = _cache_get(cache_key)
     if cached is not _CACHE_MISSING:
@@ -2171,7 +2249,11 @@ def mp3_library():
 
     if wants_jamendo:
         try:
-            items.extend(_jamendo_items(query, page=page, shelf=shelf))
+            items.extend(
+                _jamendo_items(
+                    query, page=page, shelf=shelf, with_sizes=with_sizes
+                )
+            )
         except UpstreamServiceError as error:
             # Une clé mal configurée ne doit pas vider la page : Archive prend
             # le relais, et le message explique où regarder.

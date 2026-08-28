@@ -151,6 +151,10 @@
       const link = new URL(url, window.location.origin);
       link.searchParams.set("shelf", currentShelf);
       link.searchParams.set("provider", currentProvider);
+      // `sizes=1` : le serveur mesure le poids réel de chaque fichier (un HEAD
+      // sur la source, gardé en cache). Sans lui, Jamendo ne donne aucune
+      // taille et l'écran devrait écrire « poids inconnu » partout.
+      link.searchParams.set("sizes", "1");
       url = link.pathname + link.search;
     }
     fetchAndRender(url, config.title(lastQuery));
@@ -258,10 +262,56 @@
     });
   }
 
+  // Le poids s'écrit en clair, ou ne s'écrit pas : afficher « 1 Ko » pour un
+  // fichier dont on ignore la taille ferait choisir un morceau sur un faux
+  // critère — et raterait l'avertissement avant les 8 Mo qui suivent.
   function humanSize(bytes) {
     const value = Number(bytes) || 0;
+    if (value <= 0) return "poids inconnu";
     if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} Ko`;
     return `${(value / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;
+  }
+
+  /* --- Deux taps pour un fichier lourd ---------------------------------- */
+  // Sur un forfait mobile, 8 Mo ne doivent pas partir sur un tap distrait dans
+  // une grille. Le premier appui prévient de la dépense et arme le bouton ; le
+  // second, dans les 8 secondes, lance vraiment l'enregistrement. Passé ce
+  // délai, le bouton se désarme tout seul : rien ne reste « à confirmer »
+  // indéfiniment.
+  //
+  // Sans poids connu, aucune confirmation : on n'invente pas un chiffre pour
+  // justifier un blocage — le bouton reste direct et l'écran écrit
+  // « poids inconnu ».
+  const HEAVY_BYTES = 4 * 1024 * 1024;
+  const CONFIRM_WINDOW_MS = 8000;
+
+  function disarmConfirm(button) {
+    const timer = Number(button.dataset.confirmTimer || 0);
+    if (timer) window.clearTimeout(timer);
+    delete button.dataset.confirmTimer;
+    button.dataset.confirm = "";
+    button.classList.remove("is-confirm");
+  }
+
+  function confirmHeavy(button, bytes) {
+    const weight = Number(bytes) || 0;
+    if (weight <= 0 || weight < HEAVY_BYTES) return true;
+    if (button.dataset.confirm === "armed") {
+      disarmConfirm(button);
+      return true;
+    }
+    button.dataset.confirm = "armed";
+    button.classList.add("is-confirm");
+    button.dataset.confirmTimer = String(
+      window.setTimeout(() => disarmConfirm(button), CONFIRM_WINDOW_MS),
+    );
+    if (window.OmniUI) {
+      window.OmniUI.toast(
+        `Encore un tap : ${humanSize(weight)} sur ton forfait mobile`,
+        "warn",
+      );
+    }
+    return false;
   }
 
   function humanDuration(seconds) {
@@ -315,8 +365,9 @@
 
     const tag = document.createElement("span");
     tag.className = "quality-tag";
-    // « MP3 · 0 Ko » serait un mensonge : certains fournisseurs ne donnent pas
-    // la taille du fichier, et dans ce cas on ne l'affiche pas.
+    // « MP3 · 0 Ko » serait un mensonge : quand le poids n'est pas connu, la
+    // pastille ne donne aucun chiffre (la ligne de métadonnées, elle, écrit
+    // « poids inconnu » en toutes lettres).
     tag.textContent = item.size ? `MP3 · ${humanSize(item.size)}` : "MP3";
     poster.appendChild(tag);
 
@@ -345,14 +396,31 @@
       '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>' +
         "<polyline points=\"7 10 12 15 17 10\"></polyline><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"></line>",
     );
+    // Le libellé suit l'état : un bouton armé doit dire ce que le tap suivant
+    // va coûter, pas seulement changer de couleur.
+    const pinLabel = () => {
+      const armed = pinBtn.dataset.confirm === "armed";
+      const text = armed
+        ? `Encore un tap : ${humanSize(item.size)} hors ligne`
+        : "Garder le MP3 hors ligne";
+      pinBtn.setAttribute("aria-label", text);
+      pinBtn.setAttribute("title", text);
+    };
     pinBtn.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
       if (!window.OmniLibrary) return;
       if (window.OmniLibrary.isOffline(favItem)) {
+        disarmConfirm(pinBtn);
+        pinLabel();
         window.OmniLibrary.removeOffline(favItem);
         if (window.OmniUI) window.OmniUI.toast("MP3 retiré du hors ligne.", "ok");
+      } else if (!confirmHeavy(pinBtn, item.size)) {
+        // Premier appui sur un morceau lourd : on prévient, on ne télécharge
+        // rien. Le second tap, dans les 8 s, enregistrera vraiment.
+        pinLabel();
       } else {
+        pinLabel();
         pinBtn.classList.add("busy");
         pinBtn.setAttribute("aria-busy", "true");
         if (window.OmniUI) {
@@ -456,10 +524,24 @@
       '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>' +
         "<polyline points=\"7 10 12 15 17 10\"></polyline><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"></line>",
     )}<span>MP3</span>`;
-    download.setAttribute(
-      "aria-label",
-      `Enregistrer ${item.title || "ce titre"} en MP3 (${humanSize(item.size)})`,
-    );
+    const downloadAria = () => {
+      download.setAttribute(
+        "aria-label",
+        download.dataset.confirm === "armed"
+          ? `Encore un tap pour enregistrer ${humanSize(item.size)} sur le téléphone`
+          : `Enregistrer ${item.title || "ce titre"} en MP3 (${humanSize(item.size)})`,
+      );
+    };
+    downloadAria();
+    download.addEventListener("click", (event) => {
+      // Premier appui sur un fichier lourd : on retient le lien et on annonce
+      // la dépense. Le second appui (dans les 8 s) laisse partir le fichier.
+      const go = confirmHeavy(download, item.size);
+      const label = download.querySelector("span");
+      if (label) label.textContent = go ? "MP3" : "Confirmer";
+      downloadAria();
+      if (!go) event.preventDefault();
+    });
     // Jamendo laisse chaque artiste autoriser ou non la copie de son morceau
     // (champ `audiodownload_allowed`) : sans droit, pas de bouton.
     if (item.download) info.append(download);

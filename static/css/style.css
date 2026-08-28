@@ -4726,6 +4726,21 @@ body.has-audio-bar .sponsor-gift {
 .music-pin-btn.busy,
 .detail-icon-btn.busy { opacity: 0.6; pointer-events: none; }
 
+/* Bouton « à confirmer » : un fichier lourd se mérite deux taps. Le premier
+   l'arme — il vire à l'orange, la couleur de ce qui va être dépensé sur le
+   forfait — et le second, dans les 8 secondes, enregistre vraiment. */
+.music-pin-btn.is-confirm {
+  color: #fff;
+  border-color: var(--accent);
+  background: rgba(255, 122, 46, 0.92);
+  box-shadow: 0 0 0 3px rgba(255, 122, 46, 0.25);
+}
+.music-get-btn.is-confirm {
+  border-color: var(--accent);
+  background: rgba(255, 122, 46, 0.16);
+  color: var(--accent);
+}
+
 /* Le titre en cours d'écoute se reconnaît de loin. */
 .card.is-playing .poster,
 .musique-card.is-playing .poster { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255, 122, 46, 0.35) inset; }
