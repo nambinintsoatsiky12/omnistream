@@ -40,10 +40,14 @@ message d'erreur explicite.
 Le mode **Audio** de l'espace musique distingue deux sources, parce qu'elles
 n'offrent pas la même liberté :
 
-- **MP3 libre** (par défaut) : de vrais fichiers MP3 publiés sous licence de copie
-  par des phonothèques ouvertes — Internet Archive, sans clé ni compte. C'est la
-  seule source qui lise écran éteint, qui s'épingle hors ligne et qui
-  s'enregistre comme fichier sur le téléphone ;
+- **MP3 libre** (par défaut) : de vrais fichiers MP3 publiés sous licence de copie,
+  servis par deux fournisseurs. **Internet Archive** (fonctionne sans rien
+  configurer : `etree`, `audio_music`, `netlabels`, trois fonds vérifiés un par un)
+  et, si une clé est configurée, **Jamendo** (catalogue moderne sous Creative
+  Commons). C'est la seule source qui lise écran éteint, qui s'épingle hors ligne
+  et qui s'enregistre comme fichier sur le téléphone. La page propose des rayons
+  (`/api/mp3?shelf=…`) — Tout, Madagascar, Concerts, Netlabels, Musique du monde —
+  et la liste vient du serveur, pas du gabarit ;
 - **YouTube** : les clips et les sessions. L'économie de Mo passe alors par le
   flux audio seul (~128 kbps, ≈ 1 Mo/min) résolu auprès d'instances publiques
   Piped/Invidious ; écran allumé seulement, et aucun téléchargement possible
@@ -67,6 +71,7 @@ première visite (revisites à 0 Mo).
 | `GEMINI_API_KEY` | Assistant sur les fiches |
 | `GEMINI_MODEL` | Modèle Gemini (`gemini-2.5-flash` par défaut) |
 | `YOUTUBE_API_KEY` | Recherche et tendances musicales |
+| `JAMENDO_CLIENT_ID` | Facultatif : la 2ᵉ source de MP3 libres (rayon « MP3 libre » de l'espace Musique) — voir « Brancher Jamendo » |
 | `SPONSOR_SMARTLINK_URL` | Lien du cadeau flottant (`https://omg10.com/4/11645531` par défaut, valeur vide pour le masquer) |
 | `SECRET_KEY` | Signature des sessions ; obligatoire en production |
 | `TURSO_DATABASE_URL` | URL Turso (`libsql://...` ou `https://...`) |
@@ -81,6 +86,44 @@ première visite (revisites à 0 Mo).
 
 `TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN` doivent toujours être définis
 ensemble. La table est créée automatiquement au démarrage.
+
+## Brancher Jamendo (facultatif, 5 minutes)
+
+À quoi ça sert : Internet Archive est une bibliothèque (concerts, netlabels,
+ethnomusicologie) — on y trouve peu de sons « du moment ». **Jamendo** est un
+catalogue de musique actuelle publiée sous licence Creative Commons par les
+artistes eux-mêmes, avec un point d'accès public qui donne, pour chaque piste,
+l'URL du **MP3 réel** (`audioformat=mp32`, VBR) et, quand l'artiste l'autorise,
+son lien de téléchargement (`audiodownload`). Brancher cette source ajoute donc
+un catalogue moderne à l'app, avec les mêmes droits : écoute écran éteint,
+épinglage hors ligne, fichier enregistrable. Elle est **gratuite pour un usage non
+commercial** et limitée à environ 35 000 requêtes par mois — les réponses sont
+cachées 15 minutes côté serveur, ce qui laisse une marge confortable pour un site
+comme OmniStream.
+
+Étapes :
+
+1. créer un compte sur <https://devportal.jamendo.com/signup> (e-mail + mot de
+   passe, lien de confirmation) ;
+2. se connecter, puis « My applications » → **Create new application**
+   (<https://devportal.jamendo.com/admin/applications>) ;
+3. remplir le nom (`OmniStream`), l'URL publique du site, une description courte,
+   et choisir le plan **Read only** (lecture seule : aucune écriture, aucun
+   compte utilisateur impliqué) ; accepter les conditions d'utilisation ;
+4. copier la valeur **Client ID** affichée sur la fiche de l'application — c'est
+   la seule information dont l'app a besoin (le `client_secret` ne sert pas pour
+   la lecture du catalogue) ;
+5. la ranger dans Render : *Environment* → `JAMENDO_CLIENT_ID` → Save, puis
+   **Apply** (redéploiement). En local : `.env`/`export JAMENDO_CLIENT_ID=…`
+   avant de lancer le serveur ;
+6. vérifier, une fois le serveur redémarré : `curl -s
+   https://<domaine>/api/mp3?provider=jamendo|head -c 200` doit renvoyer des
+   pistes, et la page Musique doit afficher un sélecteur **Internet Archive /
+   Jamendo (CC)**.
+
+Sans clé, rien ne casse : le sélecteur n'apparaît pas, le rayon `MP3 libre` reste
+sur Internet Archive, et une demande forcée `?provider=jamendo` répond
+« JAMENDO_CLIENT_ID n'est pas configurée sur le serveur » au lieu d'une page vide.
 
 ## Déploiement sur Render
 

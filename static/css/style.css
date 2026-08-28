@@ -2697,6 +2697,63 @@ main:has(.landing-hero-ua),
 .music-get-btn:hover { background: rgba(56, 189, 248, 0.18); }
 .music-get-btn:active { transform: scale(0.97); }
 
+/* --- Rayons découverts et fournisseurs --------------------------------- */
+/* Les deux rangées sont remplies depuis /api/mp3 : un rayon retiré côté serveur
+   disparaît de l'interface, et un fournisseur sans clé ne propose pas un bouton
+   qui ne pourrait que se plaindre. */
+.musique-choice-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  margin: -6px 0 18px;
+}
+
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.choice-btn {
+  font-family: var(--font);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  min-height: 34px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.choice-btn:hover { color: #fff; border-color: var(--border-hover); }
+
+.choice-btn.active {
+  color: #04121c;
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
+/* Le crédit d’auteur, exigé par les licences Creative Commons : discret mais
+   réel, et cliquable jusqu’au texte de la licence. */
+.music-credit {
+  align-self: flex-start;
+  font-size: 0.66rem;
+  letter-spacing: 0.3px;
+  text-transform: lowercase;
+  color: var(--muted-dark);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--muted-dark);
+}
+
+.music-credit:hover { color: var(--gold); border-bottom-color: var(--gold); }
+
 .musique-search-form {
   max-width: 580px;
   margin: 0 auto 36px;

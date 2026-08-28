@@ -32,8 +32,12 @@
   let requestController = null;
   let currentMode = "audio";
   let currentSource = "mp3";
+  let currentProvider = "auto";
+  let currentShelf = "tout";
   let lastQuery = "";
   let lastItems = [];
+  const shelfRow = document.getElementById("shelf-row");
+  const providerRow = document.getElementById("provider-row");
 
   const SOURCES = {
     mp3: {
@@ -139,10 +143,79 @@
   function load(query) {
     lastQuery = typeof query === "string" ? query.trim() : "";
     const config = SOURCES[currentSource];
-    fetchAndRender(
-      lastQuery ? config.search(lastQuery) : config.trending,
-      config.title(lastQuery),
-    );
+    let url = lastQuery ? config.search(lastQuery) : config.trending;
+    if (currentSource === "mp3") {
+      // Rayon et fournisseur voyagent en paramètres : la page ne connaît pas la
+      // liste des rayons, elle reçoit celle du serveur. Un rayon ajouté ou
+      // retiré côté serveur change donc l'interface sans correctif ici.
+      const link = new URL(url, window.location.origin);
+      link.searchParams.set("shelf", currentShelf);
+      link.searchParams.set("provider", currentProvider);
+      url = link.pathname + link.search;
+    }
+    fetchAndRender(url, config.title(lastQuery));
+  }
+
+  function renderChoice(host, entries, selected, onPick) {
+    if (!host) return;
+    host.replaceChildren();
+    if (!entries.length) {
+      host.hidden = true;
+      return;
+    }
+    entries.forEach((entry) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "choice-btn";
+      btn.dataset.key = entry.key;
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", String(entry.key === selected));
+      btn.classList.toggle("active", entry.key === selected);
+      btn.textContent = entry.label;
+      btn.addEventListener("click", () => {
+        if (entry.key === selected) return;
+        onPick(entry.key);
+      });
+      host.appendChild(btn);
+    });
+    host.hidden = false;
+  }
+
+  function renderChoices(payload) {
+    const shelves = Array.isArray(payload && payload.shelves) ? payload.shelves : [];
+    const providers =
+      Array.isArray(payload && payload.providers) ? payload.providers : [];
+    const isMp3 = currentSource === "mp3";
+    if (shelfRow) {
+      if (!isMp3) {
+        shelfRow.hidden = true;
+      } else {
+        renderChoice(shelfRow, shelves, currentShelf, (key) => {
+          currentShelf = key;
+          load(lastQuery);
+        });
+      }
+    }
+    if (providerRow) {
+      // Un seul fournisseur disponible : rien à proposer, donc rien à montrer
+      // (un sélecteur à un bouton fait écran cassé).
+      if (!isMp3 || providers.length < 2) {
+        providerRow.hidden = true;
+      } else {
+        renderChoice(
+          providerRow,
+          providers.map((key) => ({
+            key,
+            label: key === "jamendo" ? "Jamendo (CC)" : "Internet Archive",
+          })),
+          currentProvider,
+          (key) => {
+            currentProvider = key;
+            load(lastQuery);
+          },
+        );
+      }
+    }
   }
 
   function safeImageUrl(value) {
@@ -242,7 +315,9 @@
 
     const tag = document.createElement("span");
     tag.className = "quality-tag";
-    tag.textContent = `MP3 · ${humanSize(item.size)}`;
+    // « MP3 · 0 Ko » serait un mensonge : certains fournisseurs ne donnent pas
+    // la taille du fichier, et dans ce cas on ne l'affiche pas.
+    tag.textContent = item.size ? `MP3 · ${humanSize(item.size)}` : "MP3";
     poster.appendChild(tag);
 
     const favItem = {
@@ -354,6 +429,22 @@
     // Le fichier, cette fois : le lien passe par le relais du serveur qui lui
     // donne son nom et un « Content-Disposition » — sans lui, le navigateur
     // ouvrirait le MP3 dans un onglet au lieu de l'enregistrer.
+    // Le crédit n'est pas une garniture : une licence Creative Commons exige
+    // d'indiquer l'auteur et la licence. Il est donc posé sur la carte, en
+    // toutes lettres et cliquable, pour Archive comme pour Jamendo.
+    if (item.license) {
+      const credit = document.createElement("a");
+      credit.className = "music-credit";
+      credit.href = item.license;
+      credit.target = "_blank";
+      credit.rel = "noopener license";
+      credit.dataset.noPjax = "1";
+      credit.textContent = item.license_name
+        ? `licence ${item.license_name}`
+        : "licence libre";
+      info.appendChild(credit);
+    }
+
     const download = document.createElement("a");
     download.className = "music-get-btn";
     download.href = item.download || item.url;
@@ -369,7 +460,9 @@
       "aria-label",
       `Enregistrer ${item.title || "ce titre"} en MP3 (${humanSize(item.size)})`,
     );
-    info.append(download);
+    // Jamendo laisse chaque artiste autoriser ou non la copie de son morceau
+    // (champ `audiodownload_allowed`) : sans droit, pas de bouton.
+    if (item.download) info.append(download);
 
     function refreshIcons() {
       const lib = window.OmniLibrary;
@@ -550,6 +643,13 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "La recherche a échoué.");
       renderItems(data.items);
+      renderChoices(data);
+      if (window.OmniUI && data.warning) {
+        // Exemple : clé Jamendo absente ou quota du mois atteint. La page reste
+        // pleine grâce à Internet Archive, mais l'utilisateur mérite de savoir
+        // qu'un fournisseur manque.
+        window.OmniUI.toast(data.warning, "warn");
+      }
     } catch (error) {
       if (error.name === "AbortError") return;
       console.error("Erreur de recherche musicale :", error);

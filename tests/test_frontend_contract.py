@@ -620,3 +620,37 @@ def test_le_relais_de_fichier_ne_cache_rien_de_silencieux():
     assert 'ARCHIVE_FILE_URL.format(identifier=identifier, name=quote(name))' in source
     assert '"url": ARCHIVE_FILE_URL' in source
     assert "Content-Disposition" in source
+
+
+def test_les_rayons_viennent_du_serveur():
+    """Ni le gabarit ni le script ne connaissent la liste des rayons : un rayon
+    ajoute cote serveur apparait, un rayon retire disparait."""
+    script = read(STATIC / "js" / "musique.js")
+    page = read(TEMPLATES / "musique.html")
+    assert 'id="shelf-row"' in page
+    assert 'id="provider-row"' in page
+    assert 'searchParams.set("shelf", currentShelf)' in script
+    assert 'searchParams.set("provider", currentProvider)' in script
+    assert "renderChoices(data)" in script
+    assert "function renderChoice(" in script
+
+
+def test_le_poids_et_le_bouton_ne_mentent_pas():
+    """Taille inconnue = pas de « 0 Ko » ; telechargement non autorise par
+    l'artiste = pas de bouton."""
+    script = read(STATIC / "js" / "musique.js")
+    assert "item.size ? `MP3 \u00b7 ${humanSize(item.size)}` : \"MP3\"" in script
+    assert "if (item.download) info.append(download);" in script
+
+
+def test_le_credit_de_licence_est_affiche_et_style():
+    """Une licence Creative Commons se monnaie en attribution : elle doit etre
+    visible sur la carte, pas planquee dans une balise meta."""
+    script = read(STATIC / "js" / "musique.js")
+    style = read(STATIC / "css" / "style.css")
+    assert 'credit.className = "music-credit"' in script
+    assert 'rel = "noopener license"' in script
+    assert ".music-credit" in style
+    assert ".choice-btn" in style
+    assert ".choice-btn.active" in style
+    assert ".musique-choice-rows" in style

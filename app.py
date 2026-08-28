@@ -133,6 +133,11 @@ TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "").strip()
+# Jamendo (music under Creative Commons) : une clé d'application « Read only »,
+# gratuite, donne accès à un catalogue moderne de MP3 que leurs artistes laissent
+# copier. Sans clé, l'application tourne quand même (Archive seul).
+JAMENDO_API_URL = "https://api.jamendo.com/v3.0/tracks/"
+JAMENDO_CLIENT_ID = os.environ.get("JAMENDO_CLIENT_ID", "").strip()
 SPONSOR_SMARTLINK_URL = os.environ.get(
     "SPONSOR_SMARTLINK_URL", "https://omg10.com/4/11645531"
 ).strip()
@@ -511,9 +516,13 @@ def tmdb_get(path, params=None):
             timeout=10,
         )
         if response.status_code == 404:
-            raise UpstreamServiceError("Ce titre est introuvable sur TMDB.", 404)
+            raise UpstreamServiceError(
+                "Ce titre est introuvable sur TMDB.", 404
+            )
         if response.status_code in {401, 403}:
-            raise UpstreamServiceError("La configuration TMDB est invalide.", 503)
+            raise UpstreamServiceError(
+                "La configuration TMDB est invalide.", 503
+            )
         if response.status_code == 429:
             raise UpstreamServiceError(
                 "TMDB reçoit trop de requêtes. Réessayez dans un instant.", 503
@@ -521,16 +530,22 @@ def tmdb_get(path, params=None):
         response.raise_for_status()
         data = response.json()
     except requests.Timeout as exc:
-        raise UpstreamServiceError("TMDB met trop de temps à répondre.", 504) from exc
+        raise UpstreamServiceError(
+            "TMDB met trop de temps à répondre.", 504
+        ) from exc
     except requests.RequestException as exc:
         raise UpstreamServiceError(
             "TMDB est temporairement indisponible.", 502
         ) from exc
     except ValueError as exc:
-        raise UpstreamServiceError("TMDB a renvoyé une réponse invalide.", 502) from exc
+        raise UpstreamServiceError(
+            "TMDB a renvoyé une réponse invalide.", 502
+        ) from exc
 
     if not isinstance(data, dict):
-        raise UpstreamServiceError("TMDB a renvoyé une réponse invalide.", 502)
+        raise UpstreamServiceError(
+            "TMDB a renvoyé une réponse invalide.", 502
+        )
     return _cache_set(cache_key, data, ttl=900)
 
 
@@ -1517,7 +1532,9 @@ def _youtube_get(endpoint, params):
             "YouTube a renvoyé une réponse invalide.", 502
         ) from exc
     if not isinstance(data, dict):
-        raise UpstreamServiceError("YouTube a renvoyé une réponse invalide.", 502)
+        raise UpstreamServiceError(
+            "YouTube a renvoyé une réponse invalide.", 502
+        )
     return data
 
 
@@ -1625,7 +1642,48 @@ ARCHIVE_SEARCH_URL = "https://archive.org/advancedsearch.php"
 ARCHIVE_METADATA_URL = "https://archive.org/metadata/{identifier}"
 ARCHIVE_FILE_URL = "https://archive.org/download/{identifier}/{name}"
 ARCHIVE_THUMB_URL = "https://archive.org/services/img/{identifier}"
-MP3_COLLECTIONS = ("etree", "netlabels", "audio_music", "fma", "live_music_archive")
+# Trois collections, vérifiées une par une : chacune contient des dizaines de
+# milliers d'écoutes MP3 libres de copie (et pas « fma » ni
+# « live_music_archive », qui ne répondent plus rien du tout).
+MP3_COLLECTIONS = ("etree", "audio_music", "netlabels")
+# Rayons de découverte. Chaque « terms » est une requête Archive déjà testée ;
+# « collections » restreint le rayon à un fonds précis, « tag » est l'équivalent
+# côté Jamendo.
+MP3_SHELVES = {
+    "tout": {
+        "label": "Tout",
+        "terms": "",
+        "collections": MP3_COLLECTIONS,
+        "tag": "",
+    },
+    "madagascar": {
+        "label": "Madagascar",
+        "terms": (
+            "(title:(madagascar) OR title:(malagasy) OR creator:(malagasy) "
+            'OR subject:(madagascar) OR title:(salegy) OR title:("hira gasy"))'
+        ),
+        "collections": MP3_COLLECTIONS,
+        "tag": "malagasy+world",
+    },
+    "live": {
+        "label": "Concerts",
+        "terms": "",
+        "collections": ("etree",),
+        "tag": "live",
+    },
+    "netlabels": {
+        "label": "Netlabels",
+        "terms": "",
+        "collections": ("netlabels",),
+        "tag": "electronic",
+    },
+    "monde": {
+        "label": "Musique du monde",
+        "terms": "",
+        "collections": ("audio_music",),
+        "tag": "world",
+    },
+}
 MP3_MAX_BYTES = 80 * 1024 * 1024  # 80 Mo : au-delà, ce n'est plus un morceau
 MP3_PER_ITEM = 12  # pistes retenues par album/concert
 MP3_TOTAL = 30  # pistes retenues par réponse
@@ -1646,8 +1704,12 @@ def _archive_query(raw):
     words = ARCHIVE_WORD_RE.findall(str(raw or ""))[:8]
     if not words:
         return ""
+    # `title` et `creator` seulement : le plein texte (« text: ») fait remonter
+    # des livres audio et des conférences pour un simple mot de titre — testé en
+    # cherchant « madagascar », où les trois premiers résultats n'avaient rien de
+    # musical.
     return " AND ".join(
-        f'(title:"{word}" OR creator:"{word}" OR text:"{word}")' for word in words
+        f'(title:"{word}" OR creator:"{word}")' for word in words
     )
 
 
@@ -1685,7 +1747,9 @@ def _archive_json(url, params=None, timeout=12):
             503,
         )
     if response.status_code >= 400:
-        raise UpstreamServiceError("Internet Archive a refusé la requête.", 502)
+        raise UpstreamServiceError(
+            "Internet Archive a refusé la requête.", 502
+        )
     try:
         data = response.json()
     except ValueError as exc:
@@ -1699,10 +1763,13 @@ def _archive_json(url, params=None, timeout=12):
     return data
 
 
-def _archive_search_items(query, page=1, rows=10):
+def _archive_search_items(query, page=1, rows=10, shelf="tout"):
     """Identifiants des albums/concerts qui contiennent des MP3."""
-    collection = " OR ".join(MP3_COLLECTIONS)
+    shelf_conf = MP3_SHELVES.get(shelf) or MP3_SHELVES["tout"]
+    collection = " OR ".join(shelf_conf["collections"] or MP3_COLLECTIONS)
     expression = f"mediatype:(audio) AND collection:({collection}) AND format:MP3"
+    if shelf_conf["terms"]:
+        expression = f"{expression} AND {shelf_conf['terms']}"
     wanted = _archive_query(query)
     params = {
         "q": f"{expression} AND {wanted}" if wanted else expression,
@@ -1796,75 +1863,312 @@ def _archive_item_tracks(doc):
     return tracks
 
 
+def _jamendo_available():
+    return bool(JAMENDO_CLIENT_ID)
+
+
+def _jamendo_request(params, timeout=12):
+    """GET sur l'API publique Jamendo (lecture seule, aucune clé privée)."""
+    if not JAMENDO_CLIENT_ID:
+        raise UpstreamServiceError(
+            "JAMENDO_CLIENT_ID n'est pas configurée sur le serveur.", 503
+        )
+    try:
+        response = requests.get(
+            JAMENDO_API_URL,
+            params={**params, "client_id": JAMENDO_CLIENT_ID, "format": "json"},
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "OmniStream/1.0 (lecture hors ligne)",
+            },
+            timeout=timeout,
+        )
+    except requests.Timeout as exc:
+        raise UpstreamServiceError(
+            "Jamendo met trop de temps à répondre.", 504
+        ) from exc
+    except requests.RequestException as exc:
+        raise UpstreamServiceError(
+            "Jamendo est temporairement indisponible.", 502
+        ) from exc
+    if response.status_code in {401, 403}:
+        raise UpstreamServiceError(
+            "Jamendo refuse cette clé d'application (client_id invalide ou "
+            "dépassé).",
+            502,
+        )
+    if response.status_code == 429:
+        raise UpstreamServiceError(
+            "Jamendo limite le nombre de requêtes ce mois-ci. Rîssayez plus tard.",
+            503,
+        )
+    if response.status_code >= 400:
+        raise UpstreamServiceError(
+            "Jamendo a refusé la requête.", 502
+        )
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise UpstreamServiceError(
+            "Jamendo a renvoyé une réponse invalide.", 502
+        ) from exc
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        raise UpstreamServiceError(
+            "Jamendo a renvoyé une réponse invalide.", 502
+        )
+    return data
+
+
+def _jamendo_items(query, page=1, limit=24, shelf="tout"):
+    """Pistes Jamendo normalisées dans le même moule que celles d'Archive.
+
+    `audioformat=mp32` (VBR, bonne qualité) et `audiodlformat=mp32` : le format
+    par défaut de l'API est un 96 kbps de lecture seule, et ce serait une
+    chute de qualité invisible pour l'auditeur. `include=licenses` ajoute
+    l'attribution Creative Commons, obligatoire pour rejouer un titre.
+    """
+    shelf_conf = MP3_SHELVES.get(shelf) or MP3_SHELVES["tout"]
+    params = {
+        "limit": max(1, min(50, int(limit))),
+        "offset": max(0, (max(1, int(page)) - 1) * max(1, min(50, int(limit)))),
+        "audioformat": "mp32",
+        "audiodlformat": "mp32",
+        "imagesize": 200,
+        "album_imagesize": 200,
+        "include": ["licenses", "stats"],
+        "order": "relevance",
+    }
+    if query:
+        params["search"] = query[:120]
+    else:
+        if shelf_conf["tag"]:
+            params["tags"] = shelf_conf["tag"]
+        params["order"] = "popularity_total"
+        # Un titre par artiste : sinon un même netlabel occupe toute la page.
+        params["groupby"] = "artist_id"
+    data = _jamendo_request(params)
+
+    items = []
+    for track in data.get("results") or []:
+        if not isinstance(track, dict):
+            continue
+        track_id = track.get("id")
+        stream = str(track.get("audio") or "")
+        if not track_id or not stream.startswith("https://"):
+            continue
+        duration = int(_archive_number(track.get("duration"), int, 0))
+        size = int(_archive_number(track.get("filesize"), int, 0))
+        allowed = track.get("audiodownload_allowed")
+        download = str(track.get("audiodownload") or "")
+        # Jamendo laisse chaque artiste autoriser ou non la copie : quand ce est
+        # non, `audiodownload` est vide et aucun bouton de téléchargement ne doit
+        # être proposé.
+        can_download = bool(allowed) and download.startswith("https://")
+        page_url = str(
+            track.get("shorturl") or f"https://www.jamendo.com/track/{track_id}"
+        )
+        items.append(
+            {
+                "kind": "mp3",
+                "type": "music",
+                "provider": "jamendo",
+                "id": f"jm:{track_id}",
+                "jamendo_id": int(_archive_number(track_id, int, 0)),
+                "identifier": f"jamendo-{track_id}",
+                "title": html.unescape(str(track.get("name") or "Sans titre"))[:160],
+                "channel": html.unescape(
+                    str(track.get("artist_name") or "Artiste Jamendo")
+                )[:120],
+                "album": html.unescape(str(track.get("album_name") or ""))[:160],
+                "year": str(track.get("release_date") or "")[:4],
+                "duration": duration,
+                "size": size,
+                "thumbnail": str(track.get("image") or ""),
+                "url": stream,
+                "download": (
+                    f"/mp3/jamendo/{track_id}.mp3?download=1" if can_download else ""
+                ),
+                "page": page_url,
+                "license": str(
+                    track.get("license_url") or track.get("license_URL") or ""
+                )[:200],
+                "license_name": str(
+                    track.get("license_name") or track.get("license_id") or ""
+                )[:40],
+            }
+        )
+        if len(items) >= MP3_TOTAL:
+            break
+    return items
+
+
+def mp3_meta():
+    """Ce que l'interface a le droit de promettre aujourd'hui."""
+    return {
+        "providers": ["archive"] + (["jamendo"] if _jamendo_available() else []),
+        "shelves": [
+            {"key": key, "label": shelf["label"]} for key, shelf in MP3_SHELVES.items()
+        ],
+    }
+
+
 @app.route("/api/mp3")
 def mp3_library():
-    """Bibliothèque MP3 : tendances si « q » est vide, recherche sinon."""
+    """MP3 libres : Archive toujours, Jamendo dès qu'une clé est configurée.
+
+    Les deux fournisseurs renvoyant la même forme de piste, la page Musique, le
+    lecteur, l'épinglage hors ligne et le relais de téléchargement fonctionnent
+    pour l'un et l'autre sans cas particulier.
+    """
     query = _limited_arg("q", max_length=120)
+    shelf = _limited_arg("shelf", "tout", 24)
+    if shelf not in MP3_SHELVES:
+        shelf = "tout"
+    provider = _limited_arg("provider", "auto", 16)
+    if provider not in {"auto", "archive", "jamendo"}:
+        provider = "auto"
     try:
         page = max(1, min(20, int(_limited_arg("page", "1", 6) or 1)))
     except ValueError:
         page = 1
 
-    cache_key = ("mp3", "search" if query else "trending", query.strip().lower(), page)
+    if provider == "jamendo" and not _jamendo_available():
+        # Une demande explicite de Jamendo sans clé doit être dite, pas
+        # silencieusement transformée en page vide.
+        raise UpstreamServiceError(
+            "JAMENDO_CLIENT_ID n'est pas configurée sur le serveur.", 503
+        )
+    wants_jamendo = provider in {"auto", "jamendo"} and _jamendo_available()
+    wants_archive = provider != "jamendo"
+
+    cache_key = (
+        "mp3",
+        provider,
+        shelf,
+        "search" if query else "trending",
+        query.strip().lower(),
+        page,
+    )
     cached = _cache_get(cache_key)
     if cached is not _CACHE_MISSING:
-        return jsonify({"items": cached, "source": "archive"})
-
-    docs = _archive_search_items(query, page=page)
-    if not docs:
-        return jsonify(
-            {"items": _cache_set(cache_key, [], ttl=300), "source": "archive"}
-        )
-
-    def _safe(doc):
-        try:
-            return _archive_item_tracks(doc)
-        except UpstreamServiceError:
-            # Un item capricieux ne doit pas vider la page entière.
-            return []
+        return jsonify({"items": cached, "source": "archive", **mp3_meta()})
 
     items = []
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        for tracks in executor.map(_safe, docs):
-            items.extend(tracks)
-    items = items[:MP3_TOTAL]
-    return jsonify(
-        {"items": _cache_set(cache_key, items, ttl=900), "source": "archive"}
+    errors = []
+
+    if wants_jamendo:
+        try:
+            items.extend(_jamendo_items(query, page=page, shelf=shelf))
+        except UpstreamServiceError as error:
+            # Une clé mal configurée ne doit pas vider la page : Archive prend
+            # le relais, et le message explique où regarder.
+            errors.append(str(error))
+
+    if wants_archive:
+        try:
+            docs = _archive_search_items(query, page=page, shelf=shelf)
+        except UpstreamServiceError as error:
+            if not items:
+                raise
+            errors.append(str(error))
+            docs = []
+
+        def _safe(doc):
+            try:
+                return _archive_item_tracks(doc)
+            except UpstreamServiceError:
+                # Un item capricieux ne doit pas vider la page entière.
+                return []
+
+        if docs:
+            room = (
+                MP3_TOTAL if provider == "archive" else max(4, MP3_TOTAL - len(items))
+            )
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                for tracks in executor.map(_safe, docs):
+                    items.extend(tracks)
+                    if len(items) >= room:
+                        break
+            items = items[:MP3_TOTAL]
+
+    if not items and errors:
+        raise UpstreamServiceError(errors[0], 502)
+
+    used = ([] if not wants_jamendo or provider == "archive" else ["jamendo"]) + (
+        ["archive"] if wants_archive else []
     )
+    payload = {
+        "items": _cache_set(cache_key, items, ttl=900),
+        "source": "+".join(used) or "archive",
+        **mp3_meta(),
+    }
+    if errors:
+        payload["warning"] = errors[0]
+    return jsonify(payload)
 
 
-@app.get("/mp3/<identifier>/<name>")
-def mp3_file(identifier, name):
-    """Relais d'enregistrement : le fichier part avec son nom et son extension.
-
-    Sans ce relais, un lien cross-origin « download » est ignoré par le
-    navigateur et le MP3 s'ouvre dans un lecteur au lieu d'être rangé sur le
-    téléphone. La plage demandée (Range) est transmise telle quelle : un
-    téléchargement interrompu peut reprendre, et « <audio> » peut naviguer.
-    """
-    if not ARCHIVE_IDENTIFIER_RE.match(identifier) or not ARCHIVE_FILE_RE.match(name):
+@app.get("/mp3/jamendo/<int:track_id>.mp3")
+def jamendo_file(track_id):
+    """Relais de téléchargement Jamendo : l'URL de l'artiste expire, on la
+    résout au moment où l'utilisateur touche le bouton — jamais à l'avance."""
+    if track_id <= 0:
         abort(404)
-    target = ARCHIVE_FILE_URL.format(identifier=identifier, name=quote(name))
+    data = _jamendo_request(
+        {
+            "id": track_id,
+            "limit": 1,
+            "audiodlformat": "mp32",
+            "audioformat": "mp32",
+        }
+    )
+    track = next(
+        (
+            item
+            for item in (data.get("results") or [])
+            if isinstance(item, dict) and item.get("audiodownload_allowed")
+        ),
+        None,
+    )
+    target = str((track or {}).get("audiodownload") or "")
+    if not target.startswith("https://"):
+        # L'artiste a fermé la copie : c'est son droit, et le bouton ne doit
+        # pas exister dans ce cas (la page Musique ne l'affiche pas).
+        raise UpstreamServiceError(
+            "Ce titre n'est pas laissé en téléchargement libre par son artiste.",
+            410,
+        )
+    name = re.sub(r"[^A-Za-z0-9._ -]", "_", str((track or {}).get("name") or "titre"))[
+        :60
+    ]
+    return _relay_mp3(target, f"{name}.mp3")
+
+
+def _relay_mp3(target, filename):
+    """Corps du relais : plage transmise, taille plafonnée, nom de fichier imposé."""
     headers = {"User-Agent": "OmniStream/1.0"}
     range_header = request.headers.get("Range", "")
     if range_header:
         headers["Range"] = range_header
     try:
         upstream = requests.get(
-            target, headers=headers, stream=True, timeout=(6, 180), allow_redirects=True
+            target,
+            headers=headers,
+            stream=True,
+            timeout=(6, 180),
+            allow_redirects=True,
         )
     except requests.Timeout as exc:
         raise UpstreamServiceError(
-            "Internet Archive met trop de temps à répondre.", 504
+            "La source met trop de temps à répondre.", 504
         ) from exc
     except requests.RequestException as exc:
         raise UpstreamServiceError(
-            "Internet Archive est temporairement indisponible.", 502
+            "La source est temporairement indisponible.", 502
         ) from exc
     if upstream.status_code not in {200, 206}:
         upstream.close()
         raise UpstreamServiceError(
-            "Ce fichier n'est plus disponible sur Internet Archive.", 502
+            "Ce fichier n'est plus disponible à la source.", 502
         )
     size = int(_archive_number(upstream.headers.get("Content-Length"), int, 0))
     if size > MP3_MAX_BYTES:
@@ -1881,7 +2185,7 @@ def mp3_file(identifier, name):
         if value:
             reply_headers[key] = value
     if request.args.get("download") == "1":
-        clean = re.sub(r"[^A-Za-z0-9._ -]", "_", name)[-80:]
+        clean = re.sub(r"[^A-Za-z0-9._ -]", "_", filename)[-80:]
         reply_headers["Content-Disposition"] = f'attachment; filename="{clean}"'
 
     def body():
@@ -1898,6 +2202,21 @@ def mp3_file(identifier, name):
         headers=reply_headers,
         direct_passthrough=True,
     )
+
+
+@app.get("/mp3/<identifier>/<name>")
+def mp3_file(identifier, name):
+    """Relais d'enregistrement : le fichier part avec son nom et son extension.
+
+    Sans ce relais, un lien cross-origin « download » est ignoré par le
+    navigateur et le MP3 s'ouvre dans un lecteur au lieu d'être rangé sur le
+    téléphone. La plage demandée (Range) est transmise telle quelle : un
+    téléchargement interrompu peut reprendre, et « <audio> » peut naviguer.
+    """
+    if not ARCHIVE_IDENTIFIER_RE.match(identifier) or not ARCHIVE_FILE_RE.match(name):
+        abort(404)
+    target = ARCHIVE_FILE_URL.format(identifier=identifier, name=quote(name))
+    return _relay_mp3(target, name)
 
 
 # ---------------------------------------------------------------------------
