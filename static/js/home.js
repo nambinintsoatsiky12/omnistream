@@ -121,6 +121,12 @@
     return `/details/${mediaType}/${itemId}?${params}`;
   }
 
+  // Place réellement prise par une affiche dans la grille (mêmes paliers que
+  // le CSS : 3 colonnes sous 480 px, 4 jusqu'à 768 px, ~200 px au-delà). C'est
+  // ce qui autorise le navigateur à descendre sur la variante w154.
+  const POSTER_SIZES =
+    "(max-width: 480px) calc((100vw - 44px) / 3), (max-width: 768px) calc((100vw - 60px) / 4), 200px";
+
   function createPoster(item, compact) {
     const poster = document.createElement("div");
     poster.className = compact ? "hero-poster" : "poster";
@@ -129,8 +135,24 @@
       const image = document.createElement("img");
       image.className = compact ? "hero-poster-img" : "poster-img";
       image.src = source;
+      // Le navigateur choisit la définition : w154 pour une carte de téléphone
+      // (~115 px de large) ou une affiche « à la une » de 128 px, w342
+      // seulement si l'image est vraiment affichée plus grand. Sans srcset,
+      // chaque carte demandait la w342 — le double de ce qu'elle montre.
+      // Les deux variantes ne sont annoncées que lorsqu'elles existent toutes
+      // les deux : un descripteur « 342w » sur une autre image serait un
+      // mensonge que le navigateur paierait en octets.
+      const small = safeImageUrl(item.poster_small);
+      const full = safeImageUrl(item.poster);
+      if (small && full) {
+        image.srcset = `${small} 154w, ${full} 342w`;
+        image.sizes = compact ? "128px" : POSTER_SIZES;
+      }
       image.alt = `Affiche de ${String(item.title || "ce titre")}`;
       image.loading = compact ? "eager" : "lazy";
+      // Décodage hors du fil principal : la grille arrive plus vite et le
+      // défilement ne bégaie pas quand une affiche se révèle.
+      image.decoding = "async";
       poster.appendChild(image);
     } else {
       poster.classList.add("poster-placeholder");
@@ -530,7 +552,7 @@
       if (href) media.href = href;
       else media.type = "button";
       if (img) {
-        media.innerHTML = `<img src="${img}" alt="" loading="lazy">`;
+        media.innerHTML = `<img src="${img}" alt="" loading="lazy" decoding="async">`;
       } else {
         media.classList.add("poster-placeholder");
       }

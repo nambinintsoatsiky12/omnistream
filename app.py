@@ -159,11 +159,28 @@ BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
 # variante deux fois plus légère (≈ 3 Mo économisés par page de 20 cartes sur
 # un forfait mobile). Les grandes fiches gardent les definitions pleines.
 CARD_IMG_BASE = "https://image.tmdb.org/t/p/w342"
+# Une carte de téléphone mesure ~115 px de large (3 colonnes) : la w342 y est
+# gaspillée. Les deux variantes partent dans un `srcset` et c'est le
+# navigateur qui tranche selon la place réelle et la densité de l'écran.
+CARD_IMG_SMALL_BASE = "https://image.tmdb.org/t/p/w154"
+# Place réellement occupée par une affiche, exprimée comme la grille la calcule
+# (3 colonnes sous 480 px, 4 jusqu'à 768 px, puis ~200 px). C'est cette valeur
+# qui permet au navigateur de descendre sur la w154 au lieu de la w342.
+CARD_SIZES = (
+    "(max-width: 480px) calc((100vw - 44px) / 3), "
+    "(max-width: 768px) calc((100vw - 60px) / 4), 200px"
+)
 CARD_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
 # Fresque de l'accueil : les affiches y font ~180 px de large dans une colonne
 # animée. La variante w185 (≈ 15-25 Ko) suffit largement et divise par 4 la
-# facture Mo de la page d'accueil (32 affiches uniques).
+# facture Mo de la page d'accueil (24 affiches uniques, 6 par colonne).
 WALL_IMG_BASE = "https://image.tmdb.org/t/p/w185"
+# 4 colonnes × 6 affiches : c'est tout ce que la fresque montre. Chaque image
+# est doublée dans le gabarit pour la boucle de défilement, mais une affiche de
+# plus ne remplirait aucune case visible — seulement le forfait du visiteur.
+WALL_COLUMNS = 4
+WALL_PER_COLUMN = 6
+WALL_POSTER_COUNT = WALL_COLUMNS * WALL_PER_COLUMN
 
 WESTERN_ORIGINS = "US|GB|FR|CA|DE|ES|IT|BE"
 MAX_PAGES = 25
@@ -176,39 +193,42 @@ MANGADEX_UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Affiches de secours de la fresque, quand TMDB ne répond pas. Elles sont en
+# w185 comme le reste du mur : une page d'accueil en panne d'API n'a aucune
+# raison de coûter plus cher en Mo qu'une page qui marche.
 _FALLBACK_POSTERS = [
-    "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
-    "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
-    "https://image.tmdb.org/t/p/w500/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
-    "https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
-    "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
-    "https://image.tmdb.org/t/p/w500/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
-    "https://image.tmdb.org/t/p/w500/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg",
-    "https://image.tmdb.org/t/p/w500/fqL8TuhvC3B00q9jV22Yq0Cswv9.jpg",
-    "https://image.tmdb.org/t/p/w500/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
-    "https://image.tmdb.org/t/p/w500/fHpKWv1m46Z8a4WkE814e4hG4oV.jpg",
-    "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
-    "https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg",
-    "https://image.tmdb.org/t/p/w500/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
-    "https://image.tmdb.org/t/p/w500/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",
-    "https://image.tmdb.org/t/p/w500/ty8TGRuvJLPUmAR1H1nRIsgwvim.jpg",
-    "https://image.tmdb.org/t/p/w500/cMD9Ygz11VJbzAghURwe3ya69IR.jpg",
-    "https://image.tmdb.org/t/p/w500/q719jXXEzOoYaps6qFsP9llNGj.jpg",
-    "https://image.tmdb.org/t/p/w500/cMYCDADoLKLbB83g4WnJegaZimC.jpg",
-    "https://image.tmdb.org/t/p/w500/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg",
-    "https://image.tmdb.org/t/p/w500/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
-    "https://image.tmdb.org/t/p/w500/or06FN3Dka5tukK1e9sl16pB3iy.jpg",
-    "https://image.tmdb.org/t/p/w500/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg",
-    "https://image.tmdb.org/t/p/w500/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg",
-    "https://image.tmdb.org/t/p/w500/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg",
-    "https://image.tmdb.org/t/p/w500/6oom5QYQ2yQTMJIbnvbkBL9cDK6.jpg",
-    "https://image.tmdb.org/t/p/w500/wuMc08IPKEatf9rnMNX2IDx0qav.jpg",
-    "https://image.tmdb.org/t/p/w500/qNBAXBIQlnOThrVvA6mA2B5ggV6.jpg",
-    "https://image.tmdb.org/t/p/w500/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
-    "https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg",
-    "https://image.tmdb.org/t/p/w500/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
-    "https://image.tmdb.org/t/p/w500/A7dLx3U5d8o82mKkK4gY12X1yX1.jpg",
-    "https://image.tmdb.org/t/p/w500/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg",
+    "https://image.tmdb.org/t/p/w185/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+    "https://image.tmdb.org/t/p/w185/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
+    "https://image.tmdb.org/t/p/w185/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
+    "https://image.tmdb.org/t/p/w185/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+    "https://image.tmdb.org/t/p/w185/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+    "https://image.tmdb.org/t/p/w185/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
+    "https://image.tmdb.org/t/p/w185/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg",
+    "https://image.tmdb.org/t/p/w185/fqL8TuhvC3B00q9jV22Yq0Cswv9.jpg",
+    "https://image.tmdb.org/t/p/w185/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
+    "https://image.tmdb.org/t/p/w185/fHpKWv1m46Z8a4WkE814e4hG4oV.jpg",
+    "https://image.tmdb.org/t/p/w185/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+    "https://image.tmdb.org/t/p/w185/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg",
+    "https://image.tmdb.org/t/p/w185/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg",
+    "https://image.tmdb.org/t/p/w185/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg",
+    "https://image.tmdb.org/t/p/w185/ty8TGRuvJLPUmAR1H1nRIsgwvim.jpg",
+    "https://image.tmdb.org/t/p/w185/cMD9Ygz11VJbzAghURwe3ya69IR.jpg",
+    "https://image.tmdb.org/t/p/w185/q719jXXEzOoYaps6qFsP9llNGj.jpg",
+    "https://image.tmdb.org/t/p/w185/cMYCDADoLKLbB83g4WnJegaZimC.jpg",
+    "https://image.tmdb.org/t/p/w185/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg",
+    "https://image.tmdb.org/t/p/w185/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
+    "https://image.tmdb.org/t/p/w185/or06FN3Dka5tukK1e9sl16pB3iy.jpg",
+    "https://image.tmdb.org/t/p/w185/edv5CZvWj09upOsy2Y6IwDhK8bt.jpg",
+    "https://image.tmdb.org/t/p/w185/7WsyChQLEftFiDOVTGkv3hFpyyt.jpg",
+    "https://image.tmdb.org/t/p/w185/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg",
+    "https://image.tmdb.org/t/p/w185/6oom5QYQ2yQTMJIbnvbkBL9cDK6.jpg",
+    "https://image.tmdb.org/t/p/w185/wuMc08IPKEatf9rnMNX2IDx0qav.jpg",
+    "https://image.tmdb.org/t/p/w185/qNBAXBIQlnOThrVvA6mA2B5ggV6.jpg",
+    "https://image.tmdb.org/t/p/w185/kDp1vUBnMpe8ak4rjgl3cLELqjU.jpg",
+    "https://image.tmdb.org/t/p/w185/74xTEgt7R36Fpooo50r9T25onhq.jpg",
+    "https://image.tmdb.org/t/p/w185/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
+    "https://image.tmdb.org/t/p/w185/A7dLx3U5d8o82mKkK4gY12X1yX1.jpg",
+    "https://image.tmdb.org/t/p/w185/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg",
 ]
 
 _LANDING_NEWS_ARTICLES = [
@@ -332,7 +352,7 @@ def template_promotional_context():
 @app.context_processor
 def template_asset_context():
     """Versionne les assets statiques : finis les CSS/JS périmés sur mobile."""
-    return {"asset_version": ASSET_VERSION}
+    return {"asset_version": ASSET_VERSION, "poster_sizes": CARD_SIZES}
 
 
 @app.context_processor
@@ -362,6 +382,34 @@ def add_security_headers(response):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault(
         "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+    )
+    return response
+
+
+# L'accueil et l'espace Musique sont les deux portes d'entrée : leur contenu
+# bouge à l'échelle de la journée, pas de la seconde. Vingt-cinq secondes de
+# cache évitent de repayer les appels TMDB à chaque aller-retour, sans jamais
+# servir un catalogue franchement périmé.
+PAGE_CACHE_CONTROL = "public, max-age=25"
+CACHED_PAGE_ENDPOINTS = {"index", "musiques"}
+# La navigation interne (app-shell.js) récupère le HTML par `fetch` pour ne pas
+# couper la lecture en cours : sa réponse n'est pas affichée telle quelle et le
+# Service Worker ne la range pas dans son cache de pages. La garder 25 s
+# afficherait une page en retard sur l'onglet demandé — elle est donc exclue.
+PJAX_HEADER = "X-Requested-With"
+PJAX_HEADER_VALUE = "omni-pjax"
+
+
+def _is_internal_navigation():
+    return request.headers.get(PJAX_HEADER, "") == PJAX_HEADER_VALUE
+
+
+@app.after_request
+def add_page_cache(response):
+    if request.endpoint not in CACHED_PAGE_ENDPOINTS or response.status_code != 200:
+        return response
+    response.headers["Cache-Control"] = (
+        "no-store" if _is_internal_navigation() else PAGE_CACHE_CONTROL
     )
     return response
 
@@ -586,6 +634,9 @@ def normalize_card(item, media_type):
         "date": date,
         "rating": _rating(item.get("vote_average")),
         "poster": _tmdb_image_url(CARD_IMG_BASE, item.get("poster_path")),
+        # Même affiche en w154 : les grilles de téléphone n'affichent pas plus
+        # large, et c'est le navigateur qui choisit via `srcset`.
+        "poster_small": _tmdb_image_url(CARD_IMG_SMALL_BASE, item.get("poster_path")),
         "backdrop": _tmdb_image_url(CARD_BACKDROP_BASE, item.get("backdrop_path")),
         "overview": str(item.get("overview") or ""),
         "original_language": item.get("original_language"),
@@ -778,16 +829,21 @@ def index():
         except UpstreamServiceError as error:
             app.logger.info("Données TMDB indisponibles : %s", error)
 
-        # Garantir au moins 32 affiches pour la fresque d'arrière-plan
-        if len(posters) < 32:
+        # La fresque tient en 4 colonnes de 6 affiches : 24 images uniques
+        # suffisent, chacune étant de toute façon doublée pour la boucle de
+        # défilement. Charger plus ne remplirait aucune case visible.
+        if len(posters) < WALL_POSTER_COUNT:
             posters = posters + [p for p in _FALLBACK_POSTERS if p not in posters]
-            if len(posters) < 32:
-                posters = (posters * 4)[:32]
+            if len(posters) < WALL_POSTER_COUNT:
+                posters = (posters * 4)[:WALL_POSTER_COUNT]
+        posters = posters[:WALL_POSTER_COUNT]
 
         return render_template(
             "landing.html",
             visits=visits,
             posters=posters,
+            wall_columns=WALL_COLUMNS,
+            wall_per_column=WALL_PER_COLUMN,
             news_articles=_LANDING_NEWS_ARTICLES,
             landing_page=True,
         )

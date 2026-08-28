@@ -11,7 +11,12 @@
     {% for item in items %}
       <a class="card" href="{{ url_for('details', media_type=item.media_type, item_id=item.id, tab=tab) }}">
         <div class="poster">
-          <img class="poster-img" src="{{ item.poster }}" alt="Affiche de {{ item.title }}" loading="lazy">
+          {# Deux variantes d'affiche : le navigateur prend la w154 pour une
+             carte de téléphone (~115 px) et ne monte à la w342 que si la carte
+             est réellement plus grande. `decoding="async"` sort le décodage du
+             fil principal, qui doit rester libre pour le défilement. #}
+          <img class="poster-img" src="{{ item.poster }}" alt="Affiche de {{ item.title }}" loading="lazy" decoding="async"
+               {% if item.poster and item.poster_small %}srcset="{{ item.poster_small }} 154w, {{ item.poster }} 342w" sizes="{{ poster_sizes }}"{% endif %}>
           <span class="quality-tag">HD · VF</span>
           <span class="rating-badge">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>
