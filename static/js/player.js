@@ -413,6 +413,14 @@
       });
     }
 
+    // Minuteur de sommeil
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-sleep]");
+      if (!b) return;
+      const mins = Number(b.dataset.sleep);
+      setSleepTimer(mins);
+    });
+
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         const overlay = document.getElementById("global-video-overlay");
@@ -422,12 +430,62 @@
     });
   }
 
+  // --- Minuteur de sommeil -------------------------------------------------
+  const sleep = { timer: null, deadline: 0, tick: null };
+
+  function setSleepTimer(minutes) {
+    clearSleepTimer();
+    if (!minutes || minutes <= 0) {
+      updateSleepUi();
+      return;
+    }
+    sleep.deadline = Date.now() + minutes * 60 * 1000;
+    sleep.timer = window.setTimeout(() => {
+      pause();
+      clearSleepTimer();
+    }, minutes * 60 * 1000);
+    sleep.tick = window.setInterval(updateSleepUi, 1000);
+    updateSleepUi();
+  }
+
+  function clearSleepTimer() {
+    if (sleep.timer) window.clearTimeout(sleep.timer);
+    if (sleep.tick) window.clearInterval(sleep.tick);
+    sleep.timer = null;
+    sleep.tick = null;
+    sleep.deadline = 0;
+    updateSleepUi();
+  }
+
+  function updateSleepUi() {
+    const status = document.getElementById("omni-sleep-status");
+    const offBtn = document.querySelector(".omni-sleep-off");
+    const active = sleep.deadline > Date.now();
+    if (offBtn) offBtn.hidden = !active;
+    document.querySelectorAll(".omni-sleep-btn[data-sleep]").forEach((b) => {
+      if (b.dataset.sleep !== "0") b.classList.remove("active");
+    });
+    if (status) {
+      if (active) {
+        const remaining = Math.max(0, sleep.deadline - Date.now());
+        const m = Math.floor(remaining / 60000);
+        const s = Math.floor((remaining % 60000) / 1000);
+        status.hidden = false;
+        status.textContent =
+          "La lecture s'arrêtera dans " + m + " min " + (s < 10 ? "0" : "") + s + "s";
+      } else {
+        status.hidden = true;
+      }
+    }
+  }
+
   function openModal() {
     const modal = document.getElementById("omni-audio-modal");
     if (modal && state.current) {
       modal.classList.add("open");
       modal.setAttribute("aria-hidden", "false");
       document.body.style.overflow = "hidden";
+      updateSleepUi();
     }
   }
   function closeModal() {
@@ -467,6 +525,8 @@
     setQueue,
     next: playNextInQueue,
     prev: playPrevInQueue,
+    setSleepTimer,
+    clearSleepTimer,
     getCurrent: () => state.current,
     isPlaying: () => state.playing,
   };

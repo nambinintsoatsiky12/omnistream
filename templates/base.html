@@ -233,6 +233,10 @@
   </div>
 
   <div class="drawer-footer">
+    <button type="button" class="drawer-install-btn" data-pwa-install hidden>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      <span>Installer l'application</span>
+    </button>
     <div class="drawer-credits">
       <span>OmniStream · Plateforme Libre &amp; Publique</span>
       <small>Conçu par NAMBININTSOA Tsiky Fandresena</small>
@@ -323,6 +327,20 @@
         <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L5.5 6v12z"/></svg>
       </button>
     </div>
+
+    <!-- Minuteur de sommeil -->
+    <div class="omni-sleep-row" id="omni-sleep-row">
+      <span class="omni-sleep-label">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>
+        Minuteur
+      </span>
+      <button type="button" class="omni-sleep-btn" data-sleep="15">15 min</button>
+      <button type="button" class="omni-sleep-btn" data-sleep="30">30 min</button>
+      <button type="button" class="omni-sleep-btn" data-sleep="60">1 h</button>
+      <button type="button" class="omni-sleep-btn omni-sleep-off" data-sleep="0" hidden>Annuler</button>
+    </div>
+    <div class="omni-sleep-status" id="omni-sleep-status" hidden></div>
+
     <button type="button" class="omni-modal-stop" data-omni-action="stop">Arrêter la lecture</button>
   </div>
 </div>
@@ -536,9 +554,9 @@
 })();
 </script>
 
-<script src="{{ url_for('static', filename='js/player.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/player.js') }}?v=2"></script>
 <script src="{{ url_for('static', filename='js/library.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename='js/app-shell.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/app-shell.js') }}?v=2"></script>
 <div id="page-scripts">
 {% block scripts %}{% endblock %}
 </div>

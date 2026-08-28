@@ -74,6 +74,39 @@
     refreshFav();
   }
 
+  // --- Partager ------------------------------------------------------------
+  const shareBtn = document.getElementById("share-btn");
+  const shareLabel = document.getElementById("share-label");
+  if (shareBtn) {
+    shareBtn.addEventListener("click", async () => {
+      const shareData = {
+        title: item.title + " — OmniStream",
+        text: "Regarde « " + item.title + " » sur OmniStream",
+        url: location.href,
+      };
+      if (navigator.share) {
+        try {
+          await navigator.share(shareData);
+        } catch (_e) {
+          /* partage annulé */
+        }
+      } else if (navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(location.href);
+          if (shareLabel) {
+            const prev = shareLabel.textContent;
+            shareLabel.textContent = "Lien copié ✓";
+            setTimeout(() => {
+              shareLabel.textContent = prev;
+            }, 1800);
+          }
+        } catch (_e) {
+          /* presse-papier indisponible */
+        }
+      }
+    });
+  }
+
   // --- Hors ligne ----------------------------------------------------------
   const offBtn = document.getElementById("offline-btn");
   const offLabel = document.getElementById("offline-label");

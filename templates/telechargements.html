@@ -31,13 +31,13 @@
       <button type="button" class="library-clear" id="clear-cache-btn">Vider le cache</button>
     </div>
     <div class="saver-stats" id="saver-stats">
+      <div class="saver-stat saver-stat-highlight">
+        <span class="saver-stat-val" id="stat-saved">0 Ko</span>
+        <span class="saver-stat-lbl">Données économisées</span>
+      </div>
       <div class="saver-stat">
         <span class="saver-stat-val" id="stat-offline">0</span>
         <span class="saver-stat-lbl">Éléments épinglés</span>
-      </div>
-      <div class="saver-stat">
-        <span class="saver-stat-val" id="stat-cache">—</span>
-        <span class="saver-stat-lbl">Cache utilisé</span>
       </div>
       <div class="saver-stat">
         <span class="saver-stat-val" id="stat-imgs">0</span>
@@ -75,5 +75,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/downloads.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/downloads.js') }}?v=2"></script>
 {% endblock %}

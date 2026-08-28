@@ -4123,8 +4123,25 @@ main:has(.landing-hero-ua),
   .bottom-nav { display: flex; }
   body { padding-bottom: calc(var(--bottom-nav-h, 64px) + env(safe-area-inset-bottom, 0)); }
   .site-footer { margin-bottom: var(--bottom-nav-h, 64px); }
+
+  /* Le cadeau flottant remonte au-dessus de la barre de navigation basse
+     pour ne jamais chevaucher la nav ni la barre audio. */
+  .sponsor-gift {
+    bottom: calc(var(--bottom-nav-h, 64px) + env(safe-area-inset-bottom, 0) + 14px);
+    left: 12px;
+    padding: 7px 12px;
+  }
 }
 body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255,255,255,0.04); }
+
+/* Quand la barre audio est visible, on décale encore le cadeau au-dessus
+   d'elle (elle est ancrée juste au-dessus de la nav basse). */
+body.has-audio-bar .sponsor-gift {
+  bottom: calc(var(--bottom-nav-h, 64px) + env(safe-area-inset-bottom, 0) + 84px);
+}
+@media (min-width: 901px) {
+  body.has-audio-bar .sponsor-gift { bottom: 94px; }
+}
 
 @media (min-width: 901px) {
   .omni-audio-bar { bottom: 18px; }
@@ -4143,3 +4160,144 @@ body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255,255,255,0.04); }
   .omni-bar-controls .omni-ctrl:first-child,
   .omni-bar-controls .omni-ctrl:nth-child(3) { display: none; }
 }
+
+/* --- Minuteur de sommeil (lecteur agrandi) --- */
+.omni-sleep-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 18px;
+}
+.omni-sleep-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+.omni-sleep-btn {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.omni-sleep-btn:hover { border-color: var(--border-hover); color: #fff; }
+.omni-sleep-btn.active { background: var(--gradient); color: #fff; border-color: transparent; }
+.omni-sleep-off { color: var(--accent-red); border-color: rgba(224, 83, 83, 0.4); }
+.omni-sleep-status {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* --- Rangée « Reprendre » (catalogue) --- */
+.resume-row { margin: 6px 0 26px; }
+.resume-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.resume-head h2 { font-size: 1.25rem; color: var(--text-bright); }
+.resume-seeall {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.resume-scroller {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+}
+.resume-scroller::-webkit-scrollbar { display: none; }
+.resume-card {
+  flex: 0 0 130px;
+  scroll-snap-align: start;
+}
+.resume-poster {
+  position: relative;
+  display: block;
+  width: 130px;
+  aspect-ratio: 2/3;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+.resume-poster img { width: 100%; height: 100%; object-fit: cover; }
+.resume-play {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--gradient);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px var(--glow-accent);
+}
+.resume-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #fff;
+  background: rgba(6, 8, 12, 0.7);
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+.resume-title {
+  margin-top: 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Bouton installer dans le menu --- */
+.drawer-install-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 16px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: var(--gradient);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.86rem;
+  cursor: pointer;
+  box-shadow: 0 8px 20px var(--glow-accent);
+}
+.drawer-install-btn:hover { transform: translateY(-2px); }
+
+/* --- Mise en avant de la stat économie --- */
+.saver-stat-highlight {
+  background: linear-gradient(135deg, rgba(56,189,248,0.12), rgba(255,122,46,0.1));
+  border-color: rgba(56, 189, 248, 0.3);
+}
+.saver-stat-highlight .saver-stat-val { color: var(--accent-cyan); }

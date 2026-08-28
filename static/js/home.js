@@ -446,7 +446,62 @@
     });
   }
 
+  function renderResumeRow() {
+    const row = document.getElementById("resume-row");
+    const scroller = document.getElementById("resume-scroller");
+    if (!row || !scroller || !window.OmniLibrary) return;
+    const items = window.OmniLibrary.getContinue().slice(0, 15);
+    if (!items.length) {
+      row.hidden = true;
+      return;
+    }
+    const cards = items.map((item) => {
+      const card = document.createElement("div");
+      card.className = "resume-card";
+      const img = safeImageUrl(item.poster || item.thumbnail);
+      const isMusic = item.type === "music";
+      const href = isMusic
+        ? null
+        : (["movie", "tv"].includes(item.media_type) && item.id
+            ? `/details/${item.media_type}/${item.id}?tab=${encodeURIComponent(item.tab || tab)}`
+            : null);
+
+      const media = document.createElement(href ? "a" : "button");
+      media.className = "resume-poster";
+      if (href) media.href = href;
+      else media.type = "button";
+      if (img) {
+        media.innerHTML = `<img src="${img}" alt="" loading="lazy">`;
+      } else {
+        media.classList.add("poster-placeholder");
+      }
+      const play = document.createElement("span");
+      play.className = "resume-play";
+      play.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+      media.appendChild(play);
+      if (isMusic) {
+        media.addEventListener("click", () => {
+          if (window.OmniPlayer) window.OmniPlayer.play(item, "audio");
+        });
+        const tag = document.createElement("span");
+        tag.className = "resume-tag";
+        tag.textContent = "MP3";
+        media.appendChild(tag);
+      }
+
+      const t = document.createElement("div");
+      t.className = "resume-title";
+      t.textContent = item.title || "Sans titre";
+      card.append(media, t);
+      return card;
+    });
+    scroller.replaceChildren(...cards);
+    row.hidden = false;
+  }
+
   loadHero();
   loadPills();
   loadMore();
+  renderResumeRow();
+  document.addEventListener("omni:library-change", renderResumeRow);
 })();

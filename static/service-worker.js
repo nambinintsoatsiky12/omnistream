@@ -88,13 +88,32 @@ function isStaticAsset(url) {
 async function cacheFirst(request, cacheName, limit) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  if (cached) return cached;
+  if (cached) {
+    // Chaque ressource servie depuis le cache = données NON re-téléchargées.
+    reportSaved(cached);
+    return cached;
+  }
   const response = await fetch(request);
   if (response && response.ok && response.type !== "opaque") {
     cache.put(request, response.clone());
     if (limit) trimCache(cacheName, limit);
   }
   return response;
+}
+
+// Estime les octets économisés (taille du contenu servi depuis le cache) et
+// prévient les pages ouvertes pour mettre à jour le compteur.
+async function reportSaved(response) {
+  try {
+    const len = Number(response.headers.get("content-length")) || 0;
+    if (!len) return;
+    const clients = await self.clients.matchAll({ type: "window" });
+    clients.forEach((client) =>
+      client.postMessage({ type: "omni-saved-bytes", bytes: len }),
+    );
+  } catch (_e) {
+    /* noop */
+  }
 }
 
 // Stratégie « réseau d'abord, cache en secours » : pour les pages HTML afin

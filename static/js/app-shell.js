@@ -19,6 +19,19 @@
         .register("/service-worker.js", { scope: "/" })
         .catch((err) => console.warn("SW non enregistré :", err));
     });
+
+    // Cumule les octets économisés grâce au cache (données non re-téléchargées).
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      const data = event.data || {};
+      if (data.type !== "omni-saved-bytes" || !data.bytes) return;
+      try {
+        const prev = Number(localStorage.getItem("omni:saved-bytes") || "0");
+        localStorage.setItem("omni:saved-bytes", String(prev + data.bytes));
+        document.dispatchEvent(new CustomEvent("omni:saved-bytes-change"));
+      } catch (_e) {
+        /* noop */
+      }
+    });
   }
 
   /* =========================================================

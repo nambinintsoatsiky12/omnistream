@@ -99,16 +99,16 @@
     const statOffline = document.getElementById("stat-offline");
     if (statOffline) statOffline.textContent = String(offline.length);
 
-    // Estimation du stockage
-    const statCache = document.getElementById("stat-cache");
-    if (statCache && navigator.storage && navigator.storage.estimate) {
+    // Données économisées grâce au cache
+    const statSaved = document.getElementById("stat-saved");
+    if (statSaved) {
+      let saved = 0;
       try {
-        const est = await navigator.storage.estimate();
-        const used = est.usage || 0;
-        statCache.textContent = formatBytes(used);
+        saved = Number(localStorage.getItem("omni:saved-bytes") || "0");
       } catch (_e) {
-        statCache.textContent = "—";
+        saved = 0;
       }
+      statSaved.textContent = formatBytes(saved);
     }
 
     // Nombre d'images en cache
@@ -161,6 +161,8 @@
       render();
     });
   });
+
+  document.addEventListener("omni:saved-bytes-change", updateStats);
 
   render();
 })();
