@@ -67,7 +67,14 @@
     dragging: false,
   };
 
-  const keepAlive = { ctx: null, gain: null, osc: null };
+  // Maintien de la lecture en arrière-plan. Sur Android, c'est l'élément
+  // <audio> réel, rattaché au DOM, qui garde la session audio vivante écran
+  // éteint : aucun artefact (oscillateur silencieux) n'est nécessaire et ne
+  // risque de voler le focus audio. `keepAlive.active` mémoire simplement
+  // l'état, et `system` pilote la reprise automatique après une coupure de
+  // l'OS (perte de focus, écran éteint).
+  const keepAlive = { active: false };
+  const system = { suppressAutoResume: false, resumeAttempts: 0 };
 
   // Transport audio seul (élément <audio> natif + flux audio YouTube).
   const audioT = {
@@ -122,6 +129,24 @@
     } catch (_error) {
       /* noop */
     }
+  }
+
+  // La cause la plus fréquente d'une coupure à l'extinction de l'écran est
+  // l'optimisation de la batterie du téléphone, pas le code. On l'explique
+  // une seule fois (par appareil), sans être intrusif.
+  function maybeShowBackgroundAudioTip() {
+    try {
+      if (window.localStorage.getItem("omni:bg-audio-tip")) return;
+      window.localStorage.setItem("omni:bg-audio-tip", "1");
+    } catch (_error) {
+      return;
+    }
+    window.setTimeout(() => {
+      toast(
+        "Si la musique se coupe écran éteint : Réglages > Applications > OmniStream > Batterie > « Illimitée ».",
+        "info",
+      );
+    }, 1600);
   }
 
   /* ================================================================== *
@@ -373,6 +398,21 @@
     return null;
   }
 
+  // Hôte discret rattaché au <body> : un <audio> présent dans le DOM garde sa
+  // session audio active sur Android (et donc la lecture continue écran
+  // éteint), contrairement à un élément flottant créé par `new Audio()`.
+  function ensureAudioHost() {
+    let host = document.getElementById("omni-audio-host");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "omni-audio-host";
+      host.hidden = true;
+      host.setAttribute("aria-hidden", "true");
+      document.body.appendChild(host);
+    }
+    return host;
+  }
+
   function ensureAudioElement() {
     if (audioT.el) return audioT.el;
     const el = new Audio();
@@ -382,6 +422,13 @@
     el.addEventListener("pause", () => {
       if (state.status !== "error" && state.status !== "offline") setStatus("paused");
       saveResumePoint();
+      // Pause NON volontaire alors que l'écran est éteint : l'OS (perte de
+      // focus audio, gestion de la batterie) vient de couper le son. On tente
+      // une reprise automatique bornée — jamais après une pause utilisateur
+      // ou la minuterie de sommeil (system.suppressAutoResume).
+      if (document.hidden && !system.suppressAutoResume && state.status === "paused") {
+        scheduleBackgroundResume();
+      }
     });
     el.addEventListener("ended", () => {
       localRemoveResume();
@@ -405,6 +452,13 @@
         }
       }
     });
+    // Rattachement au DOM : condition indispensable pour que le navigateur
+    // reconnaisse une vraie lecture média et la maintienne écran éteint.
+    try {
+      ensureAudioHost().appendChild(el);
+    } catch (_error) {
+      /* le DOM peut manquer pendant le préchargement : sans gravité */
+    }
     audioT.el = el;
     return el;
   }
@@ -418,6 +472,8 @@
   }
 
   function stopAudioTransport() {
+    // Arrêt volontaire : aucune reprise automatique ne doit suivre.
+    system.suppressAutoResume = true;
     if (audioT.abort) {
       try {
         audioT.abort.abort();
@@ -605,6 +661,9 @@
   function play(track, mode) {
     if (!track || !isValidId(track.id)) return;
     if (mode === "video" || mode === "audio") state.mode = mode;
+    // Nouvelle lecture : on réarme la reprise automatique et le compteur.
+    system.suppressAutoResume = false;
+    system.resumeAttempts = 0;
     state.current = {
       id: String(track.id),
       title: String(track.title || "Lecture en cours"),
@@ -623,6 +682,7 @@
     }
     state.waitingNetwork = false;
     startStream();
+    maybeShowBackgroundAudioTip();
   }
 
   // Démarre (ou redémarre) le flux du morceau courant.
@@ -753,6 +813,9 @@
    * Transport
    * ================================================================== */
   function pause() {
+    // Pause volontaire (bouton, minuterie de sommeil, touche du clavier) :
+    // la reprise automatique doit rester inactive tant qu'on n'a pas relancé.
+    system.suppressAutoResume = true;
     if (state.transport === "audio") {
       if (audioT.el && !audioT.el.paused) {
         try {
@@ -784,6 +847,9 @@
   }
 
   function resume() {
+    // Reprise explicite : on réarme la reprise automatique pour la prochaine
+    // coupure éventuelle de l'OS.
+    system.suppressAutoResume = false;
     if (isOffline()) {
       state.waitingNetwork = true;
       setStatus("offline", "Hors ligne — lecture dès le retour du réseau.");
@@ -1435,39 +1501,50 @@
   }
 
   // Une page masquée avec un simple <iframe> est parfois suspendue par
-  // Android. Un minuteur audio silencieux garde la session audio éveillée
-  // sans consommer de données ; il se met en veille dès la pause.
+  // Android. Ici le « gardien » est l'élément <audio> réel, rattaché au DOM
+  // et en cours de lecture : c'est lui, avec l'état MediaSession réaffirmé,
+  // qui garde la session audio éveillée sans aucun artefact sonore. On ne
+  // crée surtout pas d'oscillateur silencieux : sur Chrome Android moderne
+  // il n'empêche rien et peut perturber le focus audio.
   function startKeepAlive() {
     if (!document.hidden) {
       stopKeepAlive(); // inutile onglet visible
       return;
     }
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      if (!keepAlive.ctx) {
-        keepAlive.ctx = new Ctx();
-        keepAlive.gain = keepAlive.ctx.createGain();
-        keepAlive.gain.gain.value = 0.0001; // inaudible (-80 dB)
-        keepAlive.osc = keepAlive.ctx.createOscillator();
-        keepAlive.osc.type = "sine";
-        keepAlive.osc.frequency.value = 40;
-        keepAlive.osc.connect(keepAlive.gain);
-        keepAlive.gain.connect(keepAlive.ctx.destination);
-        keepAlive.osc.start(0);
+    keepAlive.active = true;
+    // Réaffirme que le lecteur est en lecture : Chrome conserve ainsi la
+    // session média d'une PWA installée (lecture continue écran éteint).
+    setMediaSessionState("playing");
+    if (audioT.el && !audioT.el.parentNode) {
+      try {
+        ensureAudioHost().appendChild(audioT.el);
+      } catch (_error) {
+        /* noop */
       }
-      if (keepAlive.ctx.state === "suspended") keepAlive.ctx.resume();
-    } catch (_error) {
-      /* AudioContext indisponible */
     }
   }
 
   function stopKeepAlive() {
-    try {
-      if (keepAlive.ctx && keepAlive.ctx.state === "running") keepAlive.ctx.suspend();
-    } catch (_error) {
-      /* noop */
-    }
+    keepAlive.active = false;
+  }
+
+  // Reprise automatique après une coupure de l'OS (écran éteint, perte
+  // temporaire de focus audio). Tentatives bornées et espacées pour ne pas
+  // créer de boucle ; si le navigateur refuse, la reprise se fera au retour
+  // de l'écran (voir visibilitychange).
+  function scheduleBackgroundResume() {
+    if (system.resumeAttempts >= 6) return;
+    system.resumeAttempts += 1;
+    window.setTimeout(() => {
+      if (!document.hidden || system.suppressAutoResume || !state.current) return;
+      if (state.status !== "playing" && state.status !== "paused") return;
+      const el = audioT.el;
+      if (!el || !el.paused || !el.src) return;
+      el.play().catch(() => {
+        /* Chrome peut refuser la reprise en arrière-plan : on la laisse au
+           réveil de l'écran, le son n'est pas perdu pour autant. */
+      });
+    }, 1200);
   }
 
   // Re-synchronise l'interface après un retour d'onglet : l'événement
@@ -1685,7 +1762,20 @@
       }
       if (wake.wanted) applyWakeLock();
       stopKeepAlive();
+      system.resumeAttempts = 0; // nouveau cycle de reprise possible
       if (state.status === "playing" || state.status === "paused") {
+        // L'OS a pu couper le son pendant que l'écran était éteint : dès le
+        // retour, on relance le flux si le lecteur est censé jouer.
+        if (state.status === "playing" && state.transport === "audio") {
+          const el = audioT.el;
+          if (el && el.paused && el.src) {
+            try {
+              el.play();
+            } catch (_error) {
+              /* noop */
+            }
+          }
+        }
         if (state.status === "playing") startProgress();
         tick();
         setMediaSessionState(state.status === "playing" ? "playing" : "paused");
