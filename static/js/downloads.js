@@ -169,7 +169,7 @@
       if (cacheSize) cacheSize.textContent = formatBytes(bytes);
     } else {
       try {
-        const cache = await caches.open("omnistream-v3-images");
+        const cache = await caches.open("omnistream-offline");
         set("stat-imgs", String((await cache.keys()).length));
       } catch (_error) {
         set("stat-imgs", "0");

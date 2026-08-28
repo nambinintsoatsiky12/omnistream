@@ -18,12 +18,14 @@ from urllib.parse import quote, urlsplit
 import requests
 from flask import (
     Flask,
+    Response,
     abort,
     jsonify,
     render_template,
     request,
     send_from_directory,
     session,
+    stream_with_context,
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -1602,6 +1604,300 @@ def _format_youtube_items(raw_items, id_is_object):
             }
         )
     return items
+
+
+# ---------------------------------------------------------------------------
+# MP3 libres — Internet Archive
+# ---------------------------------------------------------------------------
+# YouTube interdit de récupérer ses flux : c'est pour cela que le « MP3 » du
+# mode économiseur dépendait d'instances Piped/Invidious publiques, toujours
+# disponibles un jour et muettes le lendemain — et qu'une lecture qui retombe
+# sur l'iframe YouTube se coupe dès que l'écran s'éteint (le lecteur YouTube se
+# met en pause lui-même, et ses conditions l'interdisent).
+#
+# Cette source est différente : des fichiers MP3 réels, publiés sous licence de
+# copie par des phonothèques ouvertes (concerts « etree », netlabels, Free
+# Music Archive…). Un vrai fichier veut dire : lecture par l'élément <audio> du
+# navigateur (donc lecture qui SURVIT à l'écran éteint et au verrouillage) et
+# téléchargement légal sur le téléphone, écoutable sans un seul Mo de forfait.
+# L'API d'Internet Archive ne demande ni clé ni compte.
+ARCHIVE_SEARCH_URL = "https://archive.org/advancedsearch.php"
+ARCHIVE_METADATA_URL = "https://archive.org/metadata/{identifier}"
+ARCHIVE_FILE_URL = "https://archive.org/download/{identifier}/{name}"
+ARCHIVE_THUMB_URL = "https://archive.org/services/img/{identifier}"
+MP3_COLLECTIONS = ("etree", "netlabels", "audio_music", "fma", "live_music_archive")
+MP3_MAX_BYTES = 80 * 1024 * 1024  # 80 Mo : au-delà, ce n'est plus un morceau
+MP3_PER_ITEM = 12  # pistes retenues par album/concert
+MP3_TOTAL = 30  # pistes retenues par réponse
+ARCHIVE_IDENTIFIER_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._+~-]{0,199}\Z")
+ARCHIVE_FILE_RE = re.compile(
+    r"\A[A-Za-z0-9][A-Za-z0-9()\[\].,_ +-]{0,199}\.mp3\Z", re.IGNORECASE
+)
+ARCHIVE_WORD_RE = re.compile(r"[0-9A-Za-zÀ-ÿ'’-]{1,40}")
+
+
+def _archive_query(raw):
+    """Requête sûre pour le moteur d'Archive : des mots, rien d'autre.
+
+    Les guillemets, parenthèses et opérateurs booléens sont retirés : un
+    internaute qui tape « AC/DC » ou « (live) » ne doit pas pouvoir modifier la
+    syntaxe du moteur de recherche.
+    """
+    words = ARCHIVE_WORD_RE.findall(str(raw or ""))[:8]
+    if not words:
+        return ""
+    return " AND ".join(
+        f'(title:"{word}" OR creator:"{word}" OR text:"{word}")' for word in words
+    )
+
+
+def _archive_number(value, cast=float, default=0):
+    try:
+        return cast(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _archive_json(url, params=None, timeout=12):
+    """GET JSON tolérant aux pannes, avec des messages compréhensibles."""
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "OmniStream/1.0 (lecture hors ligne)",
+            },
+            timeout=timeout,
+        )
+    except requests.Timeout as exc:
+        raise UpstreamServiceError(
+            "Internet Archive met trop de temps à répondre.", 504
+        ) from exc
+    except requests.RequestException as exc:
+        raise UpstreamServiceError(
+            "Internet Archive est temporairement indisponible.", 502
+        ) from exc
+    if response.status_code in {429, 503, 509}:
+        raise UpstreamServiceError(
+            "Internet Archive limite les accès pour le moment. Réessayez "
+            "dans quelques minutes.",
+            503,
+        )
+    if response.status_code >= 400:
+        raise UpstreamServiceError("Internet Archive a refusé la requête.", 502)
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise UpstreamServiceError(
+            "Internet Archive a renvoyé une réponse invalide.", 502
+        ) from exc
+    if not isinstance(data, dict):
+        raise UpstreamServiceError(
+            "Internet Archive a renvoyé une réponse invalide.", 502
+        )
+    return data
+
+
+def _archive_search_items(query, page=1, rows=10):
+    """Identifiants des albums/concerts qui contiennent des MP3."""
+    collection = " OR ".join(MP3_COLLECTIONS)
+    expression = f"mediatype:(audio) AND collection:({collection}) AND format:MP3"
+    wanted = _archive_query(query)
+    params = {
+        "q": f"{expression} AND {wanted}" if wanted else expression,
+        "fl[]": ["identifier", "title", "creator", "year", "downloads"],
+        "rows": rows,
+        "page": page,
+        "output": "json",
+    }
+    params["sort[]"] = "downloads desc" if not wanted else "score desc"
+    data = _archive_json(ARCHIVE_SEARCH_URL, params)
+    docs = (data.get("response") or {}).get("docs") or []
+    return [doc for doc in docs if isinstance(doc, dict) and doc.get("identifier")]
+
+
+def _archive_first(value):
+    if isinstance(value, list):
+        return str(value[0] if value else "")
+    return str(value or "")
+
+
+def _archive_item_tracks(doc):
+    """Les pistes MP3 réellement téléchargeables d'un item Archive."""
+    identifier = str(doc.get("identifier") or "")
+    if not ARCHIVE_IDENTIFIER_RE.match(identifier):
+        return []
+    meta = _archive_json(ARCHIVE_METADATA_URL.format(identifier=identifier))
+    info = meta.get("metadata") or {}
+    if not isinstance(info, dict):
+        return []
+    # Un item « access-restricted » refuse le téléchargement : le proposer
+    # serait une fausse promesse (et un bouton qui ne marche pas).
+    if _archive_first(info.get("access-restricted-item")).lower() in {"true", "1"}:
+        return []
+    album = _archive_first(info.get("title") or doc.get("title")) or "Sans titre"
+    artist = _archive_first(info.get("creator") or doc.get("creator"))
+    license_url = _archive_first(info.get("licenseurl"))[:200]
+    tracks = []
+    for entry in meta.get("files") or []:
+        if not isinstance(entry, dict):
+            continue
+        if _archive_first(entry.get("private")).lower() in {"true", "1"}:
+            continue
+        name = str(entry.get("name") or "")
+        if not ARCHIVE_FILE_RE.match(name):
+            continue
+        if "MP3" not in str(entry.get("format") or "").upper():
+            continue
+        size = int(_archive_number(entry.get("size"), int, 0))
+        if size <= 0 or size > MP3_MAX_BYTES:
+            continue
+        # « length » est en secondes, parfois en mm:ss selon les imports.
+        raw_length = str(entry.get("length") or "").strip()
+        if ":" in raw_length:
+            parts = [
+                int(_archive_number(part, int, 0)) for part in raw_length.split(":")
+            ]
+            duration = 0
+            for part in parts:
+                duration = duration * 60 + part
+        else:
+            duration = int(_archive_number(raw_length, int, 0))
+        title = str(entry.get("title") or "").strip() or name.rsplit(".", 1)[0]
+        tracks.append(
+            {
+                "kind": "mp3",
+                "type": "music",
+                "id": f"ia:{identifier}#{name}",
+                "identifier": identifier,
+                "file": name,
+                "title": html.unescape(title)[:160],
+                "channel": html.unescape(
+                    _archive_first(entry.get("artist")) or artist or "Internet Archive"
+                )[:120],
+                "album": html.unescape(album)[:160],
+                "year": _archive_first(info.get("year") or doc.get("year"))[:8],
+                "duration": duration,
+                "size": size,
+                "thumbnail": ARCHIVE_THUMB_URL.format(identifier=identifier),
+                # Lecture : direct sur Internet Archive (aucun octet ne passe
+                # par le serveur, et l'élément <audio> n'a besoin d'aucun CORS).
+                "url": ARCHIVE_FILE_URL.format(identifier=identifier, name=quote(name)),
+                # Enregistrement : relais même-origin, seul moyen d'imposer le
+                # nom du fichier et donc un vrai « Télécharger ».
+                "download": f"/mp3/{identifier}/{quote(name)}?download=1",
+                "page": f"https://archive.org/details/{identifier}",
+                "license": license_url,
+            }
+        )
+        if len(tracks) >= MP3_PER_ITEM:
+            break
+    return tracks
+
+
+@app.route("/api/mp3")
+def mp3_library():
+    """Bibliothèque MP3 : tendances si « q » est vide, recherche sinon."""
+    query = _limited_arg("q", max_length=120)
+    try:
+        page = max(1, min(20, int(_limited_arg("page", "1", 6) or 1)))
+    except ValueError:
+        page = 1
+
+    cache_key = ("mp3", "search" if query else "trending", query.strip().lower(), page)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return jsonify({"items": cached, "source": "archive"})
+
+    docs = _archive_search_items(query, page=page)
+    if not docs:
+        return jsonify(
+            {"items": _cache_set(cache_key, [], ttl=300), "source": "archive"}
+        )
+
+    def _safe(doc):
+        try:
+            return _archive_item_tracks(doc)
+        except UpstreamServiceError:
+            # Un item capricieux ne doit pas vider la page entière.
+            return []
+
+    items = []
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        for tracks in executor.map(_safe, docs):
+            items.extend(tracks)
+    items = items[:MP3_TOTAL]
+    return jsonify(
+        {"items": _cache_set(cache_key, items, ttl=900), "source": "archive"}
+    )
+
+
+@app.get("/mp3/<identifier>/<name>")
+def mp3_file(identifier, name):
+    """Relais d'enregistrement : le fichier part avec son nom et son extension.
+
+    Sans ce relais, un lien cross-origin « download » est ignoré par le
+    navigateur et le MP3 s'ouvre dans un lecteur au lieu d'être rangé sur le
+    téléphone. La plage demandée (Range) est transmise telle quelle : un
+    téléchargement interrompu peut reprendre, et « <audio> » peut naviguer.
+    """
+    if not ARCHIVE_IDENTIFIER_RE.match(identifier) or not ARCHIVE_FILE_RE.match(name):
+        abort(404)
+    target = ARCHIVE_FILE_URL.format(identifier=identifier, name=quote(name))
+    headers = {"User-Agent": "OmniStream/1.0"}
+    range_header = request.headers.get("Range", "")
+    if range_header:
+        headers["Range"] = range_header
+    try:
+        upstream = requests.get(
+            target, headers=headers, stream=True, timeout=(6, 180), allow_redirects=True
+        )
+    except requests.Timeout as exc:
+        raise UpstreamServiceError(
+            "Internet Archive met trop de temps à répondre.", 504
+        ) from exc
+    except requests.RequestException as exc:
+        raise UpstreamServiceError(
+            "Internet Archive est temporairement indisponible.", 502
+        ) from exc
+    if upstream.status_code not in {200, 206}:
+        upstream.close()
+        raise UpstreamServiceError(
+            "Ce fichier n'est plus disponible sur Internet Archive.", 502
+        )
+    size = int(_archive_number(upstream.headers.get("Content-Length"), int, 0))
+    if size > MP3_MAX_BYTES:
+        upstream.close()
+        abort(413)
+
+    reply_headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=604800",
+        "Content-Type": "audio/mpeg",
+    }
+    for key in ("Content-Length", "Content-Range"):
+        value = upstream.headers.get(key)
+        if value:
+            reply_headers[key] = value
+    if request.args.get("download") == "1":
+        clean = re.sub(r"[^A-Za-z0-9._ -]", "_", name)[-80:]
+        reply_headers["Content-Disposition"] = f'attachment; filename="{clean}"'
+
+    def body():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    return Response(
+        stream_with_context(body()),
+        status=upstream.status_code,
+        headers=reply_headers,
+        direct_passthrough=True,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,37 @@
     <p class="musique-subtitle">Écoutez en audio léger (économiseur de Mo) ou regardez les clips en vidéo. La lecture continue quand vous changez de page.</p>
   </div>
 
+  <!-- SOURCE SELECTOR (MP3 libres vs YouTube) -->
+  <div class="musique-source-wrap">
+    <div class="source-toggle" id="source-toggle" role="radiogroup" aria-label="Source des titres">
+      <button type="button" class="source-btn active" data-source="mp3" role="radio" aria-checked="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 18V5l12-2v13"></path>
+          <circle cx="6" cy="18" r="3"></circle>
+          <circle cx="18" cy="16" r="3"></circle>
+        </svg>
+        <span class="source-btn-text">
+          <strong>MP3 libre</strong>
+          <small>Écran éteint · enregistrable</small>
+        </span>
+      </button>
+      <button type="button" class="source-btn" data-source="youtube" role="radio" aria-checked="false">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="5" width="20" height="14" rx="3"></rect>
+          <polygon points="10 9 15 12 10 15 10 9"></polygon>
+        </svg>
+        <span class="source-btn-text">
+          <strong>YouTube</strong>
+          <small>Clips &amp; vidéos</small>
+        </span>
+      </button>
+    </div>
+    <p class="source-note" id="source-note">
+      Fichiers MP3 sous licence libre : la lecture continue écran éteint, la flèche les
+      enregistre sur le téléphone et un titre épinglé se relit sans réseau.
+    </p>
+  </div>
+
   <!-- MODE SELECTOR (MP3 vs MP4) -->
   <div class="musique-mode-selector-wrap">
     <div class="mode-toggle" id="mode-toggle" role="radiogroup" aria-label="Mode de lecture">
@@ -72,8 +103,11 @@
   </div>
 
   <p class="musique-footnote">
-    Besoin d'écoute sans réseau ? Touchez la flèche <strong>⤓</strong> sur une vignette : la miniature est mise en cache et
-    le titre rejoint votre liste <a href="{{ url_for('telechargements') }}">Hors ligne</a>. Le son, lui, demande une connexion.
+    Besoin d'écoute sans réseau ? Avec la source <strong>MP3 libre</strong>, l'épingle
+    <strong>⤓</strong> enregistre le fichier lui-même sur le téléphone : le titre rejoint
+    votre liste <a href="{{ url_for('telechargements') }}">Hors ligne</a> et se relit sans un
+    seul Mo de forfait. Le bouton <strong>MP3</strong>, lui, copie le fichier hors de
+    l'application. Les clips YouTube ne se prêtent ni à l'un ni à l'autre.
   </p>
 </div>
 

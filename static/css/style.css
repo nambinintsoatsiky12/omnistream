@@ -2581,6 +2581,122 @@ main:has(.landing-hero-ua),
   color: var(--accent);
 }
 
+/* --- Source des titres : MP3 libres ou YouTube ---------------------------- */
+/* Le choix de la source n'est pas décoratif : un fichier MP3 se lit écran
+   éteint, s'épingle hors ligne et s'enregistre ; un clip YouTube, non. */
+.musique-source-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.source-toggle {
+  display: inline-flex;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.source-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  min-height: 46px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.source-btn svg { flex: 0 0 auto; }
+
+.source-btn-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.source-btn-text strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: inherit;
+}
+
+.source-btn-text small {
+  font-size: 0.7rem;
+  color: var(--muted-dark);
+}
+
+.source-btn.active {
+  background: var(--gradient-cyan);
+  color: #04121c;
+  box-shadow: 0 4px 14px var(--glow-cyan);
+}
+
+.source-btn.active .source-btn-text small { color: rgba(4, 18, 28, 0.72); }
+.source-btn:hover:not(.active) { color: #fff; }
+
+.source-note {
+  max-width: 640px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Un MP3 n'a pas d'image : le bouton « Vidéo » reste visible mais doit
+   avouer qu'il ne peut rien faire, au lieu de ouvrir un plein écran vide. */
+.mode-btn:disabled,
+.mode-btn.is-blocked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mode-btn:disabled:hover { background: transparent; }
+
+/* --- Carte d'un fichier MP3 : durée, poids, enregistrement ---------------- */
+.mp3-meta-line { gap: 6px; flex-wrap: wrap; }
+
+.mp3-meta {
+  font-size: 0.72rem;
+  color: var(--muted-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp3-dot {
+  color: var(--muted-dark);
+  font-size: 0.72rem;
+  margin: 0 4px;
+}
+
+.music-get-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--accent-cyan);
+  font-family: var(--font);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.music-get-btn:hover { background: rgba(56, 189, 248, 0.18); }
+.music-get-btn:active { transform: scale(0.97); }
+
 .musique-search-form {
   max-width: 580px;
   margin: 0 auto 36px;
@@ -4605,6 +4721,10 @@ body.has-audio-bar .sponsor-gift {
 .mode-toggle { width: 100%; }
 .mode-btn { flex: 1; justify-content: center; }
 .data-saver-notice { margin-top: 10px; max-width: 100%; }
+.source-toggle { width: 100%; }
+.source-btn { flex: 1; justify-content: center; }
+.source-note { max-width: 100%; }
+.musique-card-mp3 .card-info { gap: 3px; }
 
 /* Sur écran tactile, aucun effet de survol ne doit rester « collé » après un
    tap (une carte soulevée ou grossie qui ne redescend plus donne

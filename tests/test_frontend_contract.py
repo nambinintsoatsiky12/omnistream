@@ -426,3 +426,96 @@ def test_barre_de_mise_a_jour_lisible(style_css):
     assert re.search(r"font-size: *0\.9[0-9]*rem", rule), "barre toujours trop petite"
     assert "min-height" in rule
     assert "var(--top-banner-h, 0px)" in rule
+
+
+# ---------------------------------------------------------------------------
+# Source MP3 libre : câblage du gabarit au joueur
+# ---------------------------------------------------------------------------
+
+
+def test_player_accepte_un_fichier_et_pas_seulement_youtube():
+    """La coupure écran éteint venait du secours iframe : le lecteur doit savoir
+    jouer un fichier MP3 par lui-même, et le dire."""
+    player = read(STATIC / "js" / "player.js")
+    for needle in (
+        "function isMp3Track",
+        "function isPlayable",
+        "async function playFileTrack",
+        'state.current.kind === "mp3"',
+        'el.preload = "auto"',
+        'el.addEventListener("timeupdate"',
+        "setPositionState(now, state.lastDuration)",
+        'el.addEventListener("stalled"',
+        "keepAlive.timer",
+        "system.resumeAttempts >= 24",
+    ):
+        assert needle in player, f"manquant dans player.js : {needle}"
+
+
+def test_le_worker_sert_les_fichiers_audio():
+    """Un MP3 épinglé doit se relire sans réseau, et un MP3 joué une fois ne
+    doit pas dévorer le stockage : d'où son cache et son plafond propres."""
+    worker = read(STATIC / "service-worker.js")
+    for needle in (
+        "function isAudioFile",
+        "async function audioFileFirst",
+        "AUDIO_CACHE",
+        "AUDIO_CACHE_LIMIT",
+        "function saveDataRequested",
+        "status: 206",
+        "Content-Range",
+        # Un cache écrit par la page ne doit plus être détruit à l'activation.
+        r"/^omnistream-v\d+-/",
+    ):
+        assert needle in worker, f"manquant dans service-worker.js : {needle}"
+
+
+def test_pas_de_cache_version_cod_en_dur():
+    """La page ne doit pas inventer un nom de cache « omnistream-v3-… » : le
+    worker change de version à chaque refonte et jetterait ces entrées."""
+    for name in ("library.js", "downloads.js"):
+        body = read(STATIC / "js" / name)
+        assert not re.search(r"omnistream-v\d", body), f"{name} cite une version"
+
+
+def test_la_page_musique_ne_cite_qu_des_id_existants():
+    """Un getElementById orphelin est exactement le « bouton qui ne fait rien »
+    du menu : chaque id demandé par le script doit être dans un gabarit."""
+    script = read(STATIC / "js" / "musique.js")
+    markup = "".join(
+        read(template) for template in sorted(TEMPLATES.glob("*.html"))
+    )
+    wanted = set(re.findall(r'getElementById\("([^"]+)"\)', script))
+    assert wanted, "plus aucun id utilisé par la page Musique ?"
+    missing = {name for name in wanted if f'id="{name}"' not in markup}
+    assert not missing, f"ids réclamés sans balise correspondante : {sorted(missing)}"
+
+
+def test_source_mp3_branchee_de_bout_en_bout():
+    script = read(STATIC / "js" / "musique.js")
+    page = read(TEMPLATES / "musique.html")
+    assert 'id="source-toggle"' in page
+    assert 'id="source-note"' in page
+    assert 'getElementById("source-toggle")' in script
+    assert 'getElementById("source-note")' in script
+    assert "/api/mp3" in script
+    assert "/api/musique-trending" in script
+    assert 'kind === "mp3"' in script
+
+
+def test_styles_des_boutons_mp3(style_css):
+    """Les classes fabriquées par la page Musique doivent exister en CSS."""
+    style = style_css
+    for name in (
+        "musique-source-wrap",
+        "source-toggle",
+        "source-btn",
+        "source-btn-text",
+        "source-note",
+        "musique-card-mp3",
+        "mp3-meta-line",
+        "mp3-meta",
+        "mp3-dot",
+        "music-get-btn",
+    ):
+        assert f".{name}" in style, f"classe .{name} utilisée mais jamais stylée"

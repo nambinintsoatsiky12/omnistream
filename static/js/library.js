@@ -412,7 +412,7 @@
     // Repli : cache de premier niveau depuis la page (images opaques incluses).
     if (!("caches" in window)) return 0;
     try {
-      const cache = await caches.open("omnistream-v3-images");
+      const cache = await caches.open("omnistream-offline");
       await Promise.all(
         list.map(async (url) => {
           try {
@@ -485,7 +485,7 @@
     }
     try {
       if ("caches" in window) {
-        const cache = await caches.open("omnistream-v3-images");
+        const cache = await caches.open("omnistream-offline");
         info.images = (await cache.keys()).length;
       }
     } catch (_error) {

@@ -73,8 +73,13 @@
   // risque de voler le focus audio. `keepAlive.active` mémoire simplement
   // l'état, et `system` pilote la reprise automatique après une coupure de
   // l'OS (perte de focus, écran éteint).
-  const keepAlive = { active: false };
+  const keepAlive = { active: false, timer: null, announced: false };
   const system = { suppressAutoResume: false, resumeAttempts: 0 };
+  // Le minuteur seul ne suffit pas : Android gèle les timer() d'une page
+  // masquée. Les événements média, eux, continuent d'arriver — c'est donc
+  // <audio> qui tient la notification (timeupdate ci-dessous), et ce filet
+  // périodique ne fait que rattraper les coupures de l'OS.
+  let lastNotifiedAt = -10;
 
   // Transport audio seul (élément <audio> natif + flux audio YouTube).
   const audioT = {
@@ -123,6 +128,25 @@
     return typeof navigator.onLine === "boolean" && navigator.onLine === false;
   }
 
+  // Un titre « MP3 libre » n'a pas d'identifiant YouTube : c'est un fichier.
+  // Distinction capitale : seul le fichier lu par l'élément <audio> natif
+  // continue écran éteint (le lecteur YouTube se met en pause dès que la page
+  // passe en arrière-plan, et ses conditions l'interdisent de toute façon),
+  // et seul lui peut être enregistré sur le téléphone.
+  function isMp3Track(track) {
+    return Boolean(
+      track &&
+        (track.kind === "mp3" ||
+          (typeof track.url === "string" &&
+            /^https:\/\//.test(track.url) &&
+            !isValidId(track.id))),
+    );
+  }
+
+  function isPlayable(track) {
+    return Boolean(track) && (isValidId(track.id) || isMp3Track(track));
+  }
+
   function toast(message, kind) {
     try {
       if (window.OmniUI && window.OmniUI.toast) window.OmniUI.toast(message, kind || "info");
@@ -143,7 +167,9 @@
     }
     window.setTimeout(() => {
       toast(
-        "Si la musique se coupe écran éteint : Réglages > Applications > OmniStream > Batterie > « Illimitée ».",
+        "Musique coupée écran éteint ? Réglages > Applications > OmniStream > " +
+          "Batterie > « Illimitée » — et préférez les titres « MP3 libre » de " +
+          "l'espace Musique : eux lisent un vrai fichier.",
         "info",
       );
     }, 1600);
@@ -416,7 +442,10 @@
   function ensureAudioElement() {
     if (audioT.el) return audioT.el;
     const el = new Audio();
-    el.preload = "none";
+    // "auto" et non "none" : sans mise en mémoire anticipée, la moindre
+    // lenteur du réseau vidé la fin du morceau et Android coupait la lecture
+    // (le symptôme « la musique s'arrête au bout de quelques minutes »).
+    el.preload = "auto";
     el.setAttribute("playsinline", "");
     el.addEventListener("playing", () => setStatus("playing"));
     el.addEventListener("pause", () => {
@@ -435,7 +464,27 @@
       if (!playNextInQueue(false)) setStatus("paused", "File terminée.");
     });
     el.addEventListener("waiting", () => {
-      if (state.status === "playing" || state.status === "loading") setStatus("loading");
+      if (state.status === "playing" || state.status === "loading") {
+        setStatus("loading", document.hidden ? "Remise en mémoire écran éteint…" : "");
+        if (document.hidden) scheduleBackgroundResume();
+      }
+    });
+    el.addEventListener("stalled", () => {
+      if (state.status !== "playing") return;
+      setStatus("loading", "Réseau lent : la suite se met en mémoire…");
+      if (document.hidden) scheduleBackgroundResume();
+    });
+    // En arrière-plan, le minuteur de la page est gelé et tick() ne tourne
+    // plus : ce sont les événements média qui tiennent la notification à jour,
+    // et c'est eux qui prouvent à Android que la lecture est toujours active.
+    el.addEventListener("timeupdate", () => {
+      if (!document.hidden) return; // l'onglet visible a déjà son minuteur
+      const now = Number(el.currentTime) || 0;
+      state.lastDuration = Number(el.duration) || state.lastDuration;
+      if (Math.abs(now - lastNotifiedAt) < 4) return;
+      lastNotifiedAt = now;
+      setPositionState(now, state.lastDuration);
+      if (state.status === "playing") saveResumePoint();
     });
     el.addEventListener("error", () => {
       if (state.status === "loading" || state.status === "playing") onAudioStreamError();
@@ -464,6 +513,17 @@
   }
 
   function onAudioStreamError() {
+    if (state.current && state.current.kind === "mp3") {
+      if (isOffline()) {
+        state.waitingNetwork = true;
+        setStatus("offline", "Hors ligne — titre non enregistré sur le téléphone.");
+        return;
+      }
+      state.error = "Le fichier audio n'a pas pu être ouvert.";
+      setStatus("error");
+      toast(state.error, "warn");
+      return;
+    }
     state.error = "Le flux audio n'a pas pu démarrer.";
     setStatus("error");
     if (!playNextInQueue(true)) {
@@ -556,6 +616,53 @@
       }
     } finally {
       audioT.resolving = false;
+    }
+  }
+
+  // Titre issu d'une phonothèque MP3 : aucune instance à interroger, le
+  // fichier EST le flux. C'est le seul chemin qui garantisse la lecture
+  // écran éteint, la reprise sur l'écran verrouillé et l'enregistrement.
+  async function playFileTrack(track, options) {
+    const opts = options || {};
+    if (!track || typeof track.url !== "string" || !track.url) {
+      setStatus("error", "Ce titre ne fournit pas de fichier audio.");
+      return;
+    }
+    if (audioT.abort) {
+      try {
+        audioT.abort.abort();
+      } catch (_error) {
+        /* noop */
+      }
+      audioT.abort = null;
+    }
+    const el = ensureAudioElement();
+    lastNotifiedAt = -10;
+    if (audioT.url !== track.url) {
+      audioT.url = track.url;
+      el.src = track.url;
+    }
+    state.transport = "audio";
+    state.current.url = track.url;
+    if (opts.resumePosition) state.resumeTime = opts.resumePosition;
+    setStatus(
+      "loading",
+      isOffline()
+        ? "Lecture depuis la mémoire du téléphone…"
+        : "Ouverture du fichier MP3…",
+    );
+    try {
+      await el.play();
+      setMediaSessionMetadata();
+    } catch (_error) {
+      if (isOffline()) {
+        // Épinglé, le fichier sort du cache du Service Worker ; sinon le
+        // morceau est perdu jusqu'au retour du réseau.
+        state.waitingNetwork = true;
+        setStatus("offline", "Hors ligne — enregistrez le titre pour l'écouter sans réseau.");
+        return;
+      }
+      if (state.status !== "playing") setStatus("paused", "Touchez ▶ pour démarrer la lecture.");
     }
   }
 
@@ -659,8 +766,11 @@
    * Lecture / file
    * ================================================================== */
   function play(track, mode) {
-    if (!track || !isValidId(track.id)) return;
-    if (mode === "video" || mode === "audio") state.mode = mode;
+    if (!isPlayable(track)) return;
+    const asFile = isMp3Track(track);
+    // Un fichier n'a pas de piste vidéo : inutile de promettre un plein écran.
+    if (asFile) state.mode = "audio";
+    else if (mode === "video" || mode === "audio") state.mode = mode;
     // Nouvelle lecture : on réarme la reprise automatique et le compteur.
     system.suppressAutoResume = false;
     system.resumeAttempts = 0;
@@ -669,7 +779,15 @@
       title: String(track.title || "Lecture en cours"),
       channel: String(track.channel || "OmniStream"),
       thumbnail: String(track.thumbnail || ""),
+      kind: asFile ? "mp3" : "yt",
+      url: typeof track.url === "string" ? track.url : "",
+      page: typeof track.page === "string" ? track.page : "",
+      download: typeof track.download === "string" ? track.download : "",
+      album: String(track.album || ""),
+      size: Number(track.size) || 0,
+      duration: Number(track.duration) || 0,
     };
+    if (asFile) state.resumeTime = 0;
     showBar();
     applyModeLayout();
     localSet(LAST_KEY, JSON.stringify(Object.assign({}, state.current, { mode: state.mode })));
@@ -689,6 +807,10 @@
   function startStream(options) {
     const opts = options || {};
     if (!state.current) return;
+    if (state.current.kind === "mp3") {
+      playFileTrack(state.current, opts);
+      return;
+    }
     if (state.mode === "audio") {
       // MP3 : flux audio seul (consommation ~1 Mo/min, son complet).
       startAudioStream(state.current, opts);
@@ -729,7 +851,7 @@
 
   function setQueue(list, index) {
     if (!Array.isArray(list)) return;
-    state.queue = list.filter((track) => track && isValidId(track.id));
+    state.queue = list.filter((track) => isPlayable(track));
     state.queueIndex = typeof index === "number" ? index : -1;
     persistQueue();
   }
@@ -1006,6 +1128,13 @@
 
   function setMode(mode) {
     if (mode !== "audio" && mode !== "video") return;
+    if (mode === "video" && state.current && state.current.kind === "mp3") {
+      // Rien à cacher : un MP3 n'a pas d'image, et le chercher sur YouTube
+      // serait un autre titre.
+      toast("Ce titre n'existe qu'en MP3 : pas de clip vidéo à afficher.", "info");
+      render();
+      return;
+    }
     if (state.mode === mode && mode === "audio") {
       closeVideo();
       render();
@@ -1269,7 +1398,9 @@
     if (badge) {
       badge.textContent = state.mode === "video"
         ? "LECTURE VIDÉO · PLEIN ÉCRAN"
-        : "LECTURE AUDIO · ÉCONOMISEUR DE Mo";
+        : track && track.kind === "mp3"
+          ? "MP3 LIBRE · ÉCRAN ÉTEINT ET HORS LIGNE"
+          : "LECTURE AUDIO · ÉCONOMISEUR DE Mo";
     }
 
     const titleEl = $("omni-bar-title");
@@ -1331,7 +1462,10 @@
     }
     const ytLink = $("omni-modal-yt");
     if (ytLink && track) {
-      ytLink.href = `https://www.youtube.com/watch?v=${track.id}`;
+      ytLink.href =
+        track.kind === "mp3"
+          ? track.page || "#"
+          : `https://www.youtube.com/watch?v=${track.id}`;
       // Le secours n'est utile que si le flux intégré est refusé : sinon la
       // ligne resterait un bouton gris sans emploi.
       ytLink.hidden = state.status !== "error";
@@ -1522,10 +1656,40 @@
         /* noop */
       }
     }
+    if (state.transport !== "audio" && !keepAlive.announced) {
+      // Transport iframe : la coupure vient du lecteur YouTube lui-même, qui
+      // se met en pause dès que la page est masquée. Le dire vaut mieux que
+      // laisser croire que l'application est cassée.
+      keepAlive.announced = true;
+      setStatus(
+        state.status,
+        "Lecture via YouTube : l'arrière-plan n'est pas garanti. Les titres " +
+          "« MP3 libre » de l'espace Musique, eux, continuent écran éteint.",
+      );
+    }
+    if (!keepAlive.timer) {
+      keepAlive.timer = window.setInterval(() => {
+        if (!document.hidden) {
+          stopKeepAlive();
+          return;
+        }
+        if (state.status !== "playing" || system.suppressAutoResume) return;
+        setMediaSessionState("playing");
+        const el = audioT.el;
+        if (state.transport === "audio" && el && el.paused && el.src) {
+          el.play().catch(() => undefined);
+        }
+      }, 15000);
+    }
   }
 
   function stopKeepAlive() {
     keepAlive.active = false;
+    keepAlive.announced = false;
+    if (keepAlive.timer) {
+      window.clearInterval(keepAlive.timer);
+      keepAlive.timer = null;
+    }
   }
 
   // Reprise automatique après une coupure de l'OS (écran éteint, perte
@@ -1533,18 +1697,25 @@
   // créer de boucle ; si le navigateur refuse, la reprise se fera au retour
   // de l'écran (voir visibilitychange).
   function scheduleBackgroundResume() {
-    if (system.resumeAttempts >= 6) return;
+    if (state.transport !== "audio") return; // l'iframe YouTube ne nous obéit pas
+    if (system.resumeAttempts >= 24) return;
     system.resumeAttempts += 1;
+    // Progression lente (2 s, 2 s, 2 s, 4 s, 4 s, 4 s, 6 s…) : assez souple
+    // pour ne pas marteler le réseau, assez têtue pour passer une coupure
+    // d'Android qui peut durer plusieurs dizaines de secondes.
+    const wait = Math.min(2000 * (1 + Math.floor((system.resumeAttempts - 1) / 3)), 9000);
     window.setTimeout(() => {
       if (!document.hidden || system.suppressAutoResume || !state.current) return;
-      if (state.status !== "playing" && state.status !== "paused") return;
+      if (state.status !== "playing" && state.status !== "paused" && state.status !== "loading") return;
       const el = audioT.el;
       if (!el || !el.paused || !el.src) return;
+      setMediaSessionState("playing");
       el.play().catch(() => {
         /* Chrome peut refuser la reprise en arrière-plan : on la laisse au
            réveil de l'écran, le son n'est pas perdu pour autant. */
+        if (state.status === "loading") scheduleBackgroundResume();
       });
-    }, 1200);
+    }, wait);
   }
 
   // Re-synchronise l'interface après un retour d'onglet : l'événement
@@ -1838,12 +2009,19 @@
       const raw = localGet(LAST_KEY);
       if (!raw) return;
       const track = JSON.parse(raw);
-      if (!track || !isValidId(track.id)) return;
+      if (!isPlayable(track)) return;
       state.current = {
         id: String(track.id),
         title: String(track.title || "Lecture en cours"),
         channel: String(track.channel || "OmniStream"),
         thumbnail: String(track.thumbnail || ""),
+        kind: track.kind === "mp3" ? "mp3" : "yt",
+        url: typeof track.url === "string" ? track.url : "",
+        page: typeof track.page === "string" ? track.page : "",
+        download: typeof track.download === "string" ? track.download : "",
+        album: String(track.album || ""),
+        size: Number(track.size) || 0,
+        duration: Number(track.duration) || 0,
       };
       state.mode = track.mode === "video" ? "video" : "audio";
       showBar();

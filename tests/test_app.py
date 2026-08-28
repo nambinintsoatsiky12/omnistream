@@ -23,8 +23,9 @@ class FakeResponse:
             error.response = self
             raise error
 
-    def iter_content(self, _chunk_size):
-        yield self.content
+    def iter_content(self, chunk_size=1, **_kwargs):
+        for start in range(0, len(self.content), max(1, int(chunk_size))):
+            yield self.content[start : start + int(chunk_size)]
 
     def close(self):
         return None
@@ -496,3 +497,264 @@ def test_landing_page_ne_calcule_plus_de_listes_vitrines(client, monkeypatch):
     assert "featured_movies" not in seen
     assert "featured_series" not in seen
     assert "featured_animes" not in seen
+
+
+# ---------------------------------------------------------------------------
+# Source MP3 libre (Internet Archive) : recherche, filtres, relais de fichier
+# ---------------------------------------------------------------------------
+
+
+ARCHIVE_SEARCH_ANSWER = {
+    "response": {
+        "docs": [
+            {"identifier": "album-1", "title": "Album Un", "creator": "Artiste"},
+            {"identifier": "album-2", "title": "Album Deux", "creator": "Artiste"},
+        ]
+    }
+}
+
+ARCHIVE_META_ANSWER = {
+    "metadata": {
+        "identifier": "album-1",
+        "title": "Album Un",
+        "creator": "Artiste",
+        "year": "2019",
+        "licenseurl": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+    },
+    "files": [
+        # Piste normale, avec ses métadonnées propres.
+        {
+            "name": "01 - Premier titre.mp3",
+            "format": "VBR MP3",
+            "size": "5242880",
+            "length": "212",
+            "title": "Premier titre",
+            "artist": "Artiste",
+        },
+        # Format mm:ss et piste sans titre : on retombe sur le nom du fichier.
+        {
+            "name": "02-deuxieme.mp3",
+            "format": "128 Kbps MP3",
+            "size": "3145728",
+            "length": "3:40",
+        },
+        # Perdu : ce n'est pas un MP3.
+        {"name": "cover.jpg", "format": "JPEG", "size": "10000"},
+        # Perdu aussi : fichier privé, donc non téléchargeable.
+        {
+            "name": "03-prive.mp3",
+            "format": "VBR MP3",
+            "size": "4000000",
+            "length": "100",
+            "private": "true",
+        },
+        # Perdu : beaucoup trop gros pour être un morceau.
+        {"name": "04-enorme.mp3", "format": "VBR MP3", "size": "90000000"},
+    ],
+}
+
+ARCHIVE_META_RESTREINT = {
+    "metadata": {
+        "identifier": "album-2",
+        "title": "Album Deux",
+        "access-restricted-item": "true",
+    },
+    "files": [{"name": "01.mp3", "format": "VBR MP3", "size": "1000"}],
+}
+
+
+def patch_archive(monkeypatch, search=ARCHIVE_SEARCH_ANSWER, metas=None, captured=None):
+    """Feint Internet Archive : un seul point d'entrée, aucun réseau."""
+    metas = metas or {"album-1": ARCHIVE_META_ANSWER, "album-2": ARCHIVE_META_RESTREINT}
+
+    def fake_get(url, params=None, **_kwargs):
+        if captured is not None and "advancedsearch" in url:
+            captured["url"] = url
+            captured["params"] = params
+        if "advancedsearch" in url:
+            return FakeResponse(search)
+        identifier = url.rstrip("/").split("/")[-1]
+        return FakeResponse(metas.get(identifier, {"metadata": {}, "files": []}))
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+
+def test_api_mp3_extrait_les_pistes_telechargeables(client, monkeypatch):
+    patch_archive(monkeypatch)
+
+    response = client.get("/api/mp3")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["source"] == "archive"
+
+    items = payload["items"]
+    # « album-2 » est « access-restricted » : ses pistes ne doivent pas être
+    # proposées, sous peine d'afficher un bouton d'enregistrement menteur.
+    assert [item["id"] for item in items] == [
+        "ia:album-1#01 - Premier titre.mp3",
+        "ia:album-1#02-deuxieme.mp3",
+    ]
+    first = items[0]
+    assert first["kind"] == "mp3"
+    assert first["type"] == "music"
+    assert first["title"] == "Premier titre"
+    assert first["channel"] == "Artiste"
+    assert first["duration"] == 212
+    assert first["size"] == 5242880
+    assert first["url"] == "https://archive.org/download/album-1/01%20-%20Premier%20titre.mp3"
+    # Le relais même-origin porte le « download=1 » qui force l'enregistrement.
+    assert first["download"].startswith("/mp3/album-1/")
+    assert first["download"].endswith("download=1")
+    assert first["page"] == "https://archive.org/details/album-1"
+    assert first["license"].startswith("https://creativecommons.org/")
+    # mm:ss converti en secondes, nom de fichier en secours du titre manquant.
+    assert items[1]["duration"] == 220
+    assert items[1]["title"] == "02-deuxieme"
+
+
+def test_api_mp3_recherche_sanitisee(client, monkeypatch):
+    captured = {}
+    patch_archive(monkeypatch, captured=captured)
+
+    client.get('/api/mp3?q=sega" OR all:true (live)')
+
+    query = captured["params"]["q"]
+    assert 'all:true' not in query
+    assert "(" in query and "sega" in query
+    # Les collections choisies sont celles dont on peut garder les fichiers.
+    for name in ("etree", "netlabels", "audio_music", "fma"):
+        assert name in query
+    assert captured["params"]["sort[]"] == "score desc"
+
+
+def test_api_mp3_tendances_trient_par_telechargements(client, monkeypatch):
+    captured = {}
+    patch_archive(monkeypatch, captured=captured)
+
+    client.get("/api/mp3")
+
+    assert captured["params"]["sort[]"] == "downloads desc"
+    assert captured["params"]["q"].startswith("mediatype:(audio)")
+
+
+def test_api_mp3_panne_renvoie_une_erreur_lisible(client, monkeypatch):
+    def fake_get(_url, **_kwargs):
+        raise requests.ConnectionError("plus de réseau")
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/api/mp3")
+
+    assert response.status_code == 502
+    assert "Internet Archive" in response.get_json()["error"]
+
+
+def test_mp3_relais_joint_le_nom_du_fichier(client, monkeypatch):
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs.get("headers")
+        return FakeResponse(
+            None,
+            headers={
+                "Content-Type": "audio/mpeg",
+                "Content-Length": "5",
+            },
+            content=b"MP3DA",
+        )
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/mp3/album-1/01%20-%20Premier%20titre.mp3?download=1")
+
+    assert response.status_code == 200
+    assert captured["url"] == "https://archive.org/download/album-1/01%20-%20Premier%20titre.mp3"
+    assert response.headers["Content-Type"] == "audio/mpeg"
+    assert response.headers["Accept-Ranges"] == "bytes"
+    disposition = response.headers["Content-Disposition"]
+    assert disposition.startswith("attachment; filename=")
+    assert "Premier titre.mp3" in disposition
+    assert response.data == b"MP3DA"
+
+
+def test_mp3_relais_transmet_la_plage(client, monkeypatch):
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured["headers"] = kwargs.get("headers")
+        return FakeResponse(
+            None,
+            status_code=206,
+            headers={
+                "Content-Type": "audio/mpeg",
+                "Content-Length": "3",
+                "Content-Range": "bytes 0-2/900",
+            },
+            content=b"ABC",
+        )
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get(
+        "/mp3/album-1/titre.mp3", headers={"Range": "bytes=0-2"}
+    )
+
+    assert captured["headers"]["Range"] == "bytes=0-2"
+    assert response.status_code == 206
+    assert response.headers["Content-Range"] == "bytes 0-2/900"
+    # Sans « download=1 », rien ne force l'enregistrement : la lecture peut
+    # utiliser la même adresse, en streaming.
+    assert "Content-Disposition" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/mp3/album-1/notaire.txt",
+        "/mp3/album-1/titre.mp4",
+        "/mp3/..%2F..%2Fetc%2Fpasswd",
+        "/mp3/al bum/titre.mp3",
+        "/mp3/album-1/",
+    ],
+)
+def test_mp3_relais_refuse_tout_chemin_inattendu(client, path):
+    # Aucun de ces chemins ne doit partir en direction d'Internet Archive.
+    response = client.get(path)
+
+    assert response.status_code in {400, 404, 405}
+
+
+def test_mp3_relais_refuse_un_fichier_trop_gros(client, monkeypatch):
+    def fake_get(_url, **_kwargs):
+        return FakeResponse(
+            None,
+            headers={"Content-Length": str(90 * 1024 * 1024)},
+            content=b"",
+        )
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/mp3/album-1/titre.mp3")
+
+    assert response.status_code == 413
+
+
+def test_mp3_relais_refuse_un_fichier_disparu(client, monkeypatch):
+    def fake_get(_url, **_kwargs):
+        return FakeResponse(None, status_code=403, content=b"")
+
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/mp3/album-1/titre.mp3")
+
+    assert response.status_code == 502
+
+
+def test_espace_musique_propose_la_source_mp3(client):
+    response = client.get("/musiques")
+
+    assert response.status_code == 200
+    assert b'id="source-toggle"' in response.data
+    assert b'data-source="mp3"' in response.data
+    assert b'data-source="youtube"' in response.data
