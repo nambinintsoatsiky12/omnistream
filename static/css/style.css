@@ -3156,6 +3156,8 @@ main:has(.landing-hero-ua),
 
 .scan-toolbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
 }
 
@@ -3242,6 +3244,57 @@ main:has(.landing-hero-ua),
   width: 100%;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+}
+
+/* Filtre de contenu : absent par défaut, remis seulement si demandé. */
+.scan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.scan-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* Série retenue : reste affichée pendant que le statut, lui, défile. */
+.scan-series {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+/* Ce qu'un repli a écarté : jamais de filtre retiré en silence. */
+.scan-notice {
+  margin: -8px 0 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 122, 46, 0.35);
+  background: rgba(255, 122, 46, 0.08);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* Planche injoignable : un message, pas une icône d'image cassée. */
+.scan-page-error {
+  padding: 42px 18px;
+  text-align: center;
+  color: var(--muted-dark);
+  font-size: 0.84rem;
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
 }
 
 /* Privacy Page */

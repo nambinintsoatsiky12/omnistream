@@ -1630,6 +1630,18 @@ def _valid_mangadex_endpoint(endpoint):
     return False
 
 
+# Clés de classement que MangaDex documente pour chaque endpoint. Une valeur
+# hors de {asc, desc} est refusée.
+MANGADEX_ORDER_KEYS = {
+    "/manga": {"title", "year", "createdAt", "updatedAt", "followedCount", "relevance"},
+    "feed": {"chapter", "volume"},
+}
+# MangaDex accepte n'importe quelle langue (fr, en, ja, ko, zh-hans, pt-br…) :
+# la forme est bornée, la liste des langues ne l'est pas. Restreindre à « fr »
+# et « en » masquait des séries entières traduites ailleurs.
+MANGADEX_LANG_RE = re.compile(r"\A[a-z]{2,3}(?:-[a-z0-9]{2,10})?\Z")
+
+
 @app.route("/api/mangadex_proxy")
 def mangadex_proxy():
     endpoint = _limited_arg("endpoint", max_length=120)
@@ -1638,16 +1650,18 @@ def mangadex_proxy():
 
     if endpoint == "/manga":
         allowed_params = {"title", "limit", "offset", "contentRating[]"}
+        allowed_orders = MANGADEX_ORDER_KEYS["/manga"]
     elif endpoint.endswith("/feed"):
         allowed_params = {
             "translatedLanguage[]",
-            "order[chapter]",
             "limit",
             "offset",
             "contentRating[]",
         }
+        allowed_orders = MANGADEX_ORDER_KEYS["feed"]
     else:
         allowed_params = set()
+        allowed_orders = set()
 
     params = []
     valid_ratings = {"safe", "suggestive", "erotica", "pornographic"}
@@ -1655,7 +1669,11 @@ def mangadex_proxy():
         if key == "endpoint":
             continue
         valid_value = len(value) <= 300
-        if key in {"limit", "offset"}:
+        is_order = key.startswith("order[") and key.endswith("]")
+        if is_order:
+            field = key[len("order[") : -1]
+            valid_value = field in allowed_orders and value in {"asc", "desc"}
+        elif key in {"limit", "offset"}:
             try:
                 number = int(value)
                 valid_value = valid_value and number >= 0
@@ -1666,14 +1684,12 @@ def mangadex_proxy():
             except ValueError:
                 valid_value = False
         elif key == "translatedLanguage[]":
-            valid_value = value in {"fr", "en"}
-        elif key == "order[chapter]":
-            valid_value = value in {"asc", "desc"}
+            valid_value = bool(MANGADEX_LANG_RE.fullmatch(value))
         elif key == "contentRating[]":
             valid_value = value in valid_ratings
         elif key == "title":
             valid_value = bool(value.strip()) and len(value) <= 200
-        if key not in allowed_params or not valid_value:
+        if not valid_value or (not is_order and key not in allowed_params):
             abort(400, description="Paramètre MangaDex invalide.")
         params.append((key, value))
     if len(params) > 20:
@@ -1712,9 +1728,12 @@ def manga_image():
         or parsed.username
         or parsed.password
         or port not in {None, 443}
-        or (parsed.hostname or "").lower() != "uploads.mangadex.org"
+        # Liste explicite : les couvertures MangaDex ET le CDN d'AniList. Un
+        # hôte absent est refusé ici comme dans _image_proxy_url, qui ne
+        # produit alors aucune balise <img>.
+        or (parsed.hostname or "").lower() not in IMAGE_PROXY_HOSTS
     ):
-        abort(400, description="URL d'image MangaDex invalide.")
+        abort(400, description="URL d'image non autorisée.")
 
     response = None
     try:
