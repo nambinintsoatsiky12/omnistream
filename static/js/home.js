@@ -168,30 +168,87 @@
       id: Number(item.id),
       title: String(item.title || "Sans titre"),
       poster: safeImageUrl(item.poster || item.backdrop),
+      backdrop: safeImageUrl(item.backdrop || item.poster),
+      year: item.year || "",
       tab,
+      url: detailUrl(item) || null,
     };
   }
 
-  function createFavButton(item) {
+  // Petite fabrique de boutons d'angle (favori / épinglage hors ligne).
+  function makeCornerButton(className, label) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "card-fav-btn";
-    btn.setAttribute("aria-label", "Ajouter à ma liste");
+    btn.className = className;
+    btn.setAttribute("aria-label", label);
+    btn.setAttribute("aria-pressed", "false");
+    btn.setAttribute("title", label);
+    return btn;
+  }
+
+  const ICONS = {
+    heartOn:
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+    heartOff:
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+    pinOn:
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"></polyline><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"></line></svg>',
+    pinOff:
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+  }
+
+  function createFavButton(item) {
+    const btn = makeCornerButton("card-fav-btn", "Ajouter à ma liste");
     const payload = favPayload(item);
     const refresh = () => {
-      const on = window.OmniLibrary && window.OmniLibrary.isFavorite(payload);
-      btn.classList.toggle("on", !!on);
-      btn.innerHTML = on
-        ? '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>'
-        : '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+      const on = Boolean(window.OmniLibrary && window.OmniLibrary.isFavorite(payload));
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-pressed", String(on));
+      btn.innerHTML = on ? ICONS.heartOn : ICONS.heartOff;
     };
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (window.OmniLibrary) window.OmniLibrary.toggleFavorite(payload);
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!window.OmniLibrary) return;
+      const added = window.OmniLibrary.toggleFavorite(payload);
+      refresh();
+      if (window.OmniUI) {
+        window.OmniUI.toast(added ? "Ajouté à Ma Liste." : "Retiré de Ma Liste.", "ok");
+      }
+    });
+    refresh();
+    btn.__refresh = refresh;
+    return btn;
+  }
+
+  // Épingler hors ligne depuis la grille : la vignette et la fiche sont
+  // réellement mises en cache par le Service Worker.
+  function createPinButton(item) {
+    const btn = makeCornerButton("card-pin-btn", "Garder hors ligne");
+    const payload = favPayload(item);
+    const refresh = () => {
+      const on = Boolean(window.OmniLibrary && window.OmniLibrary.isOffline(payload));
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-pressed", String(on));
+      btn.innerHTML = on ? ICONS.pinOn : ICONS.pinOff;
+    };
+    btn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!window.OmniLibrary) return;
+      if (window.OmniLibrary.isOffline(payload)) {
+        window.OmniLibrary.removeOffline(payload);
+        if (window.OmniUI) window.OmniUI.toast("Retiré du hors ligne.", "ok");
+      } else {
+        btn.classList.add("busy");
+        await window.OmniLibrary.saveOffline(payload);
+        btn.classList.remove("busy");
+        if (window.OmniUI) window.OmniUI.toast("Fiche et affiche enregistrées hors ligne.", "ok");
+      }
       refresh();
     });
     refresh();
+    btn.__refresh = refresh;
     return btn;
   }
 
@@ -202,6 +259,7 @@
     const card = document.createElement("a");
     card.className = "card moviebox-card";
     card.href = href;
+    card.dataset.trackId = `${item.media_type}-${item.id}`;
 
     const poster = createPoster(item, false);
 
@@ -214,6 +272,7 @@
 
     poster.appendChild(createRatingBadge(item.rating));
     poster.appendChild(createFavButton(item));
+    poster.appendChild(createPinButton(item));
 
     const info = document.createElement("div");
     info.className = "card-info";
@@ -503,5 +562,24 @@
   loadPills();
   loadMore();
   renderResumeRow();
-  document.addEventListener("omni:library-change", renderResumeRow);
+
+  // Un seul AbortController par page visitée : les écouteurs posés sur
+  // `document` sautent au départ de la page, au lieu de s'empiler à chaque
+  // navigation interne (interface de plus en plus lente au fil de la session).
+  if (!window.__omniPageAbort) window.__omniPageAbort = new AbortController();
+  const signal = window.__omniPageAbort.signal;
+
+  document.addEventListener("omni:library-change", renderResumeRow, { signal });
+  document.addEventListener("omni:player-change", () => {
+    const current = window.OmniPlayer && window.OmniPlayer.getCurrent();
+    document.querySelectorAll(".card[data-track-id]").forEach((card) => {
+      const on = Boolean(current && card.dataset.trackId === String(current.id));
+      card.classList.toggle("is-playing", on);
+    });
+  }, { signal });
+  document.addEventListener("omni:page-loaded", () => {
+    document.querySelectorAll(".card-fav-btn, .card-pin-btn").forEach((btn) => {
+      if (btn.__refresh) btn.__refresh();
+    });
+  }, { signal });
 })();

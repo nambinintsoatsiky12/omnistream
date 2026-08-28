@@ -52,6 +52,7 @@ message d'erreur explicite.
 | `TRUST_PROXY_HEADERS` | Mettre à `true` uniquement derrière un proxy de confiance |
 | `TRUSTED_HOSTS` | Hôtes autorisés, séparés par des virgules (protection de l'en-tête `Host`) |
 | `PORT` | Port du serveur de développement (`5000` par défaut) |
+| `ASSET_VERSION` | Force l'empreinte de cache des CSS/JS (par défaut : mtime le plus récent de `static/`) |
 | `FLASK_DEBUG` | Active le debug local si égal à `true` |
 
 `TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN` doivent toujours être définis
@@ -83,17 +84,67 @@ API externes par des réponses simulées.
 ## Structure
 
 ```text
-app.py                  routes Flask, validation et intégrations externes
-auth_db.py              compteur de visites (SQLite ou Turso)
-templates/               pages Jinja
-static/css/style.css     styles responsives (dégradés violet/rose/orange)
-static/js/home.js        catalogue, filtres et pagination
-static/js/chat.js        chat Gemini
-static/js/musique.js     recherche et lecteur YouTube (modes Audio/Vidéo)
-requirements.txt        dépendances de production
-requirements-dev.txt    outils de test et de lint
-Procfile / render.yaml  déploiement Render
+app.py                    routes Flask, validation et intégrations externes
+auth_db.py                compteur de visites (SQLite ou Turso)
+templates/                pages Jinja (base.html porte le lecteur global)
+static/css/style.css      interface complète : vitrine, grilles, lecteur, hors ligne
+static/js/player.js       lecteur global persistant (file, MediaSession, hors ligne)
+static/js/library.js      Ma Liste / Reprendre / Hors ligne (IndexedDB + miroir local)
+static/js/app-shell.js    navigation interne (PJAX), Service Worker, notifications
+static/js/home.js         catalogue, filtres, pagination, rangée « Reprendre »
+static/js/musique.js      recherche musicale et cartes MP3/MP4
+static/js/downloads.js    page « Hors ligne & Données » (cache, stats, purge)
+static/js/library-page.js espace personnel (favoris, historique, purge)
+static/js/detail.js       fiche : bande-annonce, Ma Liste, épinglage, partage
+static/js/chat.js         chat Gemini
+static/service-worker.js  cache du shell, des images, des polices et des pages
+requirements.txt          dépendances de production
+requirements-dev.txt      outils de test et de lint
+Procfile / render.yaml    déploiement Render
 ```
+
+Les tests `tests/test_frontend_contract.py` vérifient les contrats entre gabarits,
+CSS et scripts (toute action `data-omni-action` doit être traitée, tout script doit
+être pré-caché, tout asset doit être versionné).
+
+## Sur le téléphone : lecteur, hors ligne et données
+
+**Lecteur.** Un seul lecteur YouTube vit dans `base.html` et survit à la navigation
+interne : la musique ne se coupe plus quand on change de page. Les commandes
+(▶ / II, précédent, suivant, épingler) réagissent au toucher avant même la réponse
+du réseau ; l'icône de lecture est pilotée par un attribut d'état posé sur `<body>`
+(`data-player-playing`), donc barre du bas, panneau agrandi et overlay vidéo
+affichent toujours le même état. Le panneau du bas se ferme par son bouton ✕, par
+glissement du panneau agrandi vers le bas, par `Échap` ou par un clic hors du
+panneau — et il ne revient pas tout seul à la page suivante.
+
+**Écran verrouillé.** `MediaSession` (titre, pochette, position, `playbackState`)
+garde les contrôles accessibles sur l'écran de verrouillage ; une petite session
+audio silencieuse est maintenue tant que la lecture dure pour éviter qu'Android
+ne gèle l'onglet ; la position est mémorisée toutes les 5 secondes, donc une
+coupure reprend à l'endroit exact. L'option « Écran allumé » du panneau agrandi
+demande un verrou d'écran (désactivée par défaut, aucune consommation de batterie
+sans demande explicite).
+
+**Hors ligne.** `static/service-worker.js` met en cache le shell (CSS, JS, polices,
+icônes), les images, les pages HTML et les réponses JSON déjà vues ; une fiche
+épinglée est rapatriée intégralement (synopsis, affiche, miniature). Les flux
+YouTube et TMDB étant interdits de téléchargement par leurs conditions, **le son
+et la vidéo ne peuvent pas être stockés** : un titre lancé sans réseau passe en
+attente (« Hors ligne · en attente de réseau ») et démarre seul au retour de la
+connexion.
+
+**Données personnelles.** Favoris, historique et épinglages vivent dans IndexedDB
+(`omnistream-library`), sans plafond arbitraire, avec un miroir compact dans
+`localStorage` pour un premier affichage instantané. Une demande de stockage
+persistant est émise pour que le navigateur ne purge pas silencieusement la
+bibliothèque. Le compteur « Données économisées » est réinitialisable depuis la
+page Hors ligne.
+
+**Économie de Mo.** Vignettes demandées en `w342`/`w780` aux grilles, images et
+polices servies depuis le cache (stratégie « cache d'abord » et « fresque »),
+lazy-loading des images, aucun appel YouTube avant la première lecture, mode Audio
+qui ne charge jamais la surface vidéo (lecteur réduit à 2 px).
 
 ## Données et sécurité
 

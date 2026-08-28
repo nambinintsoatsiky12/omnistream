@@ -17,6 +17,10 @@
     poster: actions.dataset.poster,
     backdrop: actions.dataset.backdrop,
     tab: actions.dataset.tab,
+    // L'URL de la fiche est épinglée elle aussi : le Service Worker la met en
+    // cache, donc la fiche entière (synopsis, note, générique) se relit sans
+    // réseau. Sans cette clé, « hors ligne » ne voulait rien dire.
+    url: `${location.pathname}${location.search}`,
   };
 
   const trailerKey = actions.dataset.trailer || window.__omniTrailerKey || "";
@@ -123,11 +127,17 @@
       if (!window.OmniLibrary) return;
       if (window.OmniLibrary.isOffline(item)) {
         window.OmniLibrary.removeOffline(item);
+        if (window.OmniUI) window.OmniUI.toast("Retiré du hors ligne.", "ok");
       } else {
         offBtn.disabled = true;
+        offBtn.classList.add("busy");
         if (offLabel) offLabel.textContent = "Enregistrement…";
         await window.OmniLibrary.saveOffline(item);
         offBtn.disabled = false;
+        offBtn.classList.remove("busy");
+        if (window.OmniUI) {
+          window.OmniUI.toast("Fiche et affiche mises en cache : lisibles hors ligne.", "ok");
+        }
       }
       refreshOffline();
     });
