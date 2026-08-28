@@ -89,7 +89,35 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=_env_flag("SESSION_COOKIE_SECURE", False),
+    # Les fichiers statiques sont revalidés à chaque chargement (304 quasi
+    # nul en octets) : plus jamais de CSS/JS périmé sur le téléphone après un
+    # déploiement. Le Service Worker, lui, les sert depuis son cache et les
+    # revalide en arrière-plan (économie de Mo conservée).
+    SEND_FILE_MAX_AGE_DEFAULT=0,
 )
+
+# Empreinte des assets : basée sur la date de modification réelle des fichiers
+# (stable d'un worker à l'autre, change dès qu'un CSS/JS est modifié). Elle est
+# injectée dans les URL « ?v= » pour invalider immédiatement un ancien fichier
+# encore gardé en mémoire par le navigateur du téléphone après un déploiement.
+def _compute_asset_version() -> str:
+    configured = os.environ.get("ASSET_VERSION", "").strip()
+    if configured:
+        return configured[:16]
+    static_dir = Path(__file__).with_name("static")
+    newest = 0
+    try:
+        for path in static_dir.rglob("*"):
+            if path.suffix in {".css", ".js"}:
+                modified = path.stat().st_mtime
+                if modified > newest:
+                    newest = modified
+    except OSError:
+        newest = 0
+    return format(int(newest), "x") if newest else "1"
+
+
+ASSET_VERSION = _compute_asset_version()
 if _env_flag("TRUST_PROXY_HEADERS", False):
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
@@ -116,6 +144,11 @@ if TRUSTED_HOSTS:
 TMDB_BASE = "https://api.themoviedb.org/3"
 IMG_BASE = "https://image.tmdb.org/t/p/w500"
 BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280"
+# Vignettes des grilles : affichées à ~150 px de large, on demande donc une
+# variante deux fois plus légère (≈ 3 Mo économisés par page de 20 cartes sur
+# un forfait mobile). Les grandes fiches gardent les definitions pleines.
+CARD_IMG_BASE = "https://image.tmdb.org/t/p/w342"
+CARD_BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
 
 WESTERN_ORIGINS = "US|GB|FR|CA|DE|ES|IT|BE"
 MAX_PAGES = 25
@@ -399,6 +432,12 @@ def template_promotional_context():
 
 
 @app.context_processor
+def template_asset_context():
+    """Versionne les assets statiques : finis les CSS/JS périmés sur mobile."""
+    return {"asset_version": ASSET_VERSION}
+
+
+@app.context_processor
 def template_navigation_context():
     """Détermine l'onglet actif de la barre de navigation basse (mobile)."""
     endpoint = request.endpoint
@@ -638,8 +677,8 @@ def normalize_card(item, media_type):
         "year": date[:4] if date else "",
         "date": date,
         "rating": _rating(item.get("vote_average")),
-        "poster": _tmdb_image_url(IMG_BASE, item.get("poster_path")),
-        "backdrop": _tmdb_image_url(BACKDROP_BASE, item.get("backdrop_path")),
+        "poster": _tmdb_image_url(CARD_IMG_BASE, item.get("poster_path")),
+        "backdrop": _tmdb_image_url(CARD_BACKDROP_BASE, item.get("backdrop_path")),
         "overview": str(item.get("overview") or ""),
         "original_language": item.get("original_language"),
         "origin_country": origin_country,

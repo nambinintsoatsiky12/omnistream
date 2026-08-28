@@ -404,6 +404,10 @@
     });
   }, { threshold: 0.1 });
   els.forEach((el) => io.observe(el));
+  // Filet de sécurité : aucun contenu ne doit rester invisible si l'observateur
+  // ne se déclenche pas (navigateur ancien, page restaurée de l'historique).
+  window.setTimeout(() => els.forEach((el) => el.classList.add("in-view")), 2500);
+  window.addEventListener("pageshow", () => els.forEach((el) => el.classList.add("in-view")));
 })();
 </script>
 {% endblock %}

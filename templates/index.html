@@ -87,6 +87,6 @@
 
 {% block scripts %}
 {% if not query %}
-  <script src="{{ url_for('static', filename='js/home.js') }}?v=8"></script>
+  <script src="{{ url_for('static', filename='js/home.js') }}?v={{ asset_version }}"></script>
 {% endif %}
 {% endblock %}

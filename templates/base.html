@@ -11,14 +11,35 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="OmniStream">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/icon-192.png') }}">
+<meta name="color-scheme" content="dark light">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,600;1,700&family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=21">
-<script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v=1" defer></script>
+{# Les polices ne doivent jamais retarder l'affichage : la feuille est chargée
+   sans bloquer le rendu, et le texte paraît immédiatement dans la police du
+   système (le « swap » remplace ensuite, sans page blanche). #}
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,600;1,700&family=Jost:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,600;1,700&family=Jost:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,600;1,700&family=Jost:wght@400;500;600;700;800&display=swap"></noscript>
+<script>
+/* densité de l'interface : appliquée avant le premier tracé, sans clignotement */
+(function () {
+  // L'interface est masquée tant que JS ne peut pas la révéler : on ne pose
+  // ce drapeau que si le script s'exécute (sinon tout resterait invisible).
+  document.documentElement.classList.add("js");
+  try {
+    var saved = window.localStorage.getItem("omni:ui-scale") || "normal";
+    if (saved !== "compact" && saved !== "normal" && saved !== "large") saved = "normal";
+    document.documentElement.setAttribute("data-ui-scale", saved);
+  } catch (e) {
+    document.documentElement.setAttribute("data-ui-scale", "normal");
+  }
+})();
+</script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ asset_version }}">
+<script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v={{ asset_version }}" defer></script>
 <meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
-<body class="{{ 'body-landing' if landing_page|default(false) else '' }}">
+<body class="{{ 'body-landing' if landing_page|default(false) else '' }}" style="background-color:#090b10">
 
 <!-- TOP HEADER BAR -->
 <header class="topbar {{ 'topbar-landing' if landing_page|default(false) else '' }}" id="topbar">
@@ -233,6 +254,15 @@
   </div>
 
   <div class="drawer-footer">
+    <div class="drawer-density" role="group" aria-label="Taille de l'affichage">
+      <span class="drawer-density-label">Taille de l'affichage</span>
+      <div class="density-toggle">
+        <button type="button" class="density-btn" data-ui-scale="compact">Serré</button>
+        <button type="button" class="density-btn" data-ui-scale="normal">Normal</button>
+        <button type="button" class="density-btn" data-ui-scale="large">Large</button>
+      </div>
+      <small class="drawer-density-help">Si tout vous paraît trop grand, l'échelle enregistrée par le navigateur est peut-être montée : ce réglage reprend la main.</small>
+    </div>
     <button type="button" class="drawer-install-btn" data-pwa-install hidden>
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
       <span>Installer l'application</span>
@@ -243,6 +273,13 @@
     </div>
   </div>
 </aside>
+
+<noscript>
+  <div class="noscript-note">
+    JavaScript est désactivé sur ce navigateur : la recherche du catalogue fonctionne encore,
+    mais Ma Liste, le lecteur musical et le mode hors ligne demandent JavaScript.
+  </div>
+</noscript>
 
 <!-- MAIN CONTENT WRAPPER -->
 <main id="main-content">
@@ -259,89 +296,131 @@
   </div>
 </div>
 
-<!-- Barre audio flottante -->
-<div id="omni-audio-bar" class="omni-audio-bar" hidden>
+<!-- Barre audio flottante (le « petit panneau » du bas) -->
+<div id="omni-audio-bar" class="omni-audio-bar" hidden
+     data-status="idle" data-playing="false" data-mode="audio"
+     role="region" aria-label="Lecteur OmniStream">
+  <div class="omni-bar-progress" id="omni-bar-progress" title="Avancer ou reculer">
+    <div class="omni-bar-progress-fill" id="omni-bar-progress-fill" data-fill></div>
+  </div>
   <div class="omni-bar-inner">
-    <div class="omni-bar-cover">
-      <div class="omni-bar-disc" id="omni-bar-disc">
+    <button type="button" class="omni-bar-cover" data-omni-action="expand" aria-label="Agrandir le lecteur">
+      <span class="omni-bar-disc" id="omni-bar-disc">
         <img id="omni-bar-img" class="omni-bar-thumb" src="" alt="" hidden>
-        <svg id="omni-bar-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-      </div>
-    </div>
+        <svg id="omni-bar-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+      </span>
+    </button>
     <button type="button" class="omni-bar-metabtn" data-omni-action="expand" aria-label="Agrandir le lecteur">
-      <div class="omni-bar-title" id="omni-bar-title">Aucune lecture</div>
-      <div class="omni-bar-channel" id="omni-bar-channel">OmniStream Player</div>
-      <div class="omni-bar-progress"><div class="omni-bar-progress-fill" id="omni-bar-progress-fill"></div></div>
+      <span class="omni-bar-title" id="omni-bar-title">Aucune lecture</span>
+      <span class="omni-bar-line">
+        <span class="omni-bar-channel" id="omni-bar-channel">OmniStream Player</span>
+        <span class="omni-bar-time" id="omni-bar-time">0:00</span>
+      </span>
+      <span class="omni-bar-status" id="omni-bar-status" hidden></span>
     </button>
     <div class="omni-bar-controls">
-      <button type="button" class="omni-ctrl" data-omni-action="prev" aria-label="Précédent" title="Précédent">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+      <button type="button" class="omni-ctrl" data-omni-action="prev" aria-label="Morceau précédent" title="Précédent">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
       </button>
-      <button type="button" class="omni-ctrl omni-ctrl-main" data-omni-action="toggle" aria-label="Lecture / Pause" title="Lecture / Pause">
-        <svg id="omni-bar-play-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        <svg id="omni-bar-pause-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+      <button type="button" class="omni-ctrl omni-ctrl-main" data-omni-action="toggle" aria-label="Lecture" aria-pressed="false">
+        <svg class="icon icon-play" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="icon icon-pause" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        <span class="icon icon-spinner" aria-hidden="true"></span>
       </button>
-      <button type="button" class="omni-ctrl" data-omni-action="next" aria-label="Suivant" title="Suivant">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L5.5 6v12z"/></svg>
+      <button type="button" class="omni-ctrl" data-omni-action="next" aria-label="Morceau suivant" title="Suivant">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M16 6h2v12h-2zm-2 6L5.5 6v12z"/></svg>
       </button>
-      <button type="button" class="omni-ctrl omni-ctrl-stop" data-omni-action="stop" aria-label="Arrêter" title="Arrêter">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      <button type="button" class="omni-ctrl omni-ctrl-close" data-omni-action="close" aria-label="Fermer le lecteur" title="Fermer">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
   </div>
 </div>
 
-<!-- Modale lecteur agrandi -->
-<div id="omni-audio-modal" class="omni-audio-modal" aria-hidden="true">
+<!-- Modale lecteur agrandi (se ferme par ✕, glisser vers le bas, Échap ou clic dehors) -->
+<div id="omni-audio-modal" class="omni-audio-modal" aria-hidden="true"
+     data-status="idle" data-playing="false" data-mode="audio"
+     role="dialog" aria-modal="true" aria-label="Lecteur agrandi">
   <div class="omni-modal-backdrop" data-omni-action="minimize"></div>
   <div class="omni-modal-content">
-    <button type="button" class="omni-modal-close" data-omni-action="minimize" aria-label="Réduire">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-    </button>
+    <div class="omni-modal-grabber" id="omni-modal-grabber" title="Glissez vers le bas pour réduire">
+      <span class="omni-modal-handle" aria-hidden="true"></span>
+    </div>
+    <div class="omni-modal-topbar">
+      <span class="omni-modal-badge" id="omni-modal-badge">LECTURE EN COURS</span>
+      <button type="button" class="omni-modal-close" data-omni-action="minimize" aria-label="Réduire le lecteur">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </div>
     <div class="omni-modal-vinyl">
       <div class="omni-vinyl" id="omni-modal-disc">
         <img id="omni-modal-cover" class="omni-vinyl-img" src="" alt="Pochette">
       </div>
     </div>
     <div class="omni-modal-info">
-      <span class="omni-modal-badge">LECTURE AUDIO · ÉCONOMISEUR DE Mo</span>
       <h2 class="omni-modal-title" id="omni-modal-title">Titre</h2>
       <p class="omni-modal-artist" id="omni-modal-artist">Artiste</p>
+      <p class="omni-modal-status" id="omni-modal-status" hidden></p>
     </div>
-    <div class="omni-modal-progress" id="omni-modal-progress">
-      <div class="omni-modal-progress-fill" id="omni-modal-progress-fill"></div>
+    <div class="omni-modal-progress" id="omni-modal-progress" title="Avancer ou reculer">
+      <div class="omni-modal-progress-fill" id="omni-modal-progress-fill" data-fill></div>
     </div>
     <div class="omni-modal-times">
       <span id="omni-modal-time-cur">0:00</span>
       <span id="omni-modal-time-dur">0:00</span>
     </div>
     <div class="omni-modal-controls">
-      <button type="button" class="omni-modal-ctrl" data-omni-action="prev" aria-label="Précédent">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+      <button type="button" class="omni-modal-ctrl" data-omni-action="prev" aria-label="Morceau précédent">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
       </button>
-      <button type="button" class="omni-modal-ctrl omni-modal-main" data-omni-action="toggle" aria-label="Lecture / Pause">
-        <svg id="omni-modal-play-icon" viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        <svg id="omni-modal-pause-icon" viewBox="0 0 24 24" width="30" height="30" fill="currentColor" hidden><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+      <button type="button" class="omni-modal-ctrl omni-modal-main" data-omni-action="toggle" aria-label="Lecture" aria-pressed="false">
+        <svg class="icon icon-play" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="icon icon-pause" viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        <span class="icon icon-spinner" aria-hidden="true"></span>
       </button>
-      <button type="button" class="omni-modal-ctrl" data-omni-action="next" aria-label="Suivant">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L5.5 6v12z"/></svg>
+      <button type="button" class="omni-modal-ctrl" data-omni-action="next" aria-label="Morceau suivant">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M16 6h2v12h-2zm-2 6L5.5 6v12z"/></svg>
       </button>
+    </div>
+    <div class="omni-modal-modes" role="group" aria-label="Mode de lecture">
+      <button type="button" class="omni-mode-btn" data-omni-action="mode-audio">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <span>Audio (MP3)</span>
+      </button>
+      <button type="button" class="omni-mode-btn" data-omni-action="mode-video">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="5" width="14" height="14" rx="2"/><polygon points="23 7 17 12 23 17 23 7"/></svg>
+        <span>Vidéo (MP4)</span>
+      </button>
+      <button type="button" class="omni-mode-btn" data-omni-action="wake-lock" aria-pressed="false" title="Empêche l'écran de s'éteindre pendant la lecture">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span>Écran allumé : non</span>
+      </button>
+      <button type="button" class="omni-mode-btn" data-omni-action="retry" hidden>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        <span>Réessayer</span>
+      </button>
+      <a class="omni-mode-btn" id="omni-modal-yt" href="#" target="_blank" rel="noopener noreferrer" hidden>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        <span>Ouvrir sur YouTube</span>
+      </a>
     </div>
 
     <!-- Minuteur de sommeil -->
     <div class="omni-sleep-row" id="omni-sleep-row">
       <span class="omni-sleep-label">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15 14"></polyline></svg>
-        Minuteur
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>
+        Sommeil
       </span>
-      <button type="button" class="omni-sleep-btn" data-sleep="15">15 min</button>
-      <button type="button" class="omni-sleep-btn" data-sleep="30">30 min</button>
-      <button type="button" class="omni-sleep-btn" data-sleep="60">1 h</button>
+      <button type="button" class="omni-sleep-btn" data-sleep="15">15</button>
+      <button type="button" class="omni-sleep-btn" data-sleep="30">30</button>
+      <button type="button" class="omni-sleep-btn" data-sleep="60">60</button>
       <button type="button" class="omni-sleep-btn omni-sleep-off" data-sleep="0" hidden>Annuler</button>
+      <span class="omni-sleep-status" id="omni-sleep-status" hidden></span>
     </div>
-    <div class="omni-sleep-status" id="omni-sleep-status" hidden></div>
 
-    <button type="button" class="omni-modal-stop" data-omni-action="stop">Arrêter la lecture</button>
+    <div class="omni-modal-actions">
+      <button type="button" class="omni-modal-stop" data-omni-action="close">Arrêter et fermer</button>
+    </div>
   </div>
 </div>
 
@@ -356,7 +435,27 @@
     <div class="global-video-badge">HD</div>
   </div>
   <div class="global-video-stage" id="global-video-stage"></div>
+  <div class="global-video-bottombar" id="global-video-controls">
+    <button type="button" class="omni-ctrl" data-omni-action="prev" aria-label="Morceau précédent">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+    </button>
+    <button type="button" class="omni-ctrl omni-ctrl-main" data-omni-action="toggle" aria-label="Lecture" aria-pressed="false">
+      <svg class="icon icon-play" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="icon icon-pause" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+      <span class="icon icon-spinner" aria-hidden="true"></span>
+    </button>
+    <button type="button" class="omni-ctrl" data-omni-action="next" aria-label="Morceau suivant">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M16 6h2v12h-2zm-2 6L5.5 6v12z"/></svg>
+    </button>
+    <button type="button" class="global-video-audio" data-omni-action="mode-audio">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      <span>Revenir en audio</span>
+    </button>
+  </div>
 </div>
+
+<!-- Zone de notifications discrètes (confirmations, erreurs réseau) -->
+<div id="omni-toasts" class="omni-toasts" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- ================================================================
      BARRE DE NAVIGATION BASSE (STYLE APPLICATION MOBILE)
@@ -504,16 +603,59 @@
     }
   });
 
-  // Mobile search toggle
+  // Recherche mobile : pilule dépliable, avec état accessible.
   const topbarInner = document.getElementById("topbar-inner");
   const searchToggle = document.getElementById("search-toggle");
   const searchInput = document.getElementById("search-input");
+  function setSearchOpen(open) {
+    if (!topbarInner || !searchToggle) return;
+    topbarInner.classList.toggle("search-open", open);
+    searchToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      if (searchInput) {
+        searchInput.focus();
+        if (searchInput.value) searchInput.select();
+      }
+    } else if (searchInput) {
+      searchInput.blur();
+    }
+  }
   if (searchToggle && topbarInner) {
     searchToggle.addEventListener("click", () => {
-      const isOpen = topbarInner.classList.toggle("search-open");
-      if (isOpen && searchInput) searchInput.focus();
+      setSearchOpen(!topbarInner.classList.contains("search-open"));
     });
   }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && topbarInner && topbarInner.classList.contains("search-open")) {
+      setSearchOpen(false);
+    }
+    // « / » ouvre la recherche, comme dans les applications web soignées.
+    if (event.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+      event.preventDefault();
+      setSearchOpen(true);
+    }
+  });
+
+  // Densité de l'affichage : 3 niveaux mémorisés sur l'appareil.
+  function applyScale(value) {
+    const allowed = ["compact", "normal", "large"];
+    const scale = allowed.indexOf(value) >= 0 ? value : "normal";
+    document.documentElement.setAttribute("data-ui-scale", scale);
+    try {
+      window.localStorage.setItem("omni:ui-scale", scale);
+    } catch (error) {
+      /* stockage indisponible : le réglage reste valable pour la visite */
+    }
+    document.querySelectorAll(".density-btn").forEach((btn) => {
+      const on = btn.dataset.uiScale === scale;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-pressed", String(on));
+    });
+  }
+  document.querySelectorAll(".density-btn").forEach((btn) => {
+    btn.addEventListener("click", () => applyScale(btn.dataset.uiScale));
+  });
+  applyScale(document.documentElement.getAttribute("data-ui-scale") || "normal");
 
   // Header scroll detection
   const header = document.getElementById("topbar");
@@ -554,9 +696,9 @@
 })();
 </script>
 
-<script src="{{ url_for('static', filename='js/player.js') }}?v=2"></script>
-<script src="{{ url_for('static', filename='js/library.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename='js/app-shell.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='js/player.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/library.js') }}?v={{ asset_version }}"></script>
+<script src="{{ url_for('static', filename='js/app-shell.js') }}?v={{ asset_version }}"></script>
 <div id="page-scripts">
 {% block scripts %}{% endblock %}
 </div>

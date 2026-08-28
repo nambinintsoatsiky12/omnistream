@@ -6,9 +6,11 @@
     <span class="section-kicker">ESPACE PERSONNEL · 100% PRIVÉ</span>
     <h1 class="search-title">Mon OmniStream</h1>
     <p class="library-intro">
-      Vos favoris et votre historique sont enregistrés uniquement sur cet appareil.
-      Aucun compte, aucune donnée envoyée, aucun Mo dépensé.
+      Vos favoris et votre historique sont enregistrés uniquement sur cet appareil, dans la base
+      locale du navigateur : ils ne s'effacent plus au bout de trente lignes et survivent aux
+      rechargements. Aucun compte, aucune donnée envoyée, aucun Mo dépensé.
     </p>
+    <p class="library-total" id="library-total"></p>
   </div>
 
   <!-- Bloc installation PWA -->
@@ -26,7 +28,7 @@
   <!-- Continuer à regarder / écouter -->
   <section class="library-section">
     <div class="library-section-head">
-      <h2>Reprendre</h2>
+      <h2>Reprendre <span class="count" id="continue-grid-count"></span></h2>
       <button type="button" class="library-clear" data-clear="continue">Vider</button>
     </div>
     <div class="grid" id="continue-grid"></div>
@@ -35,10 +37,18 @@
     </div>
   </section>
 
+  <div class="library-danger-zone">
+    <div>
+      <strong>Tout effacer sur cet appareil</strong>
+      <p>Supprime Ma Liste, l'historique de reprise et les éléments mis en cache hors ligne.</p>
+    </div>
+    <button type="button" class="library-clear danger" id="clear-library-btn">Effacer mes données</button>
+  </div>
+
   <!-- Ma liste (favoris) -->
   <section class="library-section">
     <div class="library-section-head">
-      <h2>Ma Liste</h2>
+      <h2>Ma Liste <span class="count" id="favorites-grid-count"></span></h2>
       <button type="button" class="library-clear" data-clear="favorites">Vider</button>
     </div>
     <div class="grid" id="favorites-grid"></div>
@@ -50,5 +60,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/library-page.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='js/library-page.js') }}?v={{ asset_version }}"></script>
 {% endblock %}
