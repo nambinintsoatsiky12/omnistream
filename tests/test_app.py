@@ -878,8 +878,9 @@ def test_jamendo_tendances_ordennees_par_popularite(client, monkeypatch):
 
     params = captured["calls"][0][1]
     assert params["order"] == "popularity_total"
-    # Un titre par artiste, sinon un seul netlabel remplirait la page.
-    assert params["groupby"] == "artist_id"
+    # `groupby=artist_id` fait repondre « success » avec zero resultat a l'API :
+    # le plafond par artiste est donc applique ici, pas la-bas.
+    assert "groupby" not in params
 
 
 def test_jamendo_rebondit_si_le_classement_ne_rend_rien(client, monkeypatch):
@@ -901,7 +902,34 @@ def test_jamendo_rebondit_si_le_classement_ne_rend_rien(client, monkeypatch):
     assert response.status_code == 200
     assert response.get_json()["items"], "le deuxieme essai doit remplir la page"
     assert len(seen) >= 2
-    assert "groupby" in seen[0] and "groupby" not in seen[1]
+    assert seen[0].get("order") == "popularity_total"
+    assert "order" not in seen[1]
+
+
+def test_les_tendances_jamendo_ne_sont_pas_un_seul_artiste(client, monkeypatch):
+    """Trois pistes du meme artiste dans la reponse : deux maximum dans la page,
+    sinon les tendances ne montrent qu'un seul musicien."""
+    payload = {
+        "headers": {"status": "success", "code": 0},
+        "results": [
+            {
+                "id": str(1000 + index),
+                "name": f"Piste {index}",
+                "artist_id": "77",
+                "artist_name": "Un seul artiste",
+                "duration": 100,
+                "audio": f"https://prod-1.storage.jamendo.com/?trackid={1000 + index}",
+                "audiodownload_allowed": False,
+            }
+            for index in range(3)
+        ],
+    }
+    patch_jamendo(monkeypatch, payload=payload)
+
+    items = client.get("/api/mp3?provider=jamendo").get_json()["items"]
+
+    assert len(items) == 2
+    assert [item["channel"] for item in items] == ["Un seul artiste"] * 2
 
 
 def test_jamendo_sans_cle_refuse_sans_casser_la_page(client, monkeypatch):

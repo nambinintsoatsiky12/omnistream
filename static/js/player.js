@@ -533,7 +533,28 @@
     return el;
   }
 
+  // Les liens de Jamendo sont signés et vivent quelques minutes : un morceau
+  // repris depuis la barre du lecteur après une longue pause peut refuser
+  // de s'ouvrir alors que le titre, lui, reste libre. Le relais du serveur,
+  // qui résout une adresse fraîche à la demande, mérite une tentative avant
+  // de déclarer la panne. En passage hors ligne, c'est d'ailleurs le seul chemin.
+  function retryThroughRelay() {
+    const track = state.current;
+    if (!track || track.kind !== "mp3" || track.__omniRelayed) return false;
+    const relay = String(track.download || "").split("?")[0];
+    if (!relay.startsWith("/mp3/")) return false;
+    const el = audioT.el;
+    if (!el || el.src.indexOf(relay) !== -1) return false;
+    track.__omniRelayed = true;
+    audioT.url = relay;
+    el.src = relay;
+    setStatus("loading", "Nouveau lien du morceau…");
+    el.play().catch(() => undefined);
+    return true;
+  }
+
   function onAudioStreamError() {
+    if (retryThroughRelay()) return;
     if (state.current && state.current.kind === "mp3") {
       if (isOffline()) {
         state.waitingNetwork = true;

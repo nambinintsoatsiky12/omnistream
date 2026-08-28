@@ -137,6 +137,9 @@ YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "").strip()
 # gratuite, donne accès à un catalogue moderne de MP3 que leurs artistes laissent
 # copier. Sans clé, l'application tourne quand même (Archive seul).
 JAMENDO_API_URL = "https://api.jamendo.com/v3.0/tracks/"
+# Les tendances Jamendo sont peuplées par trois ou quatre artistes très actifs :
+# sans plafond, la page ne montrerait qu'eux.
+JAMENDO_PER_ARTIST = 2
 JAMENDO_CLIENT_ID = os.environ.get("JAMENDO_CLIENT_ID", "").strip()
 SPONSOR_SMARTLINK_URL = os.environ.get(
     "SPONSOR_SMARTLINK_URL", "https://omg10.com/4/11645531"
@@ -1952,11 +1955,10 @@ def _jamendo_ladders(base, query):
     """
     if query:
         return [dict(base)]
-    return [
-        dict(base, order="popularity_total", groupby="artist_id"),
-        dict(base, order="popularity_total"),
-        dict(base),
-    ]
+    # `groupby=artist_id` est le paramètre qui fait répondre « success » avec
+    # zéro résultat (vérifié en direct sur l'API) : le groupement est
+    # donc fait ici, à la place, sans coûter un appel de plus.
+    return [dict(base, order="popularity_total"), dict(base)]
 
 
 def _jamendo_items(query, page=1, limit=24, shelf="tout"):
@@ -1990,11 +1992,19 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
             break
 
     items = []
+    # Un artiste ne prend pas toute la page : deux pistes par artiste au maximum
+    # quand on parcourt les tendances. En recherche, au contraire, on veut toutes
+    # les pistes du titre demandé.
+    per_artist = {}
     for track in results:
         if not isinstance(track, dict):
             continue
-        # Les identifiants arrivent en chaine (« "id":"241" »), pas en nombre.
+        # Les identifiants arrivent en chaîne (« "id":"241" »), pas en nombre.
         track_id = _archive_number(track.get("id"), int, 0)
+        artist_key = str(track.get("artist_id") or track.get("artist_name") or "")
+        per_artist[artist_key] = per_artist.get(artist_key, 0) + 1
+        if not query and per_artist[artist_key] > JAMENDO_PER_ARTIST:
+            continue
         stream = _jamendo_https(track.get("audio"))
         if not track_id or not stream:
             continue
