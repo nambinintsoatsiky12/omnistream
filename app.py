@@ -1867,6 +1867,29 @@ def _jamendo_available():
     return bool(JAMENDO_CLIENT_ID)
 
 
+def _jamendo_https(value):
+    """URL de l'API en https, ou chaine vide si ce n'est pas une URL exploitable.
+
+    Jamendo rend parfois des liens en `http://` (licence, image). Une page servie
+    en https refuse de charger un média en http — le morceau ne démarrerait pas,
+    sans message d'erreur — donc on remonte le protocole plutôt que de garder la
+    valeur telle quelle.
+    """
+    text = str(value or "").strip()
+    if text.startswith("http://"):
+        text = "https://" + text[len("http://") :]
+    return text if text.startswith("https://") else ""
+
+
+def _jamendo_license(value):
+    """`license_ccurl` -> (URL, nom court) : « by-nc-sa 3.0 » plutôt qu'un lien nu."""
+    url = _jamendo_https(value)
+    if not url:
+        return "", ""
+    tail = url.rstrip("/").split("licenses/")[-1]
+    return url, tail.replace("/", " ")[:40]
+
+
 def _jamendo_request(params, timeout=12):
     """GET sur l'API publique Jamendo (lecture seule, aucune clé privée)."""
     if not JAMENDO_CLIENT_ID:
@@ -1919,53 +1942,71 @@ def _jamendo_request(params, timeout=12):
     return data
 
 
+def _jamendo_ladders(base, query):
+    """Toutes les formes de requête, de la plus riche à la plus simple.
+
+    L'API accepte des paramètres de classement (« order », « groupby ») et, selon
+    les périodes, l'une de ces combinaisons répond `success` avec ZERO résultat.
+    Rather que de livrer une page vide, on redemande sans l'option de confort :
+    trois appels au pire, et la réponse est gardée 15 minutes en mémoire.
+    """
+    if query:
+        return [dict(base)]
+    return [
+        dict(base, order="popularity_total", groupby="artist_id"),
+        dict(base, order="popularity_total"),
+        dict(base),
+    ]
+
+
 def _jamendo_items(query, page=1, limit=24, shelf="tout"):
     """Pistes Jamendo normalisées dans le même moule que celles d'Archive.
 
-    `audioformat=mp32` (VBR, bonne qualité) et `audiodlformat=mp32` : le format
-    par défaut de l'API est un 96 kbps de lecture seule, et ce serait une
-    chute de qualité invisible pour l'auditeur. `include=licenses` ajoute
-    l'attribution Creative Commons, obligatoire pour rejouer un titre.
+    `audioformat`/`audiodlformat` = `mp32` (VBR) : le défaut de l'API est un
+    96 kbps de streaming, ce serait une chute de qualité invisible. Aucun
+    `include` demandé : l'attribution (`license_ccurl`) et la date
+    (`releasedate`) sont déjà dans la réponse, et `include=stats` y ajoute une
+    enveloppe de forme d'onde de plusieurs kilo-octets par piste.
     """
     shelf_conf = MP3_SHELVES.get(shelf) or MP3_SHELVES["tout"]
-    params = {
-        "limit": max(1, min(50, int(limit))),
-        "offset": max(0, (max(1, int(page)) - 1) * max(1, min(50, int(limit)))),
+    size = max(1, min(50, int(limit)))
+    base = {
+        "limit": size,
+        "offset": max(0, (max(1, int(page)) - 1) * size),
         "audioformat": "mp32",
         "audiodlformat": "mp32",
         "imagesize": 200,
-        "album_imagesize": 200,
-        "include": ["licenses", "stats"],
-        "order": "relevance",
     }
     if query:
-        params["search"] = query[:120]
-    else:
-        if shelf_conf["tag"]:
-            params["tags"] = shelf_conf["tag"]
-        params["order"] = "popularity_total"
-        # Un titre par artiste : sinon un même netlabel occupe toute la page.
-        params["groupby"] = "artist_id"
-    data = _jamendo_request(params)
+        base["search"] = query[:120]
+    elif shelf_conf["tag"]:
+        base["tags"] = shelf_conf["tag"]
+
+    results = []
+    for params in _jamendo_ladders(base, query):
+        data = _jamendo_request(params)
+        results = data.get("results") or []
+        if results:
+            break
 
     items = []
-    for track in data.get("results") or []:
+    for track in results:
         if not isinstance(track, dict):
             continue
-        track_id = track.get("id")
-        stream = str(track.get("audio") or "")
-        if not track_id or not stream.startswith("https://"):
+        # Les identifiants arrivent en chaine (« "id":"241" »), pas en nombre.
+        track_id = _archive_number(track.get("id"), int, 0)
+        stream = _jamendo_https(track.get("audio"))
+        if not track_id or not stream:
             continue
         duration = int(_archive_number(track.get("duration"), int, 0))
-        size = int(_archive_number(track.get("filesize"), int, 0))
-        allowed = track.get("audiodownload_allowed")
-        download = str(track.get("audiodownload") or "")
-        # Jamendo laisse chaque artiste autoriser ou non la copie : quand ce est
-        # non, `audiodownload` est vide et aucun bouton de téléchargement ne doit
-        # être proposé.
-        can_download = bool(allowed) and download.startswith("https://")
+        # L'API ne donne pas la taille du fichier : on la laisse inconnue (la
+        # carte affiche alors « MP3 » sans chiffre) plutôt que d'inventer un
+        # « 0 Ko » qui ferait choisir un morceau sur un faux critère.
+        license_url, license_name = _jamendo_license(track.get("license_ccurl"))
         page_url = str(
-            track.get("shorturl") or f"https://www.jamendo.com/track/{track_id}"
+            track.get("shareurl")
+            or track.get("shorturl")
+            or f"https://www.jamendo.com/track/{track_id}"
         )
         items.append(
             {
@@ -1973,30 +2014,31 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
                 "type": "music",
                 "provider": "jamendo",
                 "id": f"jm:{track_id}",
-                "jamendo_id": int(_archive_number(track_id, int, 0)),
+                "jamendo_id": int(track_id),
                 "identifier": f"jamendo-{track_id}",
                 "title": html.unescape(str(track.get("name") or "Sans titre"))[:160],
                 "channel": html.unescape(
                     str(track.get("artist_name") or "Artiste Jamendo")
                 )[:120],
                 "album": html.unescape(str(track.get("album_name") or ""))[:160],
-                "year": str(track.get("release_date") or "")[:4],
+                "year": str(track.get("releasedate") or "")[:4],
                 "duration": duration,
-                "size": size,
-                "thumbnail": str(track.get("image") or ""),
+                "size": int(_archive_number(track.get("filesize"), int, 0)),
+                "thumbnail": _jamendo_https(track.get("image")),
                 "url": stream,
-                "download": (
-                    f"/mp3/jamendo/{track_id}.mp3?download=1" if can_download else ""
-                ),
+                "download": "",
                 "page": page_url,
-                "license": str(
-                    track.get("license_url") or track.get("license_URL") or ""
-                )[:200],
-                "license_name": str(
-                    track.get("license_name") or track.get("license_id") or ""
-                )[:40],
+                "license": license_url[:200],
+                "license_name": license_name[:40],
             }
         )
+        # Jamendo laisse chaque artiste autoriser ou non la copie de son morceau
+        # (`audiodownload_allowed`, et `audiodownload` vide depuis août 2020
+        # quand c'est non) : sans droit, aucun bouton ne doit exister.
+        if bool(track.get("audiodownload_allowed")) and _jamendo_https(
+            track.get("audiodownload")
+        ):
+            items[-1]["download"] = f"/mp3/jamendo/{track_id}.mp3?download=1"
         if len(items) >= MP3_TOTAL:
             break
     return items
@@ -2113,22 +2155,22 @@ def jamendo_file(track_id):
     résout au moment où l'utilisateur touche le bouton — jamais à l'avance."""
     if track_id <= 0:
         abort(404)
-    data = _jamendo_request(
-        {
-            "id": track_id,
-            "limit": 1,
-            "audiodlformat": "mp32",
-            "audioformat": "mp32",
-        }
-    )
-    track = next(
-        (
-            item
-            for item in (data.get("results") or [])
-            if isinstance(item, dict) and item.get("audiodownload_allowed")
-        ),
-        None,
-    )
+    track = None
+    for params in (
+        {"id": track_id, "limit": 1, "audioformat": "mp32", "audiodlformat": "mp32"},
+        {"id": track_id, "limit": 1},
+    ):
+        data = _jamendo_request(params)
+        track = next(
+            (
+                item
+                for item in (data.get("results") or [])
+                if isinstance(item, dict) and item.get("audiodownload_allowed")
+            ),
+            None,
+        )
+        if track:
+            break
     target = str((track or {}).get("audiodownload") or "")
     if not target.startswith("https://"):
         # L'artiste a fermé la copie : c'est son droit, et le bouton ne doit
@@ -2137,9 +2179,9 @@ def jamendo_file(track_id):
             "Ce titre n'est pas laissé en téléchargement libre par son artiste.",
             410,
         )
-    name = re.sub(r"[^A-Za-z0-9._ -]", "_", str((track or {}).get("name") or "titre"))[
-        :60
-    ]
+    name = re.sub(
+        r"[^A-Za-z0-9._ -]", "_", str((track or {}).get("name") or "titre")
+    )[:60]
     return _relay_mp3(target, f"{name}.mp3")
 
 

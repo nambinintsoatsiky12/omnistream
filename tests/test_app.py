@@ -768,32 +768,37 @@ def test_espace_musique_propose_la_source_mp3(client):
 # Jamendo : un catalogue moderne de MP3 que les artistes laissent copier
 # ---------------------------------------------------------------------------
 
+# Calque sur la reponse reelle de l'API : identifiants en CHAINE, date en
+# `releasedate`, licence en `license_ccurl` (en http), aucune taille de fichier,
+# et pas de champ `filesize`.
 JAMENDO_TRACKS = {
     "headers": {"status": "success", "code": 0, "results_count": 2},
     "results": [
         {
-            "id": 125871,
+            "id": "125871",
             "name": "Tsikimba Soa",
+            "artist_id": "441585",
             "artist_name": "Rija Natural",
             "album_name": "Hira Gasy Electronique",
+            "album_id": "145774",
             "duration": 236,
-            "filesize": 9437184,
-            "release_date": "2019-04-11",
-            "image": "https://img.jamendo.com/imgstorage:125871:200/cover.jpg",
-            "audio": "https://prod-omnios.jamendo.com/stream/125871.mp3?token=abc",
-            "audiodownload": "https://www.jamendo.com/getTrack/MP32/125871/x",
+            "releasedate": "2015-04-11",
+            "license_ccurl": "http://creativecommons.org/licenses/by-nc-sa/3.0/",
+            "image": "http://usercontent.jamendo.com?type=album&id=145774&width=200",
+            "audio": "https://prod-1.storage.jamendo.com/?trackid=125871&format=mp32",
+            "audiodownload": "https://prod-1.storage.jamendo.com/download/track/125871/mp32/",
             "audiodownload_allowed": True,
-            "shorturl": "https://www.jamendo.com/track/125871/tsikimba-soa",
-            "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
-            "license_name": "by-nc-sa",
+            "shorturl": "https://jamen.do/t/125871",
+            "shareurl": "https://www.jamendo.com/track/125871",
         },
         {
             # L'artiste a ferme la copie : le bouton ne doit pas exister.
-            "id": 999,
+            "id": "999",
             "name": "Interdit de copier",
             "artist_name": "Quelqu'un",
             "duration": 120,
-            "audio": "https://prod-omnios.jamendo.com/stream/999.mp3?token=zzz",
+            "license_ccurl": "",
+            "audio": "https://prod-1.storage.jamendo.com/?trackid=999&format=mp32",
             "audiodownload": "",
             "audiodownload_allowed": False,
         },
@@ -813,7 +818,9 @@ def patch_jamendo(
             wanted = (params or {}).get("id")
             results = payload["results"]
             if wanted:
-                results = [t for t in results if t.get("id") == int(wanted)]
+                # L'API rend des identifiants en chaine ; la route, elle, recoit
+                # un entier. On compare les deux sous forme de texte.
+                results = [t for t in results if str(t.get("id")) == str(wanted)]
             return FakeResponse({**payload, "results": results})
         return FakeResponse(
             None,
@@ -840,11 +847,16 @@ def test_jamendo_normalise_les_pistes_dans_le_meme_moule(client, monkeypatch):
     assert first["title"] == "Tsikimba Soa"
     assert first["channel"] == "Rija Natural"
     assert first["duration"] == 236
-    assert first["size"] == 9437184
-    assert first["url"].startswith("https://prod-omnios.jamendo.com/stream/")
+    assert first["year"] == "2015"
+    # L'API ne dit pas la taille du fichier : elle reste absente, jamais « 0 Ko ».
+    assert first["size"] == 0
+    assert first["url"].startswith("https://prod-1.storage.jamendo.com/")
     assert first["download"] == "/mp3/jamendo/125871.mp3?download=1"
-    assert first["license_name"] == "by-nc-sa"
-    assert first["page"].endswith("/tsikimba-soa")
+    # Une page https ne peut pas charger une image ni une licence en http.
+    assert first["thumbnail"].startswith("https://")
+    assert first["license"].startswith("https://creativecommons.org/licenses/by-nc-sa")
+    assert first["license_name"] == "by-nc-sa 3.0"
+    assert first["page"] == "https://www.jamendo.com/track/125871"
     # Le second titre n'a pas le droit d'etre copie : pas de bouton.
     assert items[1]["download"] == ""
     # Qualite explicite : le defaut de l'API est un 96 kbps de lecture seule.
@@ -852,7 +864,9 @@ def test_jamendo_normalise_les_pistes_dans_le_meme_moule(client, monkeypatch):
     assert params["audioformat"] == "mp32"
     assert params["audiodlformat"] == "mp32"
     assert params["search"] == "rija"
-    assert params["order"] == "relevance"
+    # Pas d'include : `stats` ajoute une forme d'onde de plusieurs kilo-octets
+    # par piste, et la licence est deja dans la reponse de base.
+    assert "include" not in params
     assert "jamendo" in payload["providers"]
 
 
@@ -866,6 +880,28 @@ def test_jamendo_tendances_ordennees_par_popularite(client, monkeypatch):
     assert params["order"] == "popularity_total"
     # Un titre par artiste, sinon un seul netlabel remplirait la page.
     assert params["groupby"] == "artist_id"
+
+
+def test_jamendo_rebondit_si_le_classement_ne_rend_rien(client, monkeypatch):
+    """L'API repond parfois « success » avec zero resultat selon le classement
+    demande : la page doit se remplir quand meme, pas rester vide."""
+    seen = []
+
+    def fake_get(url, params=None, **_kwargs):
+        seen.append(dict(params or {}))
+        empty = {"headers": {"status": "success", "code": 0}, "results": []}
+        full = JAMENDO_TRACKS
+        return FakeResponse(full if len(seen) > 1 else empty)
+
+    monkeypatch.setattr(app_module, "JAMENDO_CLIENT_ID", "cle-de-test")
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/api/mp3?provider=jamendo")
+
+    assert response.status_code == 200
+    assert response.get_json()["items"], "le deuxieme essai doit remplir la page"
+    assert len(seen) >= 2
+    assert "groupby" in seen[0] and "groupby" not in seen[1]
 
 
 def test_jamendo_sans_cle_refuse_sans_casser_la_page(client, monkeypatch):
@@ -949,7 +985,9 @@ def test_relais_jamendo_impose_le_nom_du_morceau(client, monkeypatch):
     assert "Tsikimba Soa" in response.headers["Content-Disposition"]
     # L'URL de telechargement Jamendo expire : elle est resolue a la demande.
     stream_call = captured["calls"][-1][0]
-    assert stream_call == "https://www.jamendo.com/getTrack/MP32/125871/x"
+    assert stream_call == (
+        "https://prod-1.storage.jamendo.com/download/track/125871/mp32/"
+    )
     assert response.data == b"MP3DATA"
 
 

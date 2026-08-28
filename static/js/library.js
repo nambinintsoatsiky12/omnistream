@@ -375,12 +375,14 @@
     });
   }
 
-  // Le worker a besoin de temps pour un gros fichier : le délai d'attente
-   // est calé sur la taille annoncée (60 Ko/s au pire), sans dépasser 8 minutes.
-  // d'attente d'après la taille annoncée (60 Ko/s au pire), sans jamais
-  // dépasser 8 minutes.
+  // Le worker a besoin de temps pour un gros fichier : le délai d'attente est
+  // calé sur la taille annoncée (60 Ko/s au pire), sans dépasser 8 minutes.
+  // Quand la source ne donne pas la taille (cas de Jamendo), on part sur un
+  // morceau lourd : un délai trop court ferait annoncer un échec pendant que le
+  // fichier, lui, continue de s'écrire en arrière-plan.
   function waitMsForBytes(bytes) {
-    const size = Number(bytes) || 0;
+    const declared = Number(bytes) || 0;
+    const size = declared > 0 ? declared : 12 * 1024 * 1024;
     return Math.min(8 * 60 * 1000, 20000 + (size / 60000) * 1000);
   }
 
