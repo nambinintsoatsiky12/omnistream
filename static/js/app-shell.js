@@ -124,7 +124,10 @@
         return;
       }
       const channel = new MessageChannel();
-      const timer = window.setTimeout(() => resolve(null), 4000);
+      // « stats » lit le corps de chaque réponse et « clear-cache » parcours le
+      // cache : sur un téléphone, 4 secondes ne suffisent pas toujours, et une
+      // réponse en retard se lisait comme « rien à vider ».
+      const timer = window.setTimeout(() => resolve(null), 20000);
       channel.port1.onmessage = (event) => {
         window.clearTimeout(timer);
         resolve(event.data);

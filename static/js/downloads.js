@@ -69,7 +69,7 @@
 
     const badge = document.createElement("span");
     badge.className = "quality-tag";
-    badge.textContent = item.type === "music" ? "MP3 · RÉSEAU REQUIS" : "ENREGISTRÉ";
+    badge.textContent = storageLabel(item);
     inner.appendChild(badge);
 
     // Le bouton « retirer » arrête la propagation : sinon le tap atteignait
@@ -111,10 +111,17 @@
       inner.tabIndex = 0;
       const listen = () => {
         if (!window.OmniPlayer) return;
-        if (!navigator.onLine) {
+        // Un MP3 libre épinglé EST un fichier : il sort du cache et se lance
+        // même sans réseau. Avertir du contraire — et quand même lancer une
+        // lecture promise à l'échec — était une double erreur.
+        if (!navigator.onLine && !hasStoredFile(item)) {
           if (window.OmniUI) {
-            window.OmniUI.toast("Hors ligne : la lecture reprendra dès le retour du réseau.", "warn");
+            window.OmniUI.toast(
+              "Hors ligne : ce clip a besoin du réseau. Les MP3 libres, eux, se lisent à 0 Mo.",
+              "warn",
+            );
           }
+          return;
         }
         window.OmniPlayer.setQueue([item], 0);
         window.OmniPlayer.play(item, "audio");
@@ -141,6 +148,21 @@
     return wrap;
   }
 
+  // Un enregistrement vaut « fichier sur l'appareil » quand l'URL du MP3 a été
+  // transmise au worker : c'est ce qui distingue un vrai MP3 libre d'un clip
+  // YouTube, dont on ne garde que la fiche.
+  function hasStoredFile(item) {
+    if (!item || item.type !== "music") return false;
+    if (item.kind !== "mp3" && !/\.mp3($|\?)/i.test(String(item.url || ""))) return false;
+    return typeof item.url === "string" && item.url.length > 0;
+  }
+
+  function storageLabel(item) {
+    if (item.type !== "music") return "ENREGISTRÉ";
+    if (!hasStoredFile(item)) return "CLIP · RÉSEAU REQUIS";
+    return item.cached ? "MP3 · 0 Mo HORS LIGNE" : "MP3 · À RÉCUPÉRER";
+  }
+
   function askWorker(message) {
     if (!window.OmniSW || !window.OmniSW.ask) return Promise.resolve(null);
     return window.OmniSW.ask(message);
@@ -161,7 +183,15 @@
       let bytes = 0;
       Object.keys(stats.caches).forEach((name) => {
         const entry = stats.caches[name] || {};
-        if (name.includes("-images") || name.includes("-offline")) images += entry.entries || 0;
+        // « Fichiers en cache » compte tout ce qui est réellement stocké :
+        // affiches, fiches épinglées et morceaux MP3.
+        if (
+          name.includes("-images") ||
+          name.includes("-offline") ||
+          name.includes("-audio")
+        ) {
+          images += entry.entries || 0;
+        }
         bytes += entry.bytes || 0;
       });
       set("stat-imgs", String(images));

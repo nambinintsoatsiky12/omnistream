@@ -331,6 +331,59 @@
     return mem.offline.some((entry) => keyOf(entry) === key);
   }
 
+  // Demande VRAIE avec réponse du worker : le canal permet de savoir quand le
+  // fichier est réellement en cache — utile pour un MP3 de 5 à 10 Mo qui peut
+  // mettre une à deux minutes sur un forfait.
+  function swRequest(message, timeoutMs) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      if (!("serviceWorker" in navigator) || !navigator.serviceWorker.controller) {
+        return done(null);
+      }
+      try {
+        const channel = new MessageChannel();
+        const timer = window.setTimeout(() => done(null), timeoutMs || 15000);
+        channel.port1.onmessage = (event) => {
+          window.clearTimeout(timer);
+          done(event.data || null);
+        };
+        channel.port1.onmessageerror = () => {
+          window.clearTimeout(timer);
+          done(null);
+        };
+        navigator.serviceWorker.ready
+          .then((registration) => {
+            if (!registration.active) {
+              window.clearTimeout(timer);
+              done(null);
+              return;
+            }
+            registration.active.postMessage(message, [channel.port2]);
+          })
+          .catch(() => {
+            window.clearTimeout(timer);
+            done(null);
+          });
+      } catch (_error) {
+        done(null);
+      }
+    });
+  }
+
+  // Le worker a besoin de temps pour un gros fichier : le délai d'attente
+   // est calé sur la taille annoncée (60 Ko/s au pire), sans dépasser 8 minutes.
+  // d'attente d'après la taille annoncée (60 Ko/s au pire), sans jamais
+  // dépasser 8 minutes.
+  function waitMsForBytes(bytes) {
+    const size = Number(bytes) || 0;
+    return Math.min(8 * 60 * 1000, 20000 + (size / 60000) * 1000);
+  }
+
   function swPostMessage(message) {
     return new Promise((resolve) => {
       let settled = false;
@@ -371,23 +424,41 @@
   async function saveOffline(item) {
     if (!item || !item.id) return false;
     const key = keyOf(item);
-    const record = Object.assign({}, item, {
-      offlineAt: Date.now(),
-      urls: imageUrlsOf(item).concat(item.url ? [item.url] : []),
-    });
+    const urls = imageUrlsOf(item).concat(item.url ? [item.url] : []);
+    const record = Object.assign({}, item, { offlineAt: Date.now(), urls });
     const existing = mem.offline;
     if (!existing.some((entry) => keyOf(entry) === key)) {
       save("offline", sortNewest([record].concat(existing)));
     }
-    // Mise en cache réelle : le Service Worker rapatrie affiches + page, ce
-    // qui rend l'élément vraiment consultable sans réseau.
-    const delegated = await swPostMessage({ type: "cache-offline", bucket: key, urls: record.urls });
-    if (!delegated) {
-      // Première visite (aucun worker au commande) : on cache nous-mêmes,
-      // sinon « épingler » n'enregistrerait rien du tout.
-      await precacheImages(record.urls);
+    // Mise en cache réelle : le Service Worker rapatrie affiches, page et —
+    // pour un MP3 libre — le fichier lui-même, ce qui rend l'élément vraiment
+    // consultable (et écoutable) sans réseau.
+    const answer = await swRequest(
+      { type: "cache-offline", bucket: key, urls: record.urls },
+      waitMsForBytes(record.size),
+    );
+    if (answer && typeof answer.cached === "number") {
+      record.cached = answer.cached;
+      save(
+        "offline",
+        sortNewest(mem.offline.map((entry) => (keyOf(entry) === key ? record : entry))),
+      );
+      document.dispatchEvent(new CustomEvent("omni:library-change"));
+      // Réponse du worker mais rien de stocké = rien d'atteignable : le dire
+      // vaut mieux qu'un « enregistré » tranquille qui ne marche pas hors ligne.
+      return answer.cached > 0;
     }
-    return true;
+    // Aucun worker joignable (première visite, worker en attente) : on cache
+    // nous-mêmes, sinon « épingler » n'enregistrerait rien du tout.
+    const stored = await precacheImages(record.urls);
+    if (stored > 0) {
+      record.cached = stored;
+      save(
+        "offline",
+        sortNewest(mem.offline.map((entry) => (keyOf(entry) === key ? record : entry))),
+      );
+    }
+    return stored > 0;
   }
 
   function removeOffline(item) {
@@ -411,6 +482,7 @@
     if (usedSw) return list.length;
     // Repli : cache de premier niveau depuis la page (images opaques incluses).
     if (!("caches" in window)) return 0;
+    let stored = 0;
     try {
       const cache = await caches.open("omnistream-offline");
       await Promise.all(
@@ -419,15 +491,16 @@
             const request = new Request(url, { mode: "no-cors" });
             const response = await fetch(request);
             await cache.put(request, response);
+            stored += 1;
           } catch (_error) {
-            /* image indisponible : non bloquant */
+            /* ressource indisponible : on ne la compte pas */
           }
         }),
       );
     } catch (_error) {
       /* cache indisponible */
     }
-    return list.length;
+    return stored;
   }
 
   /* ------------------------------------------------------------------ *
@@ -518,6 +591,7 @@
     getOffline,
     isOffline,
     saveOffline,
+    swRequest,
     removeOffline,
     precacheImages,
     clearBucket,

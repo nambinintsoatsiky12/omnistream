@@ -3327,24 +3327,61 @@ main:has(.landing-hero-ua),
   min-height: 50px;
 }
 .omni-bar-progress {
-  /* La ligne fait 3 px, mais la zone tactile fait 7 px : on peut attraper la
-     progression du bout du pouce. `content-box` est indispensable ici, sinon
-     le padding écrase la hauteur utile (boîte globale en border-box). */
+  /* La ligne fait 5 px mais la zone tactile en fait une vingtaine : on
+     attrape la progression du bout du pouce, sans viser un cheveu. Le
+     prolongement se fait par un pseudo-élément (et non par du padding) pour ne
+     pas gonfler la hauteur utile de la barre. */
+  position: relative;
   box-sizing: content-box;
-  height: 3px;
-  padding: 4px 0 0;
-  background: rgba(255, 255, 255, 0.1);
+  height: 5px;
+  padding: 6px 0 0;
+  background: rgba(255, 255, 255, 0.14);
   background-clip: content-box;
   cursor: pointer;
-  overflow: hidden;
   border-radius: 14px 14px 0 0;
   touch-action: none;
 }
+
+.omni-bar-progress::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -11px;
+  bottom: -7px;
+}
+
 .omni-bar-progress-fill {
+  position: relative;
   height: 100%;
   width: 0%;
+  min-width: 6px;
+  border-radius: 9999px;
   background: var(--gradient);
+  box-shadow: 0 0 10px rgba(255, 122, 46, 0.45);
   transition: width 0.4s linear;
+}
+
+/* Le grain brillant qui matérialise « où on en est » : sans lui, la barre ne
+   dit rien et on ne devine pas qu'elle se touche. */
+.omni-bar-progress-fill::after,
+.omni-modal-progress-fill::after {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 12px rgba(255, 122, 46, 0.9), 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+/* Pendant un glissement, aucune animation : le repère colle au doigt. */
+body.seeking .omni-bar-progress-fill,
+body.seeking .omni-modal-progress-fill {
+  transition: none;
 }
 .omni-bar-cover {
   flex-shrink: 0;
@@ -3595,18 +3632,24 @@ body[data-player-playing="true"] .omni-vinyl { animation: omni-spin 12s linear i
 .omni-modal-artist { color: var(--muted); font-size: 0.8rem; }
 .omni-modal-status { color: var(--accent); font-size: 0.72rem; margin-top: 6px; font-weight: 600; }
 .omni-modal-progress {
+  box-sizing: content-box;
   width: 100%;
-  height: 6px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.12);
-  margin: 20px 0 6px;
+  height: 8px;
+  padding: 12px 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  background-clip: content-box;
+  margin: 12px 0;
   cursor: pointer;
-  overflow: hidden;
   touch-action: none;
 }
+
 .omni-modal-progress-fill {
+  position: relative;
   height: 100%;
   width: 0%;
+  min-width: 8px;
+  border-radius: 9999px;
   background: var(--gradient);
   transition: width 0.4s linear;
 }

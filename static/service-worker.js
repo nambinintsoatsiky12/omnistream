@@ -514,9 +514,12 @@ async function cacheUrls(requests, cacheName) {
       // eslint-disable-next-line no-await-in-loop
       const response = await fetch(requests[index]);
       if (response && (response.ok || response.type === "opaque")) {
+        // Compter la mise en cache REELLE, pas le simple téléchargement :
+        // quand le quota du téléphone est atteint, `putSafely` échoue, et la
+        // page doit pouvoir dire « rien n'a été stocké » plutôt que promettre
+        // une écoute hors ligne qui ne marchera pas.
         // eslint-disable-next-line no-await-in-loop
-        await putSafely(cache, requests[index], response);
-        count += 1;
+        if (await putSafely(cache, requests[index], response)) count += 1;
       }
     } catch (_error) {
       /* ressource injoignable : l'épinglage reste valable sans elle */
@@ -600,8 +603,21 @@ self.addEventListener("message", async (event) => {
   }
 
   const source = event.source || null;
+  const port = event.ports && event.ports[0] ? event.ports[0] : null;
   const reply = (payload) => {
-    if (source && source.postMessage) source.postMessage(Object.assign({ type: data.type }, payload));
+    const message = Object.assign({ type: data.type }, payload);
+    // La page attend tantôt sur un MessageChannel (OmniSW.ask : statistiques,
+    // purge), tantôt sur un simple « message ». Répondre sur un seul des deux,
+    // c'était laisser la page « Hors ligne & Données » sans nouvelle — et
+    // annoncer « rien à vider » après avoir pourtant tout vidé.
+    if (port) {
+      try {
+        port.postMessage(message);
+      } catch (_error) {
+        /* port fermé entre-temps */
+      }
+    }
+    if (source && source.postMessage) source.postMessage(message);
   };
 
   try {

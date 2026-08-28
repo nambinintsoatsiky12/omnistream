@@ -519,3 +519,104 @@ def test_styles_des_boutons_mp3(style_css):
         "music-get-btn",
     ):
         assert f".{name}" in style, f"classe .{name} utilisée mais jamais stylée"
+
+
+# ---------------------------------------------------------------------------
+# « Enregistrer le MP3, le relire hors ligne, et bouger dans le morceau »
+# ---------------------------------------------------------------------------
+
+
+def test_le_worker_repond_sur_le_canal_de_message(service_worker):
+    """`OmniSW.ask` (statistiques, purge) attend sur un MessageChannel : un
+    worker qui ne répond que sur `event.source` laissait la page croire
+    — « rien à vider » aprés avoir pourtant tout vidé."""
+    assert "event.ports" in service_worker
+    assert "port.postMessage(message)" in service_worker
+    assert "source.postMessage(message)" in service_worker
+
+
+def test_le_delai_de_reponse_laisse_le_temps_de_reflechir():
+    shell = read(STATIC / "js" / "app-shell.js")
+    """`stats` lit le corps de chaque réponse : 4 secondes étaient trop
+    courtes sur un téléphone et la page restait vide."""
+    assert "const timer = window.setTimeout(() => resolve(null), 20000);" in shell
+
+
+def test_epingler_un_mp3_attend_la_confirmation_du_cache():
+    """Annoncer « MP3 enregistré » avant que le fichier soit là était
+    la promesse menteuse qui faisait croire à un hors ligne cassé."""
+    library = read(STATIC / "js" / "library.js")
+    assert "function swRequest(" in library
+    assert "channel.port2" in library
+    assert "waitMsForBytes" in library
+    assert "answer.cached" in library
+    assert "return stored > 0;" in library
+    # La page Musique branche son message sur le résultat réel.
+    page = read(STATIC / "js" / "musique.js")
+    assert "const stored = await window.OmniLibrary.saveOffline(favItem);" in page
+    assert "n'a pas pu être mis en cache" in page
+
+
+def test_la_page_hors_ligne_distingue_le_fichier_du_clip():
+    """Un MP3 libre épinglé se relit à 0 Mo ; un clip YouTube, non. Mélanger
+    les deux affichait un avertissement faux et lançait une lecture
+    vouée à l'échec."""
+    downloads = read(STATIC / "js" / "downloads.js")
+    assert "function hasStoredFile(" in downloads
+    assert "function storageLabel(" in downloads
+    assert "MP3 · 0 Mo HORS LIGNE" in downloads
+    assert "CLIP · RÉSEAU REQUIS" in downloads
+    assert "if (!navigator.onLine && !hasStoredFile(item)) {" in downloads
+    # Le compteur « Fichiers en cache » doit compter les morceaux aussi.
+    assert 'name.includes("-audio")' in downloads
+
+
+def test_la_duree_inconnue_ne_vide_plus_la_barre_de_progression():
+    """Un MP3 téléchargé progressivement sans en-tête de durée rend
+    `el.duration` infini : la barre restait à 0 % et `currentTime` refusait
+    la valeur — « le trait brillant ne s'affiche pas, je ne peux ni avancer
+    ni recommencer »."""
+    player = read(STATIC / "js" / "player.js")
+    for needle in (
+        "function knownDuration",
+        "function resolveDuration",
+        "Number.isFinite",
+        "duration = resolveDuration(el.duration);",
+        'el.addEventListener("durationchange"',
+        'document.body.classList.add("seeking")',
+        'document.body.classList.remove("seeking")',
+    ):
+        assert needle in player, f"manquant dans player.js : {needle}"
+    # Un refus silencieux ressemble à un bouton cassé : il doit être dit.
+    assert "Durée du fichier inconnue" in player
+
+
+def test_le_repere_de_progression_se_voit_et_se_saisit(style_css):
+    """3 px de trait et 4 px de zone tactile : personne ne le voyait, personne
+    ne l'attrapait. Le repére a désormais un grain visible et une zone de
+    vingtaine de pixels."""
+    assert ".omni-bar-progress::before" in style_css
+    assert ".omni-bar-progress-fill::after" in style_css
+    assert "body.seeking .omni-bar-progress-fill" in style_css
+    block = style_css[style_css.index(".omni-bar-progress {") :]
+    block = block[: block.index("}")]
+    assert "touch-action: none" in block
+    assert "overflow: hidden" not in block, "le repére serait rogné"
+    assert "min-width: 6px" in style_css
+
+
+def test_la_barre_de_la_modale_a_le_droit_d_etre_grasse(style_css):
+    start = style_css.index(".omni-modal-progress {")
+    block = style_css[start : style_css.index("}", start)]
+    assert "height: 8px" in block
+    assert "overflow: hidden" not in block
+    assert ".omni-modal-progress-fill::after" in style_css
+
+
+def test_le_relais_de_fichier_ne_cache_rien_de_silencieux():
+    """Le relais ne sert qu'à nommer le fichier : la lecture part sur
+    l'Archive, sinon chaque écoute immobiliserait un worker."""
+    source = read(ROOT / "app.py")
+    assert 'ARCHIVE_FILE_URL.format(identifier=identifier, name=quote(name))' in source
+    assert '"url": ARCHIVE_FILE_URL' in source
+    assert "Content-Disposition" in source

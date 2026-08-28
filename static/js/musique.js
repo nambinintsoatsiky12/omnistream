@@ -280,11 +280,26 @@
       } else {
         pinBtn.classList.add("busy");
         pinBtn.setAttribute("aria-busy", "true");
-        await window.OmniLibrary.saveOffline(favItem);
+        if (window.OmniUI) {
+          window.OmniUI.toast(
+            `Enregistrement du MP3 (${humanSize(item.size)}) : gardez la page ouverte, ça télécharge…`,
+            "info",
+          );
+        }
+        // `saveOffline` attend la réponse du Service Worker : on ne promet plus
+        // un morceau « enregistré » qui ne l'est pas — sur un forfait mobile,
+        // 5 Mo peuvent demander une minute, et le reste de l'interface doit le
+        // savoir pour ne pas mentir.
+        const stored = await window.OmniLibrary.saveOffline(favItem);
         pinBtn.classList.remove("busy");
         pinBtn.removeAttribute("aria-busy");
         if (window.OmniUI) {
-          window.OmniUI.toast(`MP3 enregistré (${humanSize(item.size)}) : lisible sans réseau.`, "ok");
+          window.OmniUI.toast(
+            stored
+              ? `MP3 enregistré (${humanSize(item.size)}) : il se relit même sans réseau.`
+              : "Le fichier n'a pas pu être mis en cache (réseau instable). Réessayez, ou utilisez le bouton MP3.",
+            stored ? "ok" : "warn",
+          );
         }
       }
       refreshIcons();

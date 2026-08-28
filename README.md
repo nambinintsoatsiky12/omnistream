@@ -142,6 +142,14 @@ affichent toujours le même état. Le panneau du bas se ferme par son bouton ✕
 glissement du panneau agrandi vers le bas, par `Échap` ou par un clic hors du
 panneau — et il ne revient pas tout seul à la page suivante.
 
+La barre de progression est une vraie commande : 5 px visibles mais une
+zone tactile d’une vingtaine de pixels, un repère brillant à la position courante
+et aucun temps mort pendant un glissement. Un MP3 téléchargé progressivement
+n’annonce pas toujours sa durée (`el.duration` infini ou absent) : la durée
+connue de la source sert alors de repère, sinon la barre resterait à 0 % et
+avancer dans le morceau deviendrait impossible. Si la durée est réellement
+inconnue, c’est dit à l’utilisateur au lieu de laisser un bouton muet.
+
 **Écran verrouillé.** `MediaSession` (titre, pochette, position, `playbackState`)
 garde les contrôles accessibles sur l'écran de verrouillage ; une petite session
 audio silencieuse est maintenue tant que la lecture dure pour éviter qu'Android
@@ -155,7 +163,11 @@ icônes), les images, les pages HTML et les réponses JSON déjà vues ; une fic
 épinglée est rapatriée intégralement (synopsis, affiche, miniature). Les
 **MP3 libres** étant des fichiers, épinglés ils se relisent sans réseau, et le
 worker répond même aux demandes de plage (à partir du fichier enregistré) pour
-que naviguer dans le morceau fonctionne hors connexion. YouTube et TMDB,
+que naviguer dans le morceau fonctionne hors connexion. Le compte « ôpingler »
+attend la réponse du worker (délai calculé sur la taille du fichier) : le message
+« MP3 enregistré » n’apparaît que si le morceau est réellement en cache, et la page
+« Hors ligne » écrit « MP3 · 0 Mo HORS LIGNE » au lieu de promettre un réseau
+inutile à un fichier déjà là. YouTube et TMDB,
 en revanche, interdisent le téléchargement de leurs flux : **le son et la vidéo
 d'un clip ne peuvent pas être stockés** ; un titre lancé sans réseau passe en
 attente (« Hors ligne · en attente de réseau ») et démarre seul au retour de la

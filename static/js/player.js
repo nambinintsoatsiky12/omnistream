@@ -147,6 +147,21 @@
     return Boolean(track) && (isValidId(track.id) || isMp3Track(track));
   }
 
+  // Un MP3 téléchargé progressivement n'a pas toujours d'en-tête de durée :
+  // `el.duration` vaut alors Infinity ou NaN. Sans durée connue, la barre
+  // reste à 0 % et tout déplacement devient impossible — le symptôme « le
+  // trait brillant n'apparaît pas, je ne peux ni avancer ni revenir en
+  // arrière ». On retombe donc sur la durée annoncée par la source.
+  function knownDuration() {
+    return Number(state.current && state.current.duration) || 0;
+  }
+
+  function resolveDuration(value) {
+    const live = Number(value);
+    if (live > 0 && Number.isFinite(live)) return live;
+    return knownDuration();
+  }
+
   function toast(message, kind) {
     try {
       if (window.OmniUI && window.OmniUI.toast) window.OmniUI.toast(message, kind || "info");
@@ -480,7 +495,7 @@
     el.addEventListener("timeupdate", () => {
       if (!document.hidden) return; // l'onglet visible a déjà son minuteur
       const now = Number(el.currentTime) || 0;
-      state.lastDuration = Number(el.duration) || state.lastDuration;
+      state.lastDuration = resolveDuration(el.duration) || state.lastDuration;
       if (Math.abs(now - lastNotifiedAt) < 4) return;
       lastNotifiedAt = now;
       setPositionState(now, state.lastDuration);
@@ -488,6 +503,12 @@
     });
     el.addEventListener("error", () => {
       if (state.status === "loading" || state.status === "playing") onAudioStreamError();
+    });
+    // Durée annoncée par la source : connue avant même la première seconde, la
+    // barre et le pourcentage sont justes dès le départ (et non après 30 s).
+    el.addEventListener("durationchange", () => {
+      state.lastDuration = resolveDuration(el.duration) || state.lastDuration;
+      tick();
     });
     // Position de reprise : dès que la durée est connue, on se recale.
     el.addEventListener("loadedmetadata", () => {
@@ -1274,7 +1295,7 @@
       const el = audioT.el;
       if (!el) return;
       try {
-        duration = el.duration || 0;
+        duration = resolveDuration(el.duration);
         current = el.currentTime || 0;
       } catch (_error) {
         return;
@@ -1326,19 +1347,26 @@
     if (state.transport === "audio") {
       const el = audioT.el;
       if (!el) return;
-      let duration = 0;
-      try {
-        duration = el.duration || 0;
-      } catch (_error) {
+      const duration = resolveDuration(el.duration);
+      if (duration <= 0) {
+        // Un refus silencieux ressemble à un bouton cassé : on le dit.
+        if (window.OmniUI) {
+          window.OmniUI.toast(
+            "Durée du fichier inconnue : impossible de se déplacer pour l'instant.",
+            "info",
+          );
+        }
+        render();
         return;
       }
-      if (duration <= 0) return;
       try {
         el.currentTime = duration * clamped;
         state.lastPosition = el.currentTime || duration * clamped;
+        state.lastDuration = duration;
         updateProgressUi(pct);
+        setPositionState(state.lastPosition, duration);
       } catch (_error) {
-        /* noop */
+        if (window.OmniUI) window.OmniUI.toast("Ce passage n'est pas encore chargé.", "warn");
       }
       return;
     }
@@ -1852,6 +1880,9 @@
       };
       track.addEventListener("pointerdown", (event) => {
         state.dragging = true;
+        // Pendant le geste, la transition CSS ferait traîner le repère derrière
+        // le doigt : on la coupe jusqu'à la fin du glissement.
+        document.body.classList.add("seeking");
         const percent = percentFrom(event);
         if (percent !== null) previewSeek(track, percent);
         if (track.setPointerCapture) {
@@ -1870,12 +1901,14 @@
       const release = (event) => {
         if (!state.dragging) return;
         state.dragging = false;
+        document.body.classList.remove("seeking");
         const percent = percentFrom(event);
         if (percent !== null) seekToPercent(percent);
       };
       track.addEventListener("pointerup", release);
       track.addEventListener("pointercancel", () => {
         state.dragging = false;
+        document.body.classList.remove("seeking");
         render();
       });
     });
