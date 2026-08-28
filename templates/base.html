@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,600;1,700&family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=17">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=18">
 <script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v=1" defer></script>
 <meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
@@ -22,8 +22,8 @@
         <svg viewBox="0 0 40 40" width="32" height="32" aria-hidden="true">
           <defs>
             <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#33c173"/>
-              <stop offset="100%" stop-color="#177a42"/>
+              <stop offset="0%" stop-color="#ffa14d"/>
+              <stop offset="100%" stop-color="#f0512b"/>
             </linearGradient>
           </defs>
           <circle cx="20" cy="20" r="16" fill="none" stroke="url(#logoGrad)" stroke-width="3"/>
@@ -103,7 +103,7 @@
     </a>
     <a href="{{ url_for('index', tab='legendes') }}" class="{{ 'active' if tab=='legendes' else '' }}">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H7v2h10v-2h-2c-.55 0-1-.45-1-1v-2.34c3.34-1.28 5-4.66 5-7.66V4H6v5c0 3 1.66 6.38 5 7.66z"></path></svg>
-      Légendes (≥ 8.5)
+      Films ≥ 8.5
     </a>
   </nav>
   {% endif %}
@@ -187,11 +187,19 @@
         <span class="drawer-badge">Sorties</span>
       </a>
 
+      <a href="{{ url_for('index') }}#actualites" class="drawer-item">
+        <span class="drawer-item-icon red-icon">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V9"></path><path d="M18 14h-8"></path><path d="M15 18h-5"></path><path d="M10 6h8v4h-8V6z"></path></svg>
+        </span>
+        <span class="drawer-item-label">Actualités Streaming</span>
+        <span class="drawer-badge red">News</span>
+      </a>
+
       <a href="{{ url_for('index', tab='legendes') }}" class="drawer-item {{ 'active' if tab=='legendes' else '' }}">
         <span class="drawer-item-icon gold-icon">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.45 1-1 1H7v2h10v-2h-2c-.55 0-1-.45-1-1v-2.34c3.34-1.28 5-4.66 5-7.66V4H6v5c0 3 1.66 6.38 5 7.66z"></path></svg>
         </span>
-        <span class="drawer-item-label">Les Légendes (≥ 8.5)</span>
+        <span class="drawer-item-label">Films ≥ 8.5 · Légendes</span>
         <span class="drawer-badge gold">Top</span>
       </a>
 
