@@ -2482,8 +2482,143 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout", with_sizes=False):
     return items
 
 
+# ---------------------------------------------------------------------------
+# Deezer — le catalogue commercial, en extraits de 30 secondes
+# ---------------------------------------------------------------------------
+# Jamendo et Archive ne contiennent que de la musique libre : on n'y trouve pas
+# les titres que les gens cherchent. Deezer expose son catalogue public sans clé
+# et donne, pour chaque morceau, un extrait de 30 secondes que l'ayant droit
+# autorise à diffuser. C'est la seule manière honnête de faire écouter un titre
+# célèbre ici : l'extrait se joue, le morceau entier reste sur Deezer.
+DEEZER_SEARCH_URL = "https://api.deezer.com/search"
+DEEZER_CHART_URL = "https://api.deezer.com/chart"
+DEEZER_TIMEOUT = 12
+# Le CDN de Deezer sert les extraits (cdns-preview-*.dzcdn.net) et les pochettes
+# (e-cdns-images.dzcdn.net). Rien d'autre ne sera passé au lecteur.
+DEEZER_CDN_SUFFIX = ".dzcdn.net"
+
+
+def _deezer_https(raw):
+    """Une URL du CDN Deezer, en https, ou rien du tout."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if text.startswith("//"):
+        text = "https:" + text
+    elif text.startswith("http://"):
+        text = "https://" + text[len("http://") :]
+    if not text.startswith("https://"):
+        return ""
+    try:
+        parsed = urlsplit(text)
+        host = (parsed.hostname or "").lower()
+        # Un port autre que 443 n'a rien à faire là : le CDN de Deezer ne sert
+        # ses extraits qu'en https standard.
+        if parsed.port not in {None, 443} or parsed.username or parsed.password:
+            return ""
+    except ValueError:
+        return ""
+    if host != "dzcdn.net" and not host.endswith(DEEZER_CDN_SUFFIX):
+        return ""
+    return text[:400]
+
+
+def _deezer_track(track):
+    """Une piste Deezer dans le même moule que celles d'Archive et Jamendo."""
+    if not isinstance(track, dict):
+        return None
+    track_id = _archive_number(track.get("id"), int, 0)
+    preview = _deezer_https(track.get("preview"))
+    if not track_id or not preview:
+        # Deezer n'a pas d'extrait pour certains morceaux : mieux vaut l'écarter
+        # que d'afficher une piste qui ne fera aucun bruit.
+        return None
+    artist = track.get("artist") if isinstance(track.get("artist"), dict) else {}
+    album = track.get("album") if isinstance(track.get("album"), dict) else {}
+    return {
+        "kind": "mp3",
+        "type": "music",
+        "provider": "deezer",
+        "id": f"dz:{track_id}",
+        "identifier": f"deezer-{track_id}",
+        "title": html.unescape(
+            str(track.get("title") or track.get("title_short") or "Sans titre")
+        )[:160],
+        "channel": html.unescape(str(artist.get("name") or "Artiste inconnu"))[:120],
+        "album": html.unescape(str(album.get("title") or ""))[:160],
+        "year": "",
+        # 30 et non la durée réelle : c'est ce qui sera joué. Annoncer 4:12
+        # sur une barre qui s'arrête à 0:30 serait un mensonge.
+        "duration": 30,
+        "size": 0,
+        "thumbnail": _deezer_https(album.get("cover_medium") or album.get("cover")),
+        "url": preview,
+        # Pas de bouton de téléchargement : l'extrait reste la propriété de
+        # Deezer et de l'ayant droit. `download` vide = aucun bouton affiché.
+        "download": "",
+        "page": f"https://www.deezer.com/track/{track_id}",
+        "license": "",
+        "license_name": "Extrait 30 s (Deezer)",
+    }
+
+
+def _deezer_items(query, page=1, limit=24, shelf="tout"):
+    """Recherche Deezer, ou classement des titres les plus écoutés.
+
+    Sans mot tapé, le rayon donne son sujet (« malagasy », « live », « world ») ;
+    le rayon « Tout » sans mot tapé renvoie le classement, c'est-à-dire
+    exactement ce que cherche quelqu'un qui veut des titres connus.
+    """
+    shelf_conf = MP3_SHELVES.get(shelf) or MP3_SHELVES["tout"]
+    search = str(query or "").strip() or str(shelf_conf.get("tag") or "").strip()
+    size = max(1, min(100, int(limit)))
+    url = DEEZER_CHART_URL
+    params = {}
+    if search:
+        url = DEEZER_SEARCH_URL
+        params = {"q": search[:120], "limit": size}
+        params["index"] = max(0, (max(1, int(page)) - 1) * size)
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            timeout=DEEZER_TIMEOUT,
+            headers={"Accept": "application/json"},
+        )
+        data = response.json()
+    except requests.Timeout as error:
+        raise UpstreamServiceError("Deezer met trop de temps.", 504) from error
+    except requests.RequestException as error:
+        raise UpstreamServiceError("Deezer est injoignable.", 502) from error
+    except ValueError as error:
+        raise UpstreamServiceError("Réponse Deezer illisible.", 502) from error
+    if response.status_code >= 400 or not isinstance(data, dict):
+        raise UpstreamServiceError("Deezer a refusé la recherche.", 502)
+    if data.get("error"):
+        raise UpstreamServiceError("Deezer n'a rien trouvé pour cette demande.", 404)
+
+    # /search répond {"data": [...]}, /chart répond {"tracks": {"data": [...]}}.
+    nodes = data.get("data")
+    if nodes is None:
+        tracks = data.get("tracks") if isinstance(data.get("tracks"), dict) else {}
+        nodes = tracks.get("data")
+    items = []
+    for track in nodes or []:
+        item = _deezer_track(track)
+        if item:
+            items.append(item)
+        if len(items) >= MP3_TOTAL:
+            break
+    return items
+
+
 def mp3_meta():
-    """Ce que l'interface a le droit de promettre aujourd'hui."""
+    """Ce que l'interface a le droit de promettre aujourd'hui.
+
+    Deezer n'est PAS listé ici : cette ligne ne propose que des fournisseurs de
+    fichiers MP3 complets et enregistrables. Les extraits Deezer passent par le
+    sélecteur de source (« Titres connus »), qui est une autre promesse.
+    """
     return {
         "providers": ["archive"] + (["jamendo"] if _jamendo_available() else []),
         "shelves": [
@@ -2505,7 +2640,7 @@ def mp3_library():
     if shelf not in MP3_SHELVES:
         shelf = "tout"
     provider = _limited_arg("provider", "auto", 16)
-    if provider not in {"auto", "archive", "jamendo"}:
+    if provider not in {"auto", "archive", "jamendo", "deezer"}:
         provider = "auto"
     # `sizes=1` : la page veut le poids réel des fichiers Jamendo (un HEAD par
     # piste, gardé une semaine). C'est ce qui lui permet d'annoncer « 8,4 Mo »
@@ -2523,7 +2658,11 @@ def mp3_library():
             "JAMENDO_CLIENT_ID n'est pas configurée sur le serveur.", 503
         )
     wants_jamendo = provider in {"auto", "jamendo"} and _jamendo_available()
-    wants_archive = provider != "jamendo"
+    wants_archive = provider not in {"jamendo", "deezer"}
+    # Deezer sur une recherche précise — c'est là qu'on cherche un titre connu —
+    # et en demande explicite. En navigation libre, les deux fournisseurs de
+    # musique complète gardent la main.
+    wants_deezer = provider == "deezer" or (provider == "auto" and bool(query))
 
     cache_key = (
         "mp3",
@@ -2541,7 +2680,17 @@ def mp3_library():
     items = []
     errors = []
 
-    if wants_jamendo:
+    if wants_deezer:
+        try:
+            items.extend(_deezer_items(query, page=page, shelf=shelf))
+        except UpstreamServiceError as error:
+            # Demandé explicitement : il faut le dire. Mêlé aux autres, une
+            # Deezer muet ne doit pas vider la page.
+            if provider == "deezer":
+                raise
+            errors.append(str(error))
+
+    if wants_jamendo and len(items) < MP3_TOTAL:
         try:
             items.extend(
                 _jamendo_items(
@@ -2553,7 +2702,7 @@ def mp3_library():
             # le relais, et le message explique où regarder.
             errors.append(str(error))
 
-    if wants_archive:
+    if wants_archive and len(items) < MP3_TOTAL:
         try:
             docs = _archive_search_items(query, page=page, shelf=shelf)
         except UpstreamServiceError as error:
@@ -2583,9 +2732,13 @@ def mp3_library():
     if not items and errors:
         raise UpstreamServiceError(errors[0], 502)
 
-    used = ([] if not wants_jamendo or provider == "archive" else ["jamendo"]) + (
-        ["archive"] if wants_archive else []
-    )
+    # La source affichée est celle qui a VRAIMENT rempli la page, pas celle qui
+    # a été tentée : annoncer « deezer » sur une page vide serait un mensonge.
+    used = [
+        nom
+        for nom in ("deezer", "jamendo", "archive")
+        if any(item.get("provider") == nom for item in items)
+    ]
     payload = {
         "items": _cache_set(cache_key, items, ttl=900),
         "source": "+".join(used) or "archive",

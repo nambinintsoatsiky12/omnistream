@@ -61,6 +61,22 @@
         "l'application est fermée et YouTube interdit d'enregistrer les fichiers. Pour du " +
         "MP3 vraiment libre, Choisis la source « MP3 libre ».",
     },
+    // Troisième source, ajoutée parce que les deux premières ne contiennent que
+    // de la musique libre : on n'y trouve pas les titres que les gens cherchent.
+    // Deezer expose son catalogue public et autorise la diffusion d'un extrait
+    // de 30 secondes par morceau. C'est la seule façon honnête de faire écouter
+    // un titre connu ici — l'extrait se joue, le morceau entier reste chez
+    // Deezer, et il n'y a pas de bouton de téléchargement.
+    celebres: {
+      trending: "/api/mp3?provider=deezer",
+      search: (query) => `/api/mp3?provider=deezer&q=${encodeURIComponent(query)}`,
+      title: (query) =>
+        query ? `Titres connus — « ${query} »` : "🎵 Titres les plus écoutés",
+      note:
+        "Extraits de 30 secondes du catalogue commercial (Deezer) : c'est ici qu'on " +
+        "trouve les titres connus. L'extrait se lit écran éteint, mais il ne " +
+        "s'enregistre pas — le morceau entier reste sur Deezer ou en clip.",
+    },
   };
 
   /* --- Mode Audio / Vidéo ------------------------------------------------- */
@@ -106,17 +122,23 @@
   function applySourceToMode() {
     if (!modeToggle) return;
     modeToggle.querySelectorAll(".mode-btn").forEach((btn) => {
-      const blocked = currentSource === "mp3" && btn.dataset.mode === "video";
+      // Les MP3 libres comme les extraits Deezer sont des fichiers audio :
+      // seul YouTube a une image à montrer.
+      const blocked = currentSource !== "youtube" && btn.dataset.mode === "video";
       btn.disabled = blocked;
       btn.title = blocked
-        ? "Les MP3 libres sont des fichiers audio : pas de clip."
+        ? "Cette source est un fichier audio : pas de clip."
         : "";
       btn.classList.toggle("is-blocked", blocked);
     });
   }
 
   function setSource(source) {
-    currentSource = source === "youtube" ? "youtube" : "mp3";
+    // Toute source connue est acceptée : en ajouter une côté serveur ne
+    // demande plus de correctif ici.
+    currentSource = Object.prototype.hasOwnProperty.call(SOURCES, source)
+      ? source
+      : "mp3";
     if (sourceToggle) {
       sourceToggle.querySelectorAll(".source-btn").forEach((btn) => {
         const on = btn.dataset.source === currentSource;
@@ -125,7 +147,7 @@
       });
     }
     if (sourceNote) sourceNote.textContent = SOURCES[currentSource].note;
-    if (currentSource === "mp3") setMode("audio", false);
+    if (currentSource !== "youtube") setMode("audio", false);
     applySourceToMode();
     try {
       window.localStorage.setItem("omni:music-source", currentSource);
@@ -810,7 +832,9 @@
   // La source choisie la dernière fois est conservée sur l'appareil.
   try {
     const saved = window.localStorage.getItem("omni:music-source");
-    if (saved === "youtube" || saved === "mp3") currentSource = saved;
+    if (saved && Object.prototype.hasOwnProperty.call(SOURCES, saved)) {
+      currentSource = saved;
+    }
   } catch (_error) {
     /* stockage indisponible : source par défaut */
   }
