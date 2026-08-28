@@ -394,6 +394,44 @@ img {
    CATEGORY TABS (TOP SUB-BAR)
    ================================================================ */
 
+/* Wrapper : porte les fondus latéraux qui indiquent que la barre
+   d'onglets défile (l'onglet coupé à droite reste ainsi découvrable). */
+.tabs-wrap {
+  position: relative;
+  background: rgba(7, 9, 13, 0.95);
+}
+
+.tabs-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 44px;
+  background: linear-gradient(90deg, rgba(7, 9, 13, 0) 0%, rgba(7, 9, 13, 0.85) 60%, rgba(7, 9, 13, 0.98) 100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.tabs-wrap::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 36px;
+  background: linear-gradient(270deg, rgba(7, 9, 13, 0) 0%, rgba(7, 9, 13, 0.85) 60%, rgba(7, 9, 13, 0.98) 100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+/* Fondu droite visible tant qu'il reste des onglets à droite */
+.tabs-wrap:not(.at-end)::after { opacity: 1; }
+/* Fondu gauche visible dès qu'on a fait défiler */
+.tabs-wrap:not(.at-start)::before { opacity: 1; }
+
 .tabs {
   max-width: 1440px;
   margin: 0 auto;
@@ -908,6 +946,25 @@ img {
   align-items: center;
   justify-content: center;
   margin-bottom: 4px;
+}
+
+/* Variété chromatique : chaque statistique a sa propre couleur */
+.mini-stat-icon-wrap.cyan {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.28);
+  color: var(--accent-cyan);
+}
+
+.mini-stat-icon-wrap.gold {
+  background: rgba(217, 168, 78, 0.12);
+  border-color: rgba(217, 168, 78, 0.28);
+  color: var(--gold);
+}
+
+.mini-stat-icon-wrap.blue {
+  background: rgba(37, 99, 235, 0.14);
+  border-color: rgba(37, 99, 235, 0.32);
+  color: #60a5fa;
 }
 
 .mini-stat-number {
