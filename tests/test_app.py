@@ -1026,3 +1026,27 @@ def test_relais_jamendo_refuse_un_titre_non_copiable(client, monkeypatch):
 
     assert response.status_code == 410
     assert "téléchargement libre" in response.get_data(as_text=True)
+
+
+def test_un_rayon_jamendo_ne_se_substitue_pas_aux_tendances(client, monkeypatch):
+    """Sous le libellé « Madagascar », répondre les tendances générales serait un
+    mensonge. Si Jamendo n'a rien pour ce rayon, la page doit rester vide de ce
+    côté-là — et c'est Internet Archive qui la remplira."""
+    seen = []
+
+    def fake_get(url, params=None, **_kwargs):
+        seen.append(dict(params or {}))
+        vide = {"headers": {"status": "success", "code": 0}, "results": []}
+        return FakeResponse(vide)
+
+    monkeypatch.setattr(app_module, "JAMENDO_CLIENT_ID", "cle-de-test")
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+
+    response = client.get("/api/mp3?provider=jamendo&shelf=madagascar")
+
+    assert response.status_code == 200
+    assert response.get_json()["items"] == []
+    # Un seul essai, borné par le rayon : pas de repli « sans filtre ».
+    assert len(seen) == 1
+    assert seen[0]["search"] == "madagascar"
+    assert "order" not in seen[0]

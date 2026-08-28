@@ -1666,7 +1666,7 @@ MP3_SHELVES = {
             'OR subject:(madagascar) OR title:(salegy) OR title:("hira gasy"))'
         ),
         "collections": MP3_COLLECTIONS,
-        "tag": "malagasy+world",
+        "tag": "madagascar",
     },
     "live": {
         "label": "Concerts",
@@ -1948,12 +1948,14 @@ def _jamendo_request(params, timeout=12):
 def _jamendo_ladders(base, query):
     """Toutes les formes de requête, de la plus riche à la plus simple.
 
-    L'API accepte des paramètres de classement (« order », « groupby ») et, selon
-    les périodes, l'une de ces combinaisons répond `success` avec ZERO résultat.
-    Rather que de livrer une page vide, on redemande sans l'option de confort :
-    trois appels au pire, et la réponse est gardée 15 minutes en mémoire.
+    L'API accepte des paramètres de classement (« order », « groupby ») et,
+    selon les périodes, l'une de ces combinaisons répond « success » avec ZÉRO
+    résultat. Plutôt que de livrer une page vide, on redemande sans l'option
+    de confort : deux appels au pire, et la réponse est gardée 15 minutes.
     """
-    if query:
+    if query or base.get("search"):
+        # Pas de repli « sans filtre » : sous un libellé de rayon, des tendances
+        # générales seraient un mensonge habillé.
         return [dict(base)]
     # `groupby=artist_id` est le paramètre qui fait répondre « success » avec
     # zéro résultat (vérifié en direct sur l'API) : le groupement est
@@ -1982,7 +1984,10 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout"):
     if query:
         base["search"] = query[:120]
     elif shelf_conf["tag"]:
-        base["tags"] = shelf_conf["tag"]
+        # L'API n'a pas de tag « malagasy » : le rayon est demande en recherche
+        # libre (elle couvre titre, album, artiste et tags) plutot qu'en `tags`,
+        # ou il ne rendrait que du vide.
+        base["search"] = shelf_conf["tag"]
 
     results = []
     for params in _jamendo_ladders(base, query):
