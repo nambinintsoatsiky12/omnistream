@@ -28,6 +28,9 @@
   const resultCount = document.getElementById("musique-result-count");
   const sourceToggle = document.getElementById("source-toggle");
   const sourceNote = document.getElementById("source-note");
+  const fallbackNotice = document.getElementById("musique-mp3-fallback");
+  const fallbackQuery = document.getElementById("mp3-fallback-query");
+  const fallbackButton = document.getElementById("mp3-fallback-youtube");
 
   let requestController = null;
   let currentMode = "audio";
@@ -696,6 +699,18 @@
       .filter(Boolean);
     resultsEl.replaceChildren(...cards);
     emptyMsg.hidden = cards.length > 0;
+    // Recherche « MP3 libre » aboutie mais vide : on explique le rayon au lieu
+    // de laisser une page blanche, et on propose la MÊME recherche côté
+    // YouTube. Cet encart ne sort que d'ici — c'est-à-dire d'une requête qui a
+    // répondu. Une panne de réseau passe par le `catch` de `fetchAndRender`,
+    // qui le masque : promettre « ce titre n'est pas libre » alors que le
+    // serveur n'a pas répondu serait un mensonge.
+    const libreEtVide =
+      currentSource === "mp3" && Boolean(lastQuery) && cards.length === 0;
+    if (fallbackNotice) {
+      fallbackNotice.hidden = !libreEtVide;
+      if (libreEtVide && fallbackQuery) fallbackQuery.textContent = lastQuery;
+    }
     if (resultCount) {
       resultCount.hidden = cards.length === 0;
       const savable = lastItems.filter((item) => item.kind === "mp3").length;
@@ -714,6 +729,7 @@
     requestController = controller;
     resultsEl.replaceChildren();
     emptyMsg.hidden = true;
+    if (fallbackNotice) fallbackNotice.hidden = true;
     if (loadingMsg) loadingMsg.hidden = false;
     if (sectionTitle) sectionTitle.textContent = titleText;
 
@@ -736,6 +752,9 @@
       if (error.name === "AbortError") return;
       console.error("Erreur de recherche musicale :", error);
       emptyMsg.hidden = false;
+      // Panne de réseau ou serveur muet : on n'explique PAS que le titre n'est
+      // pas libre — on ne sait rien. L'encart YouTube reste fermé.
+      if (fallbackNotice) fallbackNotice.hidden = true;
       const message = emptyMsg.querySelector("p");
       if (message) {
         message.textContent = navigator.onLine
@@ -759,6 +778,16 @@
       input.value = "";
       input.focus();
       load("");
+    });
+  }
+
+  // L'encart « aucun titre libre » : le bouton relance la MÊME recherche, mot
+  // pour mot, mais côté YouTube. On change de source, pas de sujet — `setSource`
+  // rappelle `load(lastQuery)`, donc la requête tapée est conservée telle quelle.
+  if (fallbackButton) {
+    fallbackButton.addEventListener("click", () => {
+      input.value = lastQuery;
+      setSource("youtube");
     });
   }
 

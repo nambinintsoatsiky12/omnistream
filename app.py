@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 import time
+import unicodedata
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -1721,6 +1722,8 @@ MP3_SHELVES = {
         "terms": "",
         "collections": MP3_COLLECTIONS,
         "tag": "",
+        # Rien à vérifier : ce rayon n'annonce aucun sujet.
+        "names": (),
     },
     "madagascar": {
         "label": "Madagascar",
@@ -1730,6 +1733,11 @@ MP3_SHELVES = {
         ),
         "collections": MP3_COLLECTIONS,
         "tag": "madagascar",
+        # Côté Jamendo, le rayon se vérifie sur le NOM : un de ces mots, mot
+        # pour mot, dans le titre, l'album ou l'artiste. Sans ce contrôle, la
+        # recherche libre de l'API élargit aux artistes « similaires » et le
+        # rayon « Madagascar » se remplissait de titres sans aucun rapport.
+        "names": ("madagascar", "madagasikara", "malagasy", "salegy", "hira gasy"),
     },
     "live": {
         "label": "Concerts",
@@ -2080,6 +2088,44 @@ def _jamendo_ladders(base, query):
     return [dict(base, order="popularity_total"), dict(base)]
 
 
+def _fold(value):
+    """Texte comparable : minuscule et sans accent (« Hira Gasy » = « hira gasy »)."""
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(char for char in text if not unicodedata.combining(char)).casefold()
+
+
+def _jamendo_shelf_patterns(names):
+    """Les mots du rayon, à retrouver mot pour mot (pas en morceau d'un autre)."""
+    return [
+        compiled
+        for compiled in (
+            re.compile(rf"(?<!\w){re.escape(_fold(name).strip())}(?!\w)")
+            for name in names
+            if str(name or "").strip()
+        )
+    ]
+
+
+def _jamendo_shelf_match(track, patterns):
+    """Le rayon figure-t-il, mot pour mot, dans un des NOMS du titre ?
+
+    La recherche libre de l'API (`search`) élargit aux tags et aux artistes
+    jugés « similaires » : c'est de là que venaient les titres sans aucun
+    rapport sous un libellé de rayon. On ne retient donc que les
+    correspondances exactes sur les trois champs de NOM (titre, album,
+    artiste) — un rayon qui ne rend que trois pistes honnêtes vaut mieux qu'un
+    rayon de trente titres qui n'ont rien à voir avec lui.
+
+    L'API a bien un filtre par nom (`namesearch`), mais il ne regarde que le
+    titre de la piste : il écarterait précisément les artistes malgaches dont
+    le morceau porte un autre nom. Le contrôle se fait donc ici.
+    """
+    if not patterns:
+        return True
+    noms = [_fold(track.get(field)) for field in ("name", "album_name", "artist_name")]
+    return any(pattern.search(nom) for pattern in patterns for nom in noms)
+
+
 def _jamendo_items(query, page=1, limit=24, shelf="tout", with_sizes=False):
     """Pistes Jamendo normalisées dans le même moule que celles d'Archive.
 
@@ -2104,11 +2150,20 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout", with_sizes=False):
     }
     if query:
         base["search"] = query[:120]
+        shelf_patterns = []
     elif shelf_conf["tag"]:
-        # L'API n'a pas de tag « malagasy » : le rayon est demande en recherche
-        # libre (elle couvre titre, album, artiste et tags) plutot qu'en `tags`,
-        # ou il ne rendrait que du vide.
+        # L'API n'a pas de tag « malagasy » : le rayon est demandé en recherche
+        # libre (elle couvre titre, album, artiste et tags) plutôt qu'en `tags`,
+        # où il ne rendrait que du vide. Cette recherche élargit aussi aux
+        # artistes « similaires » et ramenait des titres sans rapport avec le
+        # libellé affiché : les pistes sont donc revérifiées sur leur NOM, mot
+        # pour mot (`_jamendo_shelf_match`). Un rayon court vaut mieux qu'un
+        # rayon hors sujet — et les tendances générales ne viennent jamais
+        # boucher le trou (voir `_jamendo_ladders`).
         base["search"] = shelf_conf["tag"]
+        shelf_patterns = _jamendo_shelf_patterns(shelf_conf.get("names") or ())
+    else:
+        shelf_patterns = []
 
     results = []
     for params in _jamendo_ladders(base, query):
@@ -2127,6 +2182,11 @@ def _jamendo_items(query, page=1, limit=24, shelf="tout", with_sizes=False):
     per_artist = {}
     for track in results:
         if not isinstance(track, dict):
+            continue
+        # Sous un libellé de rayon, seuls les titres dont un NOM porte vraiment
+        # le mot du rayon sont retenus. Les autres viennent de l'élargissement
+        # de l'API (tags, artistes similaires) : hors sujet, donc écartés.
+        if not _jamendo_shelf_match(track, shelf_patterns):
             continue
         # Les identifiants arrivent en chaîne (« "id":"241" »), pas en nombre.
         track_id = _archive_number(track.get("id"), int, 0)
