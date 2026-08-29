@@ -166,8 +166,23 @@
         <span>Au hasard</span>
       </button>
       <span class="pills-hint">Survolez un sous-genre : sa première page part en avance.</span>
+      {# Prévenir des nouveaux épisodes des séries de « Ma Liste ». Le
+         navigateur demande l'autorisation au premier clic : on ne la quémande
+         jamais d'office. #}
+      <button type="button" class="pill-notif" id="anime-notif" hidden>
+        <span id="anime-notif-label">Prévenir des nouveaux épisodes</span>
+      </button>
     </div>
     {% endif %}
+
+    {# Le dosage de la rotation : la grille se redessine à chaque ouverture,
+       mais tout le monde ne veut pas le même degré de surprise. #}
+    <div class="fraicheur" id="fraicheur" role="group" aria-label="Fraîcheur de la grille">
+      <span class="fraicheur-label">Ordre de la grille</span>
+      <button type="button" class="fraicheur-btn" data-fraicheur="stable">Stable</button>
+      <button type="button" class="fraicheur-btn" data-fraicheur="normal">Équilibré</button>
+      <button type="button" class="fraicheur-btn" data-fraicheur="frais">Surprenant</button>
+    </div>
 
     {# Les animes et mangas comptent une centaine de sous-genres chacun : une
        simple bande horizontale à faire défiler les rendait introuvables.

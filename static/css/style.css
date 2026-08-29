@@ -5884,3 +5884,197 @@ html[data-display-mode="standalone"] .drawer-install-btn {
   gap: 8px;
   margin-bottom: 14px;
 }
+
+/* --------------------------------------------------------------------------
+   Le cran de fraîcheur de la grille.
+   -------------------------------------------------------------------------- */
+.fraicheur {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.fraicheur-label {
+  margin-right: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted-dark);
+}
+
+.fraicheur-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--surface-3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.fraicheur-btn:hover {
+  color: var(--text);
+}
+
+.fraicheur-btn.active {
+  border-color: var(--accent-blue, #38bdf8);
+  color: var(--accent-blue, #38bdf8);
+}
+
+/* --------------------------------------------------------------------------
+   « Pas intéressé » : troisième bouton de coin de la carte.
+   -------------------------------------------------------------------------- */
+.card-skip-btn {
+  position: absolute;
+  top: 8px;
+  right: 72px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 27, 38, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.82);
+  opacity: 0;
+  transition: opacity var(--transition-fast), transform var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.card:hover .card-skip-btn,
+.card-skip-btn:focus-visible {
+  opacity: 1;
+}
+
+.card-skip-btn:hover {
+  color: #ff5b6e;
+  border-color: rgba(255, 91, 110, 0.5);
+  transform: scale(1.08);
+}
+
+/* Sur tactile il n'y a pas de survol : le bouton doit rester atteignable. */
+@media (hover: none) {
+  .card-skip-btn {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Page calendrier : une liste verticale, pas un rail.
+   -------------------------------------------------------------------------- */
+.calendrier-page {
+  max-width: 900px;
+}
+
+.calendrier-page-intro {
+  margin: 0 0 18px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.calendrier-page-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendrier-ligne {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--surface-3);
+  border-radius: 12px;
+  background: var(--surface-2);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.calendrier-ligne:hover {
+  border-color: var(--accent-blue, #38bdf8);
+  transform: translateX(2px);
+}
+
+.calendrier-ligne-affiche {
+  flex: none;
+  width: 42px;
+  height: 60px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface-3);
+}
+
+.calendrier-ligne-corps {
+  flex: 1;
+  min-width: 0;
+}
+
+.calendrier-ligne-titre {
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendrier-ligne-detail {
+  margin-top: 3px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.calendrier-ligne-note {
+  flex: none;
+  min-width: 34px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--accent-gold, #d9a84e);
+  text-align: right;
+}
+
+/* Bibliothèque : la vignette d'un manga en cours de lecture. */
+.lib-scan-link {
+  display: block;
+}
+
+.lib-scan-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+  background: var(--gradient-gold, #d9a84e);
+  color: #1a1206;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+/* Bouton d'alerte des nouveaux épisodes, dans la barre d'outils AniList. */
+.pill-notif {
+  padding: 9px 15px;
+  border: 1px solid var(--surface-3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.pill-notif:hover {
+  color: var(--text);
+  border-color: var(--accent-blue, #38bdf8);
+}
+
+.pill-notif.is-on {
+  border-color: var(--accent-blue, #38bdf8);
+  color: var(--accent-blue, #38bdf8);
+}

@@ -503,6 +503,16 @@ def handle_internal_error(error):
     return render_template("error.html", title="Erreur interne", message=message), 500
 
 
+def _rotation_preset_arg():
+    """Le cran de fraîcheur demandé, ou None pour laisser le défaut.
+
+    Une valeur inconnue retombe sur le défaut plutôt que de renvoyer un 400 :
+    c'est un réglage d'affichage, pas un contrat de données.
+    """
+    valeur = _limited_arg("fraicheur", "", 12)
+    return valeur if valeur in ROTATION_PRESETS else None
+
+
 def _page_arg(plafond=None):
     """Le numéro de page demandé, borné.
 
@@ -736,13 +746,21 @@ TMDB_PAGE_SIZE = 20
 # devenait un bruit ; plus haut, elle se figeait de nouveau.
 ROTATION_FLOOR = 0.0
 ROTATION_POP_POWER = 6.0
+# Le dosage est un choix, pas une constante : certains veulent retrouver leurs
+# repères, d'autres veulent être surpris. Trois crans, exposés dans l'onglet.
+# Plus la puissance est haute, plus les poids lourds sont cloués en haut.
+ROTATION_PRESETS = {
+    "stable": 10.0,
+    "normal": 6.0,
+    "frais": 3.0,
+}
 ROTATION_RATING_BASE = 0.75  # socle multiplicatif appliqué à la note
 ROTATION_RATING_WEIGHT = 0.05  # par point de note, au-dessus du socle
 ROTATION_FRESHNESS_YEARS = 4
 ROTATION_FRESHNESS_BONUS = 0.10
 
 
-def _rotation_weight(rang, total, note, annee, annee_courante):
+def _rotation_weight(rang, total, note, annee, annee_courante, puissance=None):
     """Le poids d'un titre dans le tirage : rang, note, fraîcheur.
 
     Le rang dans le catalogue source porte l'essentiel du signal. C'est
@@ -750,7 +768,9 @@ def _rotation_weight(rang, total, note, annee, annee_courante):
     leurs scores bruts ne sont pas comparables — le rang, lui, l'est.
     """
     position = (total - rang + 1) / total
-    poids = ROTATION_FLOOR + position**ROTATION_POP_POWER
+    poids = ROTATION_FLOOR + position ** (
+        ROTATION_POP_POWER if puissance is None else puissance
+    )
     try:
         poids *= ROTATION_RATING_BASE + ROTATION_RATING_WEIGHT * min(
             float(note or 0), 10.0
@@ -768,7 +788,15 @@ def _rotation_weight(rang, total, note, annee, annee_courante):
     return poids
 
 
-def rotation_order(items, seed_key):
+def _rotation_power(preset):
+    """La puissance du tirage pour un cran donné, en retombant sur le défaut."""
+    try:
+        return float(ROTATION_PRESETS.get(str(preset or ""), ROTATION_POP_POWER))
+    except (TypeError, ValueError):
+        return ROTATION_POP_POWER
+
+
+def rotation_order(items, seed_key, preset=None):
     """Réordonne en gardant les poids lourds en haut, mais jamais figés.
 
     Même graine ⇒ exactement le même ordre : indispensable au défilement
@@ -779,6 +807,7 @@ def rotation_order(items, seed_key):
     if total < 2:
         return list(items)
     rng = random.Random(seed_key)  # nosec B311 — ordre d'affichage, pas de secret
+    puissance = _rotation_power(preset)
     annee_courante = datetime.datetime.now(datetime.timezone.utc).year
     clefs = []
     for rang, item in enumerate(items, start=1):
@@ -788,6 +817,7 @@ def rotation_order(items, seed_key):
             item.get("rating") if isinstance(item, dict) else None,
             item.get("year") if isinstance(item, dict) else None,
             annee_courante,
+            puissance,
         )
         tirage = rng.random()
         while tirage <= 0.0:  # log(0) casserait la clé
@@ -803,7 +833,7 @@ def _rotation_band(page):
     return band, slot
 
 
-def rotated_tmdb_page(media_type, params, page, seed_key):
+def rotated_tmdb_page(media_type, params, page, seed_key, preset=None):
     """Une page du site, puisée dans une bande de cent titres réordonnés."""
     band, slot = _rotation_band(page)
     candidats = []
@@ -817,7 +847,7 @@ def rotated_tmdb_page(media_type, params, page, seed_key):
             for brut in _result_items(donnees)
             if isinstance(brut, dict) and brut.get("poster_path")
         )
-    ordonne = rotation_order(candidats, f"{seed_key}-{band}")
+    ordonne = rotation_order(candidats, f"{seed_key}-{band}", preset)
     debut = slot * TMDB_PAGE_SIZE
     # Les bandes réordonnent par groupes de cinq pages sans en changer le
     # nombre : la page 3 du site puise toujours dans la page 3 de TMDB. La
@@ -1917,7 +1947,9 @@ def _anilist_page_nodes(data):
     return nodes, info
 
 
-def anilist_catalogue(kind, pill_id="all", sort_id="tendances", page=1, seed="0"):
+def anilist_catalogue(
+    kind, pill_id="all", sort_id="tendances", page=1, seed="0", preset=None
+):
     """Une page du catalogue AniList : cartes, page courante, suite ou pas."""
     if kind not in ANILIST_MEDIA_TYPES:
         abort(400, description="Type de média inconnu.")
@@ -1977,6 +2009,7 @@ def anilist_catalogue(kind, pill_id="all", sort_id="tendances", page=1, seed="0"
     ordonne = rotation_order(
         candidats,
         f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}",
+        preset,
     )
     debut = slot * ANILIST_PER_PAGE
     items = ordonne[debut : debut + ANILIST_PER_PAGE]
@@ -2158,6 +2191,12 @@ def api_calendrier():
     """Les épisodes de la semaine, pour l'onglet Animés & Mangas."""
     page = _page_arg()
     return jsonify(anilist_calendrier(_anilist_kind_arg(), page))
+
+
+@app.route("/calendrier")
+def calendrier():
+    """La page calendrier : tout le rail de l'onglet, filtrable par jour."""
+    return render_template("calendrier.html")
 
 
 def anilist_hero(kind, limit=16):
@@ -2588,12 +2627,17 @@ def api_hero():
             seen.add(item_id)
             candidates.append(normalize_card(item, media_type))
 
-    anchors = candidates[:2]
-    pool = candidates[2:]
-    random.Random(  # nosec B311
-        f"{int(time.time() // 900)}-{tab}"
-    ).shuffle(pool)
-    return jsonify({"items": (anchors + pool)[:16]})
+    # Le bandeau tournait sur une horloge de quinze minutes : identique pour
+    # tous les visiteurs, et sans égard pour la notoriété. Il suit désormais la
+    # graine de visite et le même tirage pondéré que la grille.
+    seed = _limited_arg("seed", "0", 80)
+    return jsonify(
+        {
+            "items": rotation_order(
+                candidates, f"hero-{tab}-{seed}", _rotation_preset_arg()
+            )[:16]
+        }
+    )
 
 
 @app.route("/api/list")
@@ -2610,7 +2654,12 @@ def api_list():
         # dans AniList, et chaque carte ouvre notre propre fiche.
         return jsonify(
             anilist_catalogue(
-                _anilist_kind_arg(), genre, _anilist_sort_arg(), page, seed
+                _anilist_kind_arg(),
+                genre,
+                _anilist_sort_arg(),
+                page,
+                seed,
+                _rotation_preset_arg(),
             )
         )
 
@@ -2643,7 +2692,7 @@ def api_list():
             abort(400, description="Genre invalide.")
 
     items, has_more = rotated_tmdb_page(
-        media_type, params, page, f"list-{tab}-{genre}-{seed}"
+        media_type, params, page, f"list-{tab}-{genre}-{seed}", _rotation_preset_arg()
     )
     return jsonify({"items": items, "page": page, "has_more": has_more})
 
@@ -2785,7 +2834,9 @@ def api_legends():
     # Le rang de départ vient de la note : c'est lui qui devient le poids du
     # tirage. Les chefs-d'œuvre restent en haut, mais plus dans un ordre figé.
     items.sort(key=lambda item: -item["rating"])
-    items = rotation_order(items, f"legends-{media_filter}-{page}-{seed}")
+    items = rotation_order(
+        items, f"legends-{media_filter}-{page}-{seed}", _rotation_preset_arg()
+    )
     return jsonify(
         {
             "items": items,

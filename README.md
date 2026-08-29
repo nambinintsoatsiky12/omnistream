@@ -47,6 +47,29 @@ rejoue 300 visites et encadre cette moyenne entre 11 et 19.
 L'onglet **Nouveautés** reste chronologique : c'est un calendrier de sorties,
 le mélanger lui ferait perdre son sens.
 
+#### Le dosage se règle
+
+Tout le monde ne veut pas le même degré de surprise. Trois crans sont exposés
+sous la grille — **Stable**, **Équilibré**, **Surprenant** — et mémorisés sur
+l'appareil (`localStorage`, clé `omni-fraicheur`). Ils pilotent la puissance du
+tirage : 10, 6 et 3. Une valeur inconnue retombe sur le cran du milieu plutôt
+que de renvoyer un 400 — c'est un réglage d'affichage, pas un contrat de
+données.
+
+#### « Pas intéressé »
+
+Un troisième bouton de coin sur chaque carte écarte le titre pour de bon, dans
+`localStorage` (borné à 400 entrées). C'est le mécanisme qui fait qu'un fil ne
+vous remontre pas ce que vous avez déjà refusé. Le clic empêche l'ouverture de
+la fiche ; sur tactile, où il n'y a pas de survol, le bouton reste visible.
+
+#### Le bandeau aussi
+
+`api_hero` tournait sur une horloge de quinze minutes : le même bandeau pour
+tout le monde, sans égard pour la notoriété. Il suit désormais la graine de
+visite et le même tirage pondéré que la grille — et le client ne le remélange
+plus à l'arrivée, ce qui aurait annulé le travail du serveur.
+
 ### L'onglet « Animés & Mangas »
 
 Cet onglet ne puise **que** dans AniList — TMDB ignore les mangas et classe mal
@@ -82,7 +105,13 @@ où le visiteur attendait un anime.
 - un bandeau **« Cette semaine »** liste les épisodes diffusés dans les 7 jours
   (`airingSchedules`), avec le numéro d'épisode et le jour en français —
   « aujourd'hui », « demain », sinon le jour de la semaine. Il suit la bascule
-  Animes / Mangas et reste caché quand AniList ne répond pas.
+  Animes / Mangas et reste caché quand AniList ne répond pas ;
+- une page **`/calendrier`** reprend ce rail en liste verticale, filtrable par
+  jour. Les épisodes sont chargés une fois puis filtrés en mémoire : changer de
+  jour ne repart pas vers AniList ;
+- des **alertes d'épisodes** pour les séries de « Ma Liste ». L'autorisation du
+  navigateur n'est demandée que sur un clic explicite, jamais d'office, et un
+  épisode n'est annoncé qu'une fois.
 
 Par symétrie, les onglets **Nouveautés** et **Films ≥ 8.5** (TMDB) écartent
 l'animation de leur vue « Tous » : l'animation a son onglet, ses filtres et sa
@@ -119,7 +148,9 @@ Trois ajouts au lecteur :
 - **la lecture continue** (mode webtoon) : les planches se touchent, comme se
   lisent les webtoons et la plupart des manhwas. Le choix est mémorisé ;
 - **la langue réellement trouvée** est nommée : « chapitres en coréen, pas en
-  français » au lieu d'un « toutes langues » qui ne renseignait personne.
+  français » au lieu d'un « toutes langues » qui ne renseignait personne ;
+- la **Bibliothèque** affiche une rangée **« Continuer à lire »** qui relit cet
+  historique — elle ne le duplique pas, elle ne fait que l'afficher.
 
 La recherche essaie aussi plusieurs orthographes (rōmaji, anglais, synonymes
 transmis par la fiche, suffixe de film/saison retiré), et les chapitres sont

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Calendrier des épisodes — OmniStream{% endblock %}
+{% block content %}
+<div class="calendrier-page" id="calendrier-page">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker orange">ANILIST · DIFFUSIONS</div>
+      <h1 class="section-title">Calendrier des épisodes</h1>
+    </div>
+  </div>
+  <p class="calendrier-page-intro">
+    Les épisodes diffusés dans les sept prochains jours. Filtrer par jour ou
+    changer de moitié du catalogue ne repart pas vers AniList : tout est déjà
+    chargé, seul l'affichage change.
+  </p>
+
+  <nav class="media-switch" id="calendrier-media" aria-label="Type de catalogue">
+    <button type="button" class="media-switch-btn active" data-media="anime">
+      <span>Animes</span>
+    </button>
+    <button type="button" class="media-switch-btn" data-media="manga">
+      <span>Mangas</span>
+    </button>
+  </nav>
+
+  <nav class="pills" id="calendrier-jours" aria-label="Filtrer par jour"></nav>
+
+  <div class="calendrier-page-liste" id="calendrier-liste"></div>
+  <div class="empty-state" id="calendrier-vide" hidden>
+    Aucun épisode annoncé dans cette fenêtre.
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const page = document.getElementById("calendrier-page");
+  if (!page) return;
+
+  const liste = document.getElementById("calendrier-liste");
+  const vide = document.getElementById("calendrier-vide");
+  const joursEl = document.getElementById("calendrier-jours");
+  const mediaEl = document.getElementById("calendrier-media");
+
+  let media = "anime";
+  let jour = "";
+  let episodes = [];
+
+  function carte(episode) {
+    const lien = document.createElement("a");
+    lien.className = "calendrier-ligne";
+    lien.href = `/details/${episode.media_type}/${episode.id}?tab=animes`;
+
+    const affiche = document.createElement("img");
+    affiche.className = "calendrier-ligne-affiche";
+    affiche.src = episode.poster_small || episode.poster || "";
+    affiche.alt = String(episode.title || "Sans titre");
+    affiche.loading = "lazy";
+    affiche.decoding = "async";
+
+    const corps = document.createElement("div");
+    corps.className = "calendrier-ligne-corps";
+    const titre = document.createElement("div");
+    titre.className = "calendrier-ligne-titre";
+    titre.textContent = String(episode.title || "Sans titre");
+    const detail = document.createElement("div");
+    detail.className = "calendrier-ligne-detail";
+    const quand = [episode.jour, episode.heure].filter(Boolean).join(" · ");
+    detail.textContent = [
+      episode.episode ? `Épisode ${episode.episode}` : "Épisode à venir",
+      quand,
+    ]
+      .filter(Boolean)
+      .join(" — ");
+    corps.append(titre, detail);
+
+    const note = document.createElement("div");
+    note.className = "calendrier-ligne-note";
+    note.textContent =
+      Number(episode.rating) > 0 ? Number(episode.rating).toFixed(1) : "";
+
+    lien.append(affiche, corps, note);
+    return lien;
+  }
+
+  function rendre() {
+    const filtres = jour
+      ? episodes.filter((item) => item.jour === jour)
+      : episodes;
+    liste.replaceChildren(...filtres.map(carte));
+    vide.hidden = filtres.length > 0;
+  }
+
+  function rendreJours() {
+    const ordre = [];
+    episodes.forEach((item) => {
+      if (item.jour && !ordre.includes(item.jour)) ordre.push(item.jour);
+    });
+    const boutons = [
+      Object.assign(document.createElement("button"), {
+        type: "button",
+        textContent: "Tous",
+        className: `pill${jour ? "" : " active"}`,
+      }),
+    ];
+    boutons[0].dataset.jour = "";
+    ordre.forEach((nom) => {
+      const bouton = document.createElement("button");
+      bouton.type = "button";
+      bouton.className = `pill${jour === nom ? " active" : ""}`;
+      bouton.textContent = nom.charAt(0).toUpperCase() + nom.slice(1);
+      bouton.dataset.jour = nom;
+      boutons.push(bouton);
+    });
+    joursEl.replaceChildren(...boutons);
+  }
+
+  async function charger() {
+    liste.replaceChildren();
+    vide.hidden = true;
+    try {
+      const reponse = await fetch(
+        `/api/calendrier?media=${encodeURIComponent(media)}`
+      );
+      if (!reponse.ok) throw new Error(`code ${reponse.status}`);
+      const data = await reponse.json();
+      episodes = Array.isArray(data.items) ? data.items : [];
+    } catch (erreur) {
+      episodes = [];
+      vide.hidden = false;
+      vide.textContent = `AniList n'a pas répondu (${erreur.message}).`;
+    }
+    jour = "";
+    rendreJours();
+    rendre();
+  }
+
+  if (joursEl) {
+    joursEl.addEventListener("click", (event) => {
+      const bouton = event.target.closest(".pill");
+      if (!bouton) return;
+      jour = bouton.dataset.jour || "";
+      joursEl.querySelectorAll(".pill").forEach((item) => {
+        item.classList.toggle("active", item === bouton);
+      });
+      rendre();
+    });
+  }
+
+  if (mediaEl) {
+    mediaEl.addEventListener("click", (event) => {
+      const bouton = event.target.closest(".media-switch-btn");
+      if (!bouton) return;
+      const suivant = bouton.dataset.media;
+      if (!suivant || suivant === media) return;
+      media = suivant;
+      mediaEl.querySelectorAll(".media-switch-btn").forEach((item) => {
+        item.classList.toggle("active", item === bouton);
+      });
+      charger();
+    });
+  }
+
+  charger();
+})();
+</script>
+{% endblock %}

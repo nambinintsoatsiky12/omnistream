@@ -37,6 +37,20 @@
     </div>
   </section>
 
+  {# Les mangas dont la lecture a été commencée. L'historique est écrit par le
+     lecteur de scan lui-même, dans localStorage : cette rangée ne fait que le
+     relire, elle n'ajoute aucun stockage de son côté. #}
+  <section class="library-section">
+    <div class="library-section-head">
+      <h2>Continuer à lire <span class="count" id="scan-grid-count"></span></h2>
+      <button type="button" class="library-clear" id="scan-clear">Vider</button>
+    </div>
+    <div class="grid" id="scan-grid"></div>
+    <div class="library-empty" id="scan-empty" hidden>
+      <p>Aucun manga en cours de lecture. Ouvrez un scan depuis une fiche !</p>
+    </div>
+  </section>
+
   <div class="library-danger-zone">
     <div>
       <strong>Tout effacer sur cet appareil</strong>

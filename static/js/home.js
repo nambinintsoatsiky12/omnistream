@@ -22,12 +22,31 @@
   const animeExtra = document.getElementById("anime-extra");
   const calendrierEl = document.getElementById("calendrier");
   const calendrierRail = document.getElementById("calendrier-rail");
+  const fraicheurEl = document.getElementById("fraicheur");
+  const notifBtn = document.getElementById("anime-notif");
 
   // L'onglet « Animés & Mangas » a deux moitiés qui ne se mélangent jamais :
   // les sous-genres et la grille dépendent de celle qui est affichée.
   const isAnimeTab = tab === "animes";
   let activeMedia = "anime";
   let activeSort = "tendances";
+
+  /* Le dosage de la rotation. « stable » garde les repères, « frais » surprend
+     davantage. Mémorisé sur l'appareil : c'est une préférence, pas une
+     décision de visite. */
+  const FRAICHEUR_CLE = "omni-fraicheur";
+  const FRAICHEURS = ["stable", "normal", "frais"];
+
+  function lireFraicheur() {
+    try {
+      const valeur = window.localStorage.getItem(FRAICHEUR_CLE) || "";
+      return FRAICHEURS.includes(valeur) ? valeur : "";
+    } catch (erreur) {
+      return "";
+    }
+  }
+
+  let fraicheur = lireFraicheur();
 
   let page = 1;
   let hasMore = true;
@@ -100,6 +119,7 @@
       page: String(requestedPage),
       seed: sessionSeed,
     });
+    if (fraicheur) params.set("fraicheur", fraicheur);
     if (tab === "nouveautes") return `/api/upcoming?${params}`;
     if (tab === "legendes") return `/api/legends?${params}`;
     params.delete("type");
@@ -114,15 +134,18 @@
   }
 
   function heroUrl() {
+    const graine = `&seed=${encodeURIComponent(sessionSeed)}`;
     if (isAnimeTab) {
       // Le bandeau suit le type affiché : pas d'anime au milieu des mangas.
-      return `/api/hero?tab=${encodeURIComponent(tab)}&media=${activeMedia}`;
+      return (
+        `/api/hero?tab=${encodeURIComponent(tab)}&media=${activeMedia}${graine}`
+      );
     }
     if (
       activeGenre === "all" &&
       ["films", "series", "animation_occidentale"].includes(tab)
     ) {
-      return `/api/hero?tab=${encodeURIComponent(tab)}`;
+      return `/api/hero?tab=${encodeURIComponent(tab)}${graine}`;
     }
     return listUrl(1);
   }
@@ -272,6 +295,8 @@
       '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"></polyline><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"></line></svg>',
     pinOff:
       '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+    skip:
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><line x1="6.3" y1="6.3" x2="17.7" y2="17.7"></line></svg>',
   }
 
   function createFavButton(item) {
@@ -332,6 +357,7 @@
   function createCard(item, index) {
     const href = detailUrl(item);
     if (!href) return null;
+    if (estEcarte(item)) return null;
 
     const card = document.createElement("a");
     card.className = "card moviebox-card";
@@ -350,6 +376,7 @@
     poster.appendChild(createRatingBadge(item.rating));
     poster.appendChild(createFavButton(item));
     poster.appendChild(createPinButton(item));
+    poster.appendChild(createSkipButton(item, card));
 
     const info = document.createElement("div");
     info.className = "card-info";
@@ -412,10 +439,10 @@
         seenIds.add(key);
         uniqueItems.push(item);
       }
-      const items = seededShuffle(
-        uniqueItems,
-        `hero-${tab}-${activeGenre}-${sessionSeed}`,
-      ).slice(0, 12);
+      // Pas de remélange ici : c'est le serveur qui a tiré le bandeau au sort,
+      // pondéré par la notoriété. Le brasser de nouveau à l'arrivée remettrait
+      // un film obscur en tête et annulerait tout le travail d'`api_hero`.
+      const items = uniqueItems.slice(0, 12);
       if (items.length === 0) {
         hideHero();
         return;
@@ -639,6 +666,68 @@
     return lien;
   }
 
+  /* Prévenir des nouveaux épisodes. Deux garde-fous : l'autorisation n'est
+     demandée que sur un clic explicite, et on n'annonce que les séries déjà
+     dans « Ma Liste » — prévenir de tout le calendrier serait du spam. */
+  const NOTIF_CLE = "omni-notif-episodes";
+  const NOTIF_VUS_CLE = "omni-notif-episodes-vus";
+
+  function lireNotifVus() {
+    try {
+      const brut = window.localStorage.getItem(NOTIF_VUS_CLE);
+      const liste = brut ? JSON.parse(brut) : [];
+      return new Set(Array.isArray(liste) ? liste.map(String) : []);
+    } catch (erreur) {
+      return new Set();
+    }
+  }
+
+  function notificationsActives() {
+    try {
+      return window.localStorage.getItem(NOTIF_CLE) === "oui";
+    } catch (erreur) {
+      return false;
+    }
+  }
+
+  function maCle(item) {
+    return `${item.media_type || "x"}:${item.id}:${item.episode || 0}`;
+  }
+
+  function annoncerEpisodes(items) {
+    if (!notificationsActives() || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    const suivis = new Set();
+    if (window.OmniLibrary && window.OmniLibrary.getFavorites) {
+      window.OmniLibrary.getFavorites().forEach((fiche) => {
+        suivis.add(`${fiche.media_type || fiche.type || "x"}:${fiche.id}`);
+      });
+    }
+    if (!suivis.size) return;
+    const vus = lireNotifVus();
+    const nouveaux = items.filter(
+      (item) =>
+        suivis.has(`${item.media_type}:${item.id}`) && !vus.has(maCle(item))
+    );
+    if (!nouveaux.length) return;
+    nouveaux.slice(0, 3).forEach((item) => {
+      try {
+        new window.Notification("Nouvel épisode sur OmniStream", {
+          body: `${item.title} — épisode ${item.episode || "à venir"}`,
+          tag: maCle(item),
+        });
+      } catch (erreur) { /* notification refusée par le système */ }
+    });
+    // Marquées comme vues : sans ça, chaque visite rejouerait l'annonce.
+    nouveaux.forEach((item) => vus.add(maCle(item)));
+    try {
+      window.localStorage.setItem(
+        NOTIF_VUS_CLE,
+        JSON.stringify([...vus].slice(-300))
+      );
+    } catch (erreur) { /* stockage indisponible */ }
+  }
+
   async function chargerCalendrier() {
     if (!isAnimeTab || !calendrierEl || !calendrierRail) return;
     if (calendrierCharge === activeMedia) return;
@@ -649,12 +738,147 @@
       );
       const items = Array.isArray(data.items) ? data.items : [];
       calendrierRail.replaceChildren(...items.map(carteCalendrier));
+      annoncerEpisodes(items);
       // Rien à annoncer : le bandeau reste caché plutôt que d'afficher un
       // « aucun épisode » qui n'apporte rien.
       calendrierEl.hidden = items.length === 0;
     } catch (error) {
       calendrierEl.hidden = true;
     }
+  }
+
+  /* « Pas intéressé ». Le vrai mécanisme qui fait qu'un fil ne vous remontre
+     pas la même chose : on écarte le titre, et il ne revient plus. Tout reste
+     dans localStorage — le site n'a pas de compte où l'écrire. */
+  const ECARTES_CLE = "omni-titres-ecartes";
+  const ECARTES_MAX = 400;
+  let ecartes = new Set();
+
+  function lireEcartes() {
+    try {
+      const brut = window.localStorage.getItem(ECARTES_CLE);
+      const liste = brut ? JSON.parse(brut) : [];
+      return new Set(Array.isArray(liste) ? liste.map(String) : []);
+    } catch (erreur) {
+      return new Set();
+    }
+  }
+
+  function ecrireEcartes() {
+    try {
+      // Borné : sans limite, la clé grossirait pour toujours.
+      window.localStorage.setItem(
+        ECARTES_CLE,
+        JSON.stringify([...ecartes].slice(-ECARTES_MAX))
+      );
+    } catch (erreur) { /* stockage indisponible : la session suffit */ }
+  }
+
+  function cleTitre(item) {
+    return `${item.media_type || "x"}:${item.id}`;
+  }
+
+  function estEcarte(item) {
+    return ecartes.has(cleTitre(item));
+  }
+
+  function ecarterTitre(item) {
+    ecartes.add(cleTitre(item));
+    ecrireEcartes();
+  }
+
+  ecartes = lireEcartes();
+
+  function createSkipButton(item, carte) {
+    const btn = makeCornerButton("card-skip-btn", "Pas intéressé");
+    btn.innerHTML = ICONS.skip;
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      ecarterTitre(item);
+      // La carte part tout de suite : laisser un bouton « annuler » supposerait
+      // un état réversible qu'on ne tient pas d'une visite à l'autre.
+      carte.remove();
+      if (window.OmniUI) {
+        window.OmniUI.toast(`« ${item.title || "Ce titre"} » ne reviendra plus.`, "ok");
+      }
+    });
+    return btn;
+  }
+
+  /* Le cran de fraîcheur. Un clic recharge la grille : le changement d'ordre
+     doit se voir tout de suite, pas à la prochaine visite. */
+  function marquerFraicheur() {
+    if (!fraicheurEl) return;
+    fraicheurEl.querySelectorAll(".fraicheur-btn").forEach((bouton) => {
+      bouton.classList.toggle(
+        "active",
+        bouton.dataset.fraicheur === (fraicheur || "normal")
+      );
+    });
+  }
+
+  function installerFraicheur() {
+    if (!fraicheurEl || fraicheurEl.dataset.wired) return;
+    fraicheurEl.dataset.wired = "1";
+    marquerFraicheur();
+    fraicheurEl.addEventListener("click", (event) => {
+      const bouton = event.target.closest(".fraicheur-btn");
+      if (!bouton) return;
+      const choix = bouton.dataset.fraicheur || "";
+      fraicheur = FRAICHEURS.includes(choix) ? choix : "";
+      try {
+        if (fraicheur) window.localStorage.setItem(FRAICHEUR_CLE, fraicheur);
+        else window.localStorage.removeItem(FRAICHEUR_CLE);
+      } catch (erreur) { /* préférence non mémorisée, sans gravité */ }
+      marquerFraicheur();
+      reloadEverything();
+    });
+  }
+
+  function installerNotifications() {
+    if (!notifBtn || notifBtn.dataset.wired) return;
+    notifBtn.dataset.wired = "1";
+    if (!("Notification" in window)) return;
+    notifBtn.hidden = false;
+    const label = document.getElementById("anime-notif-label");
+    const peindre = () => {
+      const actif = notificationsActives();
+      notifBtn.classList.toggle("is-on", actif);
+      notifBtn.setAttribute("aria-pressed", actif ? "true" : "false");
+      if (label) {
+        label.textContent = actif
+          ? "Alertes épisodes : activées"
+          : "Prévenir des nouveaux épisodes";
+      }
+    };
+    peindre();
+    notifBtn.addEventListener("click", async () => {
+      const actif = notificationsActives();
+      if (actif) {
+        try {
+          window.localStorage.removeItem(NOTIF_CLE);
+        } catch (erreur) { /* stockage indisponible */ }
+        peindre();
+        if (window.OmniUI) window.OmniUI.toast("Alertes épisodes coupées.", "ok");
+        return;
+      }
+      let accord = Notification.permission;
+      if (accord === "default") accord = await Notification.requestPermission();
+      if (accord !== "granted") {
+        if (window.OmniUI) {
+          window.OmniUI.toast("Le navigateur a refusé les notifications.", "info");
+        }
+        return;
+      }
+      try {
+        window.localStorage.setItem(NOTIF_CLE, "oui");
+      } catch (erreur) { /* stockage indisponible */ }
+      peindre();
+      if (window.OmniUI) {
+        window.OmniUI.toast("Vous serez prévenu des épisodes de Ma Liste.", "ok");
+      }
+    });
   }
 
   function installerPrefetch() {
@@ -743,6 +967,7 @@
       renderSortPills(data.sorts);
       installerOutilsPills(pills.length);
       installerPrefetch();
+      installerNotifications();
       if (animeExtra) animeExtra.hidden = !isAnimeTab;
       chargerCalendrier();
     } catch (error) {
@@ -868,6 +1093,7 @@
     });
   }
 
+  installerFraicheur();
   loadPills();
   loadMore();
   // Un seul AbortController par page visitée : les écouteurs posés sur
