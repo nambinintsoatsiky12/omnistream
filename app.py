@@ -28,6 +28,7 @@ from flask import (
     session,
     stream_with_context,
 )
+from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth_db
@@ -513,6 +514,26 @@ def _rotation_preset_arg():
     return valeur if valeur in ROTATION_PRESETS else None
 
 
+# « Ce soir j'ai 1 h 30 » : plages de durée en minutes, fermées et sans
+# chevauchement, pour qu'un filtre ne repêche jamais les titres d'un autre.
+# TMDB compte la durée des films ; AniList celle des épisodes d'anime.
+DUREES = {
+    "court": (None, 90),
+    "moyen": (91, 120),
+    "long": (121, None),
+}
+
+
+def _duree_arg():
+    """La plage de durée demandée, ou None pour « toutes les durées ».
+
+    Comme pour la fraîcheur, une valeur inconnue retombe sur le défaut plutôt
+    que de renvoyer un 400 : c'est un réglage d'affichage.
+    """
+    valeur = _limited_arg("duree", "", 12)
+    return valeur if valeur in DUREES else None
+
+
 def _page_arg(plafond=None):
     """Le numéro de page demandé, borné.
 
@@ -934,6 +955,56 @@ def search_by_tab(tab, query):
         ]
         return [normalize_card(i, "movie") for i in results if i.get("poster_path")]
 
+
+def _recherche_tmdb_groupes(query):
+    """Films d'un côté, séries de l'autre, pour la recherche globale.
+
+    Un seul appel TMDB « multi » renvoie les deux types ; on applique les
+    mêmes filtres anti-mélange que le catalogue : pas d'animation japonaise
+    au milieu des films et des séries.
+    """
+    data = tmdb_get("/search/multi", {"query": query, "include_adult": "true"})
+    films, series = [], []
+    for brut in _result_items(data):
+        if not isinstance(brut, dict) or not brut.get("poster_path"):
+            continue
+        type_brut = brut.get("media_type")
+        if type_brut == "movie":
+            if str(brut.get("original_language") or "") == "ja" and 16 in (
+                brut.get("genre_ids") or []
+            ):
+                continue
+            if len(films) < 12:
+                films.append(normalize_card(brut, "movie"))
+        elif type_brut == "tv":
+            if 16 in (brut.get("genre_ids") or []) and "JP" in (
+                brut.get("origin_country") or []
+            ):
+                continue
+            if len(series) < 12:
+                series.append(normalize_card(brut, "tv"))
+    return films, series
+
+
+def _recherche_musique(query):
+    """Quelques pistes pour la recherche globale ; vide sans clé YouTube."""
+    if not YOUTUBE_API_KEY:
+        return []
+    try:
+        data = _youtube_get(
+            "search",
+            {
+                "part": "snippet",
+                "type": "video",
+                "videoCategoryId": "10",
+                "maxResults": 6,
+                "q": query,
+            },
+        )
+    except UpstreamServiceError:
+        return []
+    return _format_youtube_items(data.get("items", []), id_is_object=True)[:6]
+
     return []
 
 
@@ -1350,6 +1421,46 @@ def _anilist_relations(node):
     return retenus[:8]
 
 
+def _tmdb_relations(media_type, item_id, origin_tab="films"):
+    """Les titres recommandés par TMDB, présentés « dans le même univers ».
+
+    Même forme que les relations AniList : la fiche et la rangée d'accueil
+    affichent les deux sources avec le même gabarit, et chaque carte ouvre
+    NOTRE fiche — jamais TMDB.
+    """
+    try:
+        data = tmdb_get(
+            f"/{media_type}/{item_id}/recommendations", {"language": "fr-FR"}
+        )
+    except UpstreamServiceError:
+        return []
+    liens = []
+    vus = set()
+    for brut in _result_items(data):
+        if not isinstance(brut, dict) or not brut.get("poster_path"):
+            continue
+        cible_id = brut.get("id")
+        if not isinstance(cible_id, int) or cible_id <= 0 or cible_id in vus:
+            continue
+        titre = str(brut.get("title") or brut.get("name") or "").strip()
+        if not titre:
+            continue
+        vus.add(cible_id)
+        liens.append(
+            {
+                "relation": "À voir aussi",
+                "id": cible_id,
+                "media_type": media_type,
+                "title": titre[:120],
+                "format": "",
+                "href": f"/details/{media_type}/{cible_id}?tab={origin_tab}",
+            }
+        )
+        if len(liens) >= 8:
+            break
+    return liens
+
+
 def _anilist_score(node):
     """AniList note sur 100 ; le panneau affiche sur 10, comme pour TMDB."""
     try:
@@ -1523,11 +1634,13 @@ fragment carte on Media {
   bannerImage
 }
 query ($page: Int, $perPage: Int, $type: MediaType, $genre: String, $tag: String,
-       $sort: [MediaSort], $scoreMin: Int, $yearMin: Int) {
+       $sort: [MediaSort], $scoreMin: Int, $yearMin: Int,
+       $durationMin: Int, $durationMax: Int) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { total currentPage lastPage hasNextPage perPage }
     media(type: $type, genre: $genre, tag: $tag, sort: $sort,
           averageScore_greater: $scoreMin, seasonYear_greater: $yearMin,
+          duration_greater: $durationMin, duration_lesser: $durationMax,
           isAdult: false, format_not_in: [MUSIC]) {
       ...carte
     }
@@ -1948,7 +2061,13 @@ def _anilist_page_nodes(data):
 
 
 def anilist_catalogue(
-    kind, pill_id="all", sort_id="tendances", page=1, seed="0", preset=None
+    kind,
+    pill_id="all",
+    sort_id="tendances",
+    page=1,
+    seed="0",
+    preset=None,
+    duree=None,
 ):
     """Une page du catalogue AniList : cartes, page courante, suite ou pas."""
     if kind not in ANILIST_MEDIA_TYPES:
@@ -1958,6 +2077,9 @@ def anilist_catalogue(
     if pill_id not in {"", "all"} and pill is None:
         abort(400, description="Sous-genre d'anime ou de manga invalide.")
     chosen_sort = anilist_sort(sort_id)
+
+    # La durée n'a de sens que pour les animes : un manga n'a pas de minutes.
+    plage = DUREES.get(duree) if duree and kind == "anime" else None
 
     band, slot = _rotation_band(page)
     base_variables = {
@@ -1972,6 +2094,8 @@ def anilist_catalogue(
             if chosen_sort["id"] == "recent"
             else None
         ),
+        "durationMin": plage[0] if plage else None,
+        "durationMax": plage[1] if plage else None,
     }
 
     # Une bande de cent titres, lue en deux pages de cinquante (le maximum
@@ -1993,6 +2117,8 @@ def anilist_catalogue(
             chosen_sort["id"],
             source,
             variables["yearMin"],
+            variables["durationMin"],
+            variables["durationMax"],
         )
         cached = _cache_get(page_key)
         if cached is _CACHE_MISSING:
@@ -2345,35 +2471,45 @@ def index():
                 catalogue_error="",
                 show_band=False,
             )
-        # Les deux sources partent EN PARALLÈLE : TMDB ne connaît pas les
+        # Recherche globale groupée par type : une seule barre, cinq rayons.
+        # Les trois sources partent EN PARALLÈLE : TMDB ne connaît pas les
         # mangas, AniList ne remplace pas le catalogue de films. Les attendre
-        # l'une après l'autre ajouterait un aller-retour complet au résultat.
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            catalogue = executor.submit(search_by_tab, tab, query)
-            animes = executor.submit(anilist_band, query)
+        # l'une après l'autre ajouterait des allers-retours complets.
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            groupes_tmdb = executor.submit(_recherche_tmdb_groupes, query)
+            bande = executor.submit(anilist_band, query)
+            pistes = executor.submit(_recherche_musique, query)
             try:
-                results = catalogue.result()
+                films, series = groupes_tmdb.result()
                 catalogue_error = ""
             except UpstreamServiceError:
                 # TMDB en panne ne doit pas emporter la bande AniList : elle
                 # vient d'un autre catalogue et peut très bien avoir répondu.
                 # Un 503 cacherait le seul résultat disponible.
                 app.logger.warning("Recherche TMDB impossible", exc_info=True)
-                results = []
+                films, series = [], []
                 catalogue_error = (
                     "Le catalogue de films et séries ne répond pas : seuls les "
                     "animes et mangas ci-dessous sont à jour."
                 )
-            band = animes.result()
+            band = bande.result()
+            musiques = pistes.result()
+        animes_band = [i for i in band["items"] if i.get("kind") == "anime"]
+        mangas_band = [i for i in band["items"] if i.get("kind") == "manga"]
         return render_template(
             "index.html",
             tab=tab,
-            items=results,
+            items=None,
             query=query,
-            anilist=band["items"],
+            films=films,
+            series=series,
+            animes_band=animes_band,
+            mangas_band=mangas_band,
+            musiques=musiques,
+            anilist=[],
             anilist_error=band["error"],
             catalogue_error=catalogue_error,
-            show_band=True,
+            show_band=False,
         )
     return render_template(
         "index.html",
@@ -2487,6 +2623,10 @@ def details(media_type, item_id):
         except UpstreamServiceError:
             trailer_key = ""
 
+    # « Dans le même univers » pour les films et séries, comme c'était déjà
+    # le cas pour les animes et mangas : suites, sagas, titres proches.
+    relations = _tmdb_relations(media_type, item_id, origin_tab)
+
     item = {
         "id": item_id,
         "media_type": media_type,
@@ -2502,6 +2642,7 @@ def details(media_type, item_id):
         "original_language": data.get("original_language"),
         "origin_country": origin_country,
         "trailer_key": trailer_key,
+        "relations": relations,
         "extra_tags": [],
         "synonyms": [],
         # Le lecteur de scan reste réservé aux œuvres japonaises : c'est le seul
@@ -2522,6 +2663,42 @@ def details(media_type, item_id):
 # ---------------------------------------------------------------------------
 # JSON API
 # ---------------------------------------------------------------------------
+
+
+@app.route("/api/univers")
+def api_univers():
+    """Les œuvres liées au dernier titre consulté, pour la rangée d'accueil.
+
+    L'accueil n'invente rien : il relit les mêmes relations que la fiche
+    (suite, préquelle, titres proches) pour le titre que celle-ci a mémorisé.
+    Une source muette rend une rangée vide, pas une erreur.
+    """
+    media_type = _limited_arg("media_type", "", 12)
+    if media_type not in {"movie", "tv"} | ANILIST_MEDIA_TYPES:
+        return jsonify({"liens": []})
+    try:
+        item_id = int(_limited_arg("id", "0", 12))
+    except ValueError:
+        return jsonify({"liens": []})
+    if item_id <= 0:
+        return jsonify({"liens": []})
+
+    cache_key = ("univers", media_type, item_id)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return jsonify({"liens": cached})
+
+    if media_type in ANILIST_MEDIA_TYPES:
+        try:
+            fiche = anilist_detail(item_id, media_type)
+        except (UpstreamServiceError, HTTPException):
+            return jsonify({"liens": []})
+        liens = fiche.get("relations") or []
+    else:
+        liens = _tmdb_relations(media_type, item_id)
+    return jsonify(
+        {"liens": _cache_set(cache_key, liens, ttl=ANILIST_CATALOGUE_TTL)}
+    )
 
 
 @app.route("/api/genres")
@@ -2649,6 +2826,7 @@ def api_list():
     page = _page_arg(ANILIST_MAX_PAGES if tab == "animes" else None)
     seed = _limited_arg("seed", "0", 80)
 
+    duree = _duree_arg()
     if tab == "animes":
         # Aucune carte TMDB ici : l'onglet « Animés & Mangas » ne puise que
         # dans AniList, et chaque carte ouvre notre propre fiche.
@@ -2660,6 +2838,7 @@ def api_list():
                 page,
                 seed,
                 _rotation_preset_arg(),
+                duree,
             )
         )
 
@@ -2691,8 +2870,23 @@ def api_list():
         else:
             abort(400, description="Genre invalide.")
 
+    # « Ce soir j'ai 1 h 30 » : TMDB filtre lui-même sur la durée, les pages
+    # reçues sont déjà dans la plage — la rotation ne mélange rien d'autre.
+    # Les séries gardent toutes leurs durées : c'est l'épisode qui compte,
+    # pas la séance.
+    if tab == "films" and duree:
+        mini, maxi = DUREES[duree]
+        if mini is not None:
+            params["with_runtime.gte"] = str(mini)
+        if maxi is not None:
+            params["with_runtime.lte"] = str(maxi)
+
     items, has_more = rotated_tmdb_page(
-        media_type, params, page, f"list-{tab}-{genre}-{seed}", _rotation_preset_arg()
+        media_type,
+        params,
+        page,
+        f"list-{tab}-{genre}-{duree or 'toutes'}-{seed}",
+        _rotation_preset_arg(),
     )
     return jsonify({"items": items, "page": page, "has_more": has_more})
 

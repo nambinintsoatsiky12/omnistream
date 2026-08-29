@@ -70,6 +70,36 @@ tout le monde, sans égard pour la notoriété. Il suit désormais la graine de
 visite et le même tirage pondéré que la grille — et le client ne le remélange
 plus à l'arrivée, ce qui aurait annulé le travail du serveur.
 
+#### « Ce soir j'ai 1 h 30 » : le filtre durée
+
+Un second cran sous la grille, **Durée** (Toutes / ≤ 1 h 30 / 1 h 30 – 2 h /
++ 2 h), mémorisé comme la fraîcheur (`localStorage`, clé `omni-duree`). Les
+plages sont fermées et sans chevauchement : un filtre ne repêche jamais les
+titres d'un autre. Il n'apparaît que là où la durée a un sens — les films
+(TMDB borne `with_runtime`) et les animes (AniList borne `duration`) — et se
+cache pour les séries et les mangas.
+
+#### Recherche globale groupée
+
+Une seule barre, cinq rayons : **Films**, **Séries**, **Animes**, **Mangas**
+et, si une clé YouTube est configurée, **Musiques**. Chaque type a sa section ;
+jamais un manga au milieu des films ni un film au milieu des animes. Les
+cartes AniList restent dans le site (fiche OmniStream, couvertures par notre
+proxy) et les pistes musicales se lancent dans le lecteur global.
+
+#### « Dans le même univers » sur l'accueil
+
+La fiche mémorise le dernier titre consulté (`omni-dernier-titre`) ; l'accueil
+va chercher ses œuvres liées via `/api/univers` et les pose en rangée
+horizontale. Les fiches TMDB gagnent aussi des relations (recommandations),
+affichées comme pour les animes et mangas — chaque carte ouvre notre fiche.
+
+#### Ce qui existait déjà, protégé
+
+Le bouton **Partager** de la fiche (partage natif ou « Lien copié ») et la
+**reprise au chapitre** du lecteur de scan (« Reprendre au chapitre N » dans
+la Bibliothèque) étaient déjà là ; des tests les verrouillent.
+
 ### L'onglet « Animés & Mangas »
 
 Cet onglet ne puise **que** dans AniList — TMDB ignore les mangas et classe mal

@@ -6078,3 +6078,99 @@ html[data-display-mode="standalone"] .drawer-install-btn {
   border-color: var(--accent-blue, #38bdf8);
   color: var(--accent-blue, #38bdf8);
 }
+
+/* --- Recherche globale : rayons groupés par type ----------------------- */
+.search-group {
+  margin: 18px 0 6px;
+}
+.search-group-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  margin: 0 0 10px;
+  padding-left: 2px;
+}
+.search-music-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.search-music-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.search-music-play {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent, #ff7a2e);
+  color: #141824;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.search-music-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.search-music-channel {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* --- « Dans le même univers » : rangée horizontale de l'accueil --------- */
+.univers-row {
+  margin: 4px 0 14px;
+}
+.univers-row-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 10px;
+  padding-left: 2px;
+}
+.univers-row-list {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.univers-carte {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 190px;
+  background: var(--surface-2);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+.univers-carte-kind {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.univers-carte-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

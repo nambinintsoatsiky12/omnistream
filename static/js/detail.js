@@ -28,6 +28,21 @@
   // Enregistre la consultation dès l'ouverture de la fiche.
   if (window.OmniLibrary) window.OmniLibrary.recordView(item);
 
+  // « Dans le même univers » sur l'accueil : on se souvient du dernier titre
+  // consulté pour que la page d'accueil aille chercher ses œuvres liées.
+  try {
+    window.localStorage.setItem(
+      "omni-dernier-titre",
+      JSON.stringify({
+        media_type: item.media_type,
+        id: item.id,
+        titre: item.title,
+      }),
+    );
+  } catch (erreur) {
+    /* stockage indisponible : la rangée d'accueil restera simplement cachée */
+  }
+
   // --- Bande-annonce -------------------------------------------------------
   const watchBtn = document.getElementById("watch-btn");
   const box = document.getElementById("trailer-box");

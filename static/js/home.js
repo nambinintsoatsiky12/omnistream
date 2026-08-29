@@ -23,6 +23,9 @@
   const calendrierEl = document.getElementById("calendrier");
   const calendrierRail = document.getElementById("calendrier-rail");
   const fraicheurEl = document.getElementById("fraicheur");
+  const dureeEl = document.getElementById("duree");
+  const universRow = document.getElementById("univers-row");
+  const universList = document.getElementById("univers-list");
   const notifBtn = document.getElementById("anime-notif");
 
   // L'onglet « Animés & Mangas » a deux moitiés qui ne se mélangent jamais :
@@ -47,6 +50,22 @@
   }
 
   let fraicheur = lireFraicheur();
+
+  /* Le filtre « ce soir j'ai 1 h 30 ». Vide = toutes durées. Mémorisé comme
+     la fraîcheur : une préférence d'appareil, pas une décision de visite. */
+  const DUREE_CLE = "omni-duree";
+  const DUREES = ["court", "moyen", "long"];
+
+  function lireDuree() {
+    try {
+      const valeur = window.localStorage.getItem(DUREE_CLE) || "";
+      return DUREES.includes(valeur) ? valeur : "";
+    } catch (erreur) {
+      return "";
+    }
+  }
+
+  let duree = lireDuree();
 
   let page = 1;
   let hasMore = true;
@@ -120,6 +139,9 @@
       seed: sessionSeed,
     });
     if (fraicheur) params.set("fraicheur", fraicheur);
+    // La durée n'est envoyée que là où elle a un sens : le serveur l'ignore
+    // ailleurs, mais autant ne pas promener un paramètre fantôme.
+    if (duree && dureeActive()) params.set("duree", duree);
     if (tab === "nouveautes") return `/api/upcoming?${params}`;
     if (tab === "legendes") return `/api/legends?${params}`;
     params.delete("type");
@@ -818,6 +840,91 @@
     });
   }
 
+  // La durée n'a de sens que pour les films et les animes : une série se
+  // regarde sur plusieurs soirées, un manga n'a pas de minutes.
+  function dureeActive() {
+    return tab === "films" || (isAnimeTab && activeMedia === "anime");
+  }
+
+  function majVisibiliteDuree() {
+    if (dureeEl) dureeEl.hidden = !dureeActive();
+  }
+
+  function installerDuree() {
+    if (!dureeEl || dureeEl.dataset.wired) return;
+    dureeEl.dataset.wired = "1";
+    marquerDuree();
+    dureeEl.addEventListener("click", (event) => {
+      const bouton = event.target.closest(".fraicheur-btn");
+      if (!bouton) return;
+      const choix = bouton.dataset.duree || "";
+      duree = DUREES.includes(choix) ? choix : "";
+      try {
+        if (duree) window.localStorage.setItem(DUREE_CLE, duree);
+        else window.localStorage.removeItem(DUREE_CLE);
+      } catch (erreur) { /* préférence non mémorisée, sans gravité */ }
+      marquerDuree();
+      reloadEverything();
+    });
+  }
+
+  function marquerDuree() {
+    if (!dureeEl) return;
+    dureeEl.querySelectorAll(".fraicheur-btn").forEach((bouton) => {
+      const actif = (bouton.dataset.duree || "") === duree;
+      bouton.classList.toggle("active", actif);
+      bouton.setAttribute("aria-pressed", String(actif));
+    });
+  }
+
+  /* « Dans le même univers » : la fiche mémore le dernier titre consulté,
+     l'accueil va chercher ses œuvres liées (suites, préquelles, proches). */
+  const DERNIER_TITRE_CLE = "omni-dernier-titre";
+
+  async function chargerUnivers() {
+    if (!universRow || !universList) return;
+    let memoire = null;
+    try {
+      memoire = JSON.parse(
+        window.localStorage.getItem(DERNIER_TITRE_CLE) || "null",
+      );
+    } catch (erreur) {
+      return;
+    }
+    if (!memoire || !memoire.media_type || !memoire.id) return;
+    try {
+      const reponse = await fetch(
+        "/api/univers?media_type=" +
+          encodeURIComponent(memoire.media_type) +
+          "&id=" +
+          encodeURIComponent(memoire.id),
+        { headers: { Accept: "application/json" } },
+      );
+      if (!reponse.ok) return;
+      const data = await reponse.json();
+      const liens = Array.isArray(data.liens) ? data.liens : [];
+      if (!liens.length) return;
+      universList.replaceChildren(
+        ...liens.map((lien) => {
+          const a = document.createElement("a");
+          a.className = "univers-carte";
+          a.href = lien.href || "#";
+          const kind = document.createElement("span");
+          kind.className = "univers-carte-kind";
+          kind.textContent = lien.relation || "";
+          const name = document.createElement("span");
+          name.className = "univers-carte-name";
+          name.textContent = lien.title || "";
+          a.append(kind, name);
+          return a;
+        }),
+      );
+      universRow.hidden = false;
+    } catch (erreur) {
+      /* source muette : la rangée reste cachée, sans erreur visible */
+    }
+  }
+
   function installerFraicheur() {
     if (!fraicheurEl || fraicheurEl.dataset.wired) return;
     fraicheurEl.dataset.wired = "1";
@@ -969,6 +1076,8 @@
       installerPrefetch();
       installerNotifications();
       if (animeExtra) animeExtra.hidden = !isAnimeTab;
+      majVisibiliteDuree();
+      chargerUnivers();
       chargerCalendrier();
     } catch (error) {
       console.error("Erreur de chargement des genres :", error);
@@ -1094,8 +1203,27 @@
   }
 
   installerFraicheur();
+  installerDuree();
+  majVisibiliteDuree();
+  chargerUnivers();
   loadPills();
   loadMore();
+
+  // Lecture musique depuis la recherche globale : délégué, car les boutons
+  // n'existent que sur la page de résultats servie par le serveur.
+  document.addEventListener("click", (event) => {
+    const bouton = event.target.closest(".search-music-play");
+    if (!bouton || !window.OmniPlayer) return;
+    window.OmniPlayer.play(
+      {
+        id: bouton.dataset.playId,
+        title: bouton.dataset.title || "Lecture en cours",
+        channel: bouton.dataset.channel || "",
+        thumbnail: bouton.dataset.thumbnail || "",
+      },
+      "audio",
+    );
+  });
   // Un seul AbortController par page visitée : les écouteurs posés sur
   // `document` sautent au départ de la page, au lieu de s'empiler à chaque
   // navigation interne (interface de plus en plus lente au fil de la session).

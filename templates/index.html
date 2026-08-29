@@ -2,75 +2,49 @@
 {% block title %}OmniStream — Catalogue Films, Séries & Animés{% endblock %}
 {% block content %}
 
-{% if query %}
-  <div class="search-results-header">
-    <span class="section-kicker">RECHERCHE GLOBALE</span>
-    <h1 class="search-title">Résultats pour « {{ query }} »</h1>
-  </div>
-  {% if catalogue_error %}
-    <p class="anilist-note anilist-note-warn" role="status">{{ catalogue_error }}</p>
-  {% endif %}
-  <div class="grid">
-    {% for item in items %}
-      <a class="card" href="{{ url_for('details', media_type=item.media_type, item_id=item.id, tab=tab) }}">
-        <div class="poster">
-          {# Deux variantes d'affiche : le navigateur prend la w154 pour une
-             carte de téléphone (~115 px) et ne monte à la w342 que si la carte
-             est réellement plus grande. `decoding="async"` sort le décodage du
-             fil principal, qui doit rester libre pour le défilement. #}
-          <img class="poster-img" src="{{ item.poster }}" alt="Affiche de {{ item.title }}" loading="lazy" decoding="async"
-               {% if item.poster and item.poster_small %}srcset="{{ item.poster_small }} 154w, {{ item.poster }} 342w" sizes="{{ poster_sizes }}"{% endif %}>
-          <span class="quality-tag">HD · VF</span>
-          <span class="rating-badge">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>
-            {{ item.rating }}
-          </span>
-        </div>
-        <div class="card-info">
-          <div class="card-title">{{ item.title }}</div>
-          <div class="card-meta-line">
-            <span class="card-type-tag">{{ item.media_type | upper }}</span>
-          </div>
-        </div>
-      </a>
-    {% else %}
-      {% if not show_band | default(true) or (not anilist and not anilist_error and not catalogue_error) %}
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
-        </div>
-        <h3>Aucun résultat trouvé</h3>
-        <p>Essayez avec un autre titre, le nom en anglais ou un mot-clé plus court.</p>
+{% macro carte_recherche(item, tab, poster_sizes="") %}
+  <a class="card" href="{{ url_for('details', media_type=item.media_type, item_id=item.id, tab=tab) }}">
+    <div class="poster">
+      {# Deux variantes d'affiche : le navigateur prend la w154 pour une
+         carte de téléphone (~115 px) et ne monte à la w342 que si la carte
+         est réellement plus grande. `decoding="async"` sort le décodage du
+         fil principal, qui doit rester libre pour le défilement. #}
+      <img class="poster-img" src="{{ item.poster }}" alt="Affiche de {{ item.title }}" loading="lazy" decoding="async"
+           {% if item.poster and item.poster_small %}srcset="{{ item.poster_small }} 154w, {{ item.poster }} 342w" sizes="{{ poster_sizes }}"{% endif %}>
+      <span class="quality-tag">HD · VF</span>
+      <span class="rating-badge">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9L5.7 21l1.7-7L2 9.2l7.1-.6z"/></svg>
+        {{ item.rating }}
+      </span>
+    </div>
+    <div class="card-info">
+      <div class="card-title">{{ item.title }}</div>
+      <div class="card-meta-line">
+        <span class="card-type-tag">{{ item.media_type | upper }}</span>
       </div>
-      {% endif %}
-    {% endfor %}
-  </div>
+    </div>
+  </a>
+{% endmacro %}
 
-  {# ============================================================
-     BANDE ANIMES & MANGAS (AniList)
-     TMDB ne connaît pas les mangas et classe mal les animes non
-     japonais : cette bande vient d'un catalogue dédié, et elle dit
-     toujours quelque chose — résultat, vide expliqué, ou panne.
-     ============================================================ #}
-  {% if show_band | default(true) %}
-  <section class="anilist-band" aria-label="Animes et mangas">
+{% macro bande_anilist(label, liste, erreur, tab) %}
+  <section class="anilist-band" aria-label="{{ label }}">
     <div class="anilist-head">
       <span class="section-kicker">SOURCE ANILIST</span>
-      <h2 class="anilist-title">Animes &amp; mangas</h2>
+      <h2 class="anilist-title">{{ label }}</h2>
     </div>
 
-    {% if anilist_error %}
+    {% if erreur %}
       <p class="anilist-note anilist-note-warn" role="status">
-        {{ anilist_error }} Les films et séries ci-dessus ne sont pas concernés.
+        {{ erreur }} Les films et séries ci-dessus ne sont pas concernés.
       </p>
-    {% elif not anilist %}
+    {% elif not liste %}
       <p class="anilist-note">
-        Aucun anime ni manga ne porte ce nom dans le catalogue AniList. Essayez le
-        titre original (japonais ou coréen), ou son titre international.
+        Aucun anime ni manga ne porte ce nom dans ce rayon du catalogue AniList.
+        Essayez le titre original (japonais ou coréen), ou son titre international.
       </p>
     {% else %}
       <div class="anilist-grid">
-        {% for entry in anilist %}
+        {% for entry in liste %}
         {# AniList est une SOURCE : toute la carte ouvre la fiche OmniStream
            (synopsis, bande-annonce, Ma liste, assistant IA, lecteur de scan).
            Aucun lien ne part vers anilist.co. #}
@@ -107,6 +81,85 @@
       </div>
     {% endif %}
   </section>
+{% endmacro %}
+
+{% if query %}
+  <div class="search-results-header">
+    <span class="section-kicker">RECHERCHE GLOBALE</span>
+    <h1 class="search-title">Résultats pour « {{ query }} »</h1>
+  </div>
+  {% if catalogue_error %}
+    <p class="anilist-note anilist-note-warn" role="status">{{ catalogue_error }}</p>
+  {% endif %}
+
+  {% if tab == 'animes' %}
+    {# L'onglet « Animés & Mangas » reste entre soi : ses résultats sont déjà
+       100 % AniList, animes d'abord puis mangas, sans rayon films/séries. #}
+    <div class="grid">
+      {% for item in items %}
+        {{ carte_recherche(item, tab) }}
+      {% else %}
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+        </div>
+        <h3>Aucun résultat trouvé</h3>
+        <p>Essayez avec un autre titre, le nom en anglais ou un mot-clé plus court.</p>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {# Une seule barre, cinq rayons : chaque type a sa section, jamais un
+       manga au milieu des films ni un film au milieu des animes. #}
+    {% for label, liste in [("Films", films), ("Séries", series)] %}
+    <section class="search-group" aria-label="{{ label }}">
+      <h2 class="search-group-title">{{ label }}</h2>
+      {% if liste %}
+      <div class="grid">
+        {% for item in liste %}{{ carte_recherche(item, tab) }}{% endfor %}
+      </div>
+      {% else %}
+      <p class="anilist-note">Rien trouvé dans ce rayon.</p>
+      {% endif %}
+    </section>
+    {% endfor %}
+
+    {{ bande_anilist("Animes", animes_band, anilist_error, tab) }}
+    {{ bande_anilist("Mangas", mangas_band, "", tab) }}
+
+    {% if musiques %}
+    <section class="search-group" aria-label="Musiques">
+      <h2 class="search-group-title">Musiques</h2>
+      <div class="search-music-list">
+        {% for piste in musiques %}
+        <div class="search-music-row">
+          <button type="button" class="search-music-play"
+                  data-play-id="{{ piste.id }}"
+                  data-title="{{ piste.title }}"
+                  data-channel="{{ piste.channel }}"
+                  data-thumbnail="{{ piste.thumbnail }}"
+                  aria-label="Écouter {{ piste.title }}">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <div class="search-music-info">
+            <div class="search-music-title">{{ piste.title }}</div>
+            <div class="search-music-channel">{{ piste.channel }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if not films and not series and not animes_band and not mangas_band and not musiques and not catalogue_error and not anilist_error %}
+    <div class="empty-state">
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+      </div>
+      <h3>Aucun résultat trouvé</h3>
+      <p>Essayez avec un autre titre, le nom en anglais ou un mot-clé plus court.</p>
+    </div>
+    {% endif %}
   {% endif %}
 
 {% else %}
@@ -129,6 +182,14 @@
     <section class="hero" id="hero" aria-label="Sélection à la une" hidden>
       <div class="hero-track" id="hero-track"></div>
       <div class="hero-dots" id="hero-dots"></div>
+    </section>
+
+    {# « Dans le même univers » : les suites et titres proches du dernier
+       titre consulté. Rempli par script, caché tant qu'il n'y a rien à
+       proposer — et jamais une rangée vide. #}
+    <section class="univers-row" id="univers-row" hidden aria-label="Dans le même univers">
+      <h2 class="univers-row-title">Dans le même univers</h2>
+      <div class="univers-row-list" id="univers-list"></div>
     </section>
 
     {# « Reprendre » ne vit plus ici : l'historique se consulte dans
@@ -182,6 +243,17 @@
       <button type="button" class="fraicheur-btn" data-fraicheur="stable">Stable</button>
       <button type="button" class="fraicheur-btn" data-fraicheur="normal">Équilibré</button>
       <button type="button" class="fraicheur-btn" data-fraicheur="frais">Surprenant</button>
+    </div>
+
+    {# « Ce soir j'ai 1 h 30 » : plages fermées, sans chevauchement. Visible
+       seulement là où la durée a un sens — les films et les animes. Une
+       série se regarde sur plusieurs soirées, un manga n'a pas de minutes. #}
+    <div class="fraicheur" id="duree" role="group" aria-label="Durée des titres" hidden>
+      <span class="fraicheur-label">Durée</span>
+      <button type="button" class="fraicheur-btn" data-duree="">Toutes</button>
+      <button type="button" class="fraicheur-btn" data-duree="court">≤ 1 h 30</button>
+      <button type="button" class="fraicheur-btn" data-duree="moyen">1 h 30 – 2 h</button>
+      <button type="button" class="fraicheur-btn" data-duree="long">+ 2 h</button>
     </div>
 
     {# Les animes et mangas comptent une centaine de sous-genres chacun : une
