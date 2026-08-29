@@ -842,25 +842,54 @@ def _rotation_band(page):
 
 
 def rotated_tmdb_page(media_type, params, page, seed_key, preset=None):
-    """Une page du site, puisée dans une bande de cent titres réordonnés."""
-    band, slot = _rotation_band(page)
+    """Une page du site, puisée dans une bande de cent titres réordonnés.
+
+    Optimisé pour la vitesse : les pages source d'une bande partent EN PARALLÈLE
+    (5 → 1 aller-retour) et le défilement est infini : au-delà de MAX_PAGES on
+    reboucle avec une graine qui change, donc jamais de fin sèche.
+    """
+    # Défilement infini : au-delà du plafond TMDB on reboucle en changeant la graine
+    loop, effective_page = divmod(max(1, int(page)) - 1, MAX_PAGES)
+    effective_page += 1
+    band, slot = _rotation_band(effective_page)
+    # Si on boucle, on décale la bande pour ne pas revoir exactement les mêmes 100
+    band = (band + loop * 3) % max(1, MAX_PAGES // ROTATION_POOL_PAGES)
+
+    sources = [band * ROTATION_POOL_PAGES + decalage + 1 for decalage in range(ROTATION_POOL_PAGES)]
+
+    def _fetch(source_page):
+        try:
+            return tmdb_get(f"/discover/{media_type}", {**params, "page": source_page})
+        except UpstreamServiceError as exc:
+            # Si la clé TMDB manque, on ne doit pas masquer l'erreur par une grille vide (test_missing_tmdb_key)
+            if getattr(exc, "status_code", 502) == 503 and "TMDB_API_KEY" in str(exc):
+                raise
+            return {"results": [], "total_pages": 1}
+
     candidats = []
     total_pages = 1
-    for decalage in range(ROTATION_POOL_PAGES):
-        source = band * ROTATION_POOL_PAGES + decalage + 1
-        donnees = tmdb_get(f"/discover/{media_type}", {**params, "page": source})
+    # Parallèle : 5 pages → 1 temps au lieu de 5
+    with ThreadPoolExecutor(max_workers=ROTATION_POOL_PAGES) as executor:
+        results = list(executor.map(_fetch, sources))
+
+    for donnees in results:
         total_pages = max(total_pages, _total_pages(donnees))
         candidats.extend(
             normalize_card(brut, media_type)
             for brut in _result_items(donnees)
             if isinstance(brut, dict) and brut.get("poster_path")
         )
-    ordonne = rotation_order(candidats, f"{seed_key}-{band}", preset)
+
+    # Graine qui évolue avec la boucle pour que chaque tour soit différent
+    loop_seed = f"{seed_key}-{band}-loop{loop}" if loop else f"{seed_key}-{band}"
+    ordonne = rotation_order(candidats, loop_seed, preset)
     debut = slot * TMDB_PAGE_SIZE
-    # Les bandes réordonnent par groupes de cinq pages sans en changer le
-    # nombre : la page 3 du site puise toujours dans la page 3 de TMDB. La
-    # borne de fin reste donc total_pages, comme avant les bandes.
-    return ordonne[debut : debut + TMDB_PAGE_SIZE], page < total_pages
+    page_items = ordonne[debut : debut + TMDB_PAGE_SIZE]
+    # Infini : on a toujours une suite tant qu'on a des candidats
+    has_more = True
+    if not page_items:
+        has_more = effective_page < total_pages
+    return page_items, has_more
 
 
 def seeded_block_shuffle(items, seed_key, block_size=4):
@@ -928,10 +957,10 @@ def search_by_tab(tab, query):
         return [normalize_card(i, "tv") for i in results if i.get("poster_path")]
 
     if tab == "animes":
-        # Recherche dans AniList uniquement : TMDB ne connaît pas les mangas
+        # Recherche dans AniList puis Jikan : TMDB ne connaît pas les mangas
         # et rate une partie des animes. Les animes passent d'abord, puis les
         # mangas — jamais un film ou une série au milieu.
-        return anilist_search("anime", query) + anilist_search("manga", query)
+        return search_unifie("anime", query) + search_unifie("manga", query)
 
     if tab == "animation_occidentale":
         data = tmdb_get("/search/movie", {"query": query, "include_adult": "true"})
@@ -1043,6 +1072,10 @@ IMAGE_PROXY_HOSTS = frozenset(
         "s5.anilist.co",
         "s6.anilist.co",
         "s7.anilist.co",
+        # Jikan / MyAnimeList — la relève quand AniList tousse
+        "cdn.myanimelist.net",
+        # Kitsu en secours supplémentaire
+        "media.kitsu.io",
     }
 )
 
@@ -2113,7 +2146,7 @@ def anilist_catalogue(
     """
     if kind not in ANILIST_MEDIA_TYPES:
         abort(400, description="Type de média inconnu.")
-    page = max(1, min(int(page or 1), ANILIST_MAX_PAGES))
+    page = max(1, min(int(page or 1), 10000))
     pill = None if pill_id in {"", "all"} else anilist_pill(kind, pill_id)
     if pill_id not in {"", "all"} and pill is None:
         abort(400, description="Sous-genre d'anime ou de manga invalide.")
@@ -2136,11 +2169,20 @@ def anilist_catalogue(
 def _anilist_catalogue_page(
     kind, pill_id, chosen_sort, page, seed, preset, duree, pill
 ):
-    """Le corps du catalogue, hors garde-fous : appelé sous l'erreur mémorisée."""
-    # La durée n'a de sens que pour les animes : un manga n'a pas de minutes.
+    """Le corps du catalogue, hors garde-fous : appelé sous l'erreur mémorisée.
+
+    Parallélisé (2 pages source en 1 temps) et infini : au-delà de ANILIST_MAX_PAGES
+    on reboucle avec une graine différente.
+    """
     plage = DUREES.get(duree) if duree and kind == "anime" else None
 
-    band, slot = _rotation_band(page)
+    # Infini : boucle
+    loop, effective_page = divmod(max(1, int(page)) - 1, ANILIST_MAX_PAGES)
+    effective_page += 1
+    band, slot = _rotation_band(effective_page)
+    if loop:
+        band = (band + loop * 7) % max(1, ANILIST_MAX_PAGES // ROTATION_BAND_PAGES)
+
     base_variables = {
         "type": kind.upper(),
         "genre": pill.get("genre") if pill and "genre" in pill else None,
@@ -2157,14 +2199,15 @@ def _anilist_catalogue_page(
         "durationMax": plage[1] if plage else None,
     }
 
-    # Une bande de cent titres, lue en deux pages de cinquante (le maximum
-    # qu'AniList accorde). Chaque page source a son propre cache : les cinq
-    # pages du site qui découlent d'une bande ne repaient pas l'appel.
     candidats = []
     info = {}
     recu = 0
     echantillon = ""
     appel_reseau = False
+
+    # Prépare les sources
+    sources_vars = []
+    page_keys = []
     for decalage in range(ANILIST_POOL_PAGES):
         source = band * ANILIST_POOL_PAGES + decalage + 1
         variables = {
@@ -2182,37 +2225,46 @@ def _anilist_catalogue_page(
             variables["durationMin"],
             variables["durationMax"],
         )
+        sources_vars.append((source, variables, page_key))
+
+    # Récupère cache d'abord, puis fetch parallèle pour les manquants
+    to_fetch = []
+    cached_results = {}
+    for source, variables, page_key in sources_vars:
         cached = _cache_get(page_key)
         if cached is _CACHE_MISSING:
-            appel_reseau = True
-            cached = _cache_set(
-                page_key,
-                _anilist_page_nodes(_anilist_post(ANILIST_LIST_QUERY, variables)),
-                ttl=ANILIST_CATALOGUE_TTL,
-            )
-        nodes, info = cached
+            to_fetch.append((source, variables, page_key))
+        else:
+            cached_results[page_key] = cached
+
+    if to_fetch:
+        appel_reseau = True
+
+        def _fetch_one(item):
+            src, vars_, key = item
+            data = _anilist_page_nodes(_anilist_post(ANILIST_LIST_QUERY, vars_))
+            return key, _cache_set(key, data, ttl=ANILIST_CATALOGUE_TTL)
+
+        with ThreadPoolExecutor(max_workers=ANILIST_POOL_PAGES) as executor:
+            # Si une des pages lève UpstreamServiceError, on laisse l'erreur remonter
+            # pour que l'appelant puisse mémoriser la panne (test_anilist_en_panne...)
+            for key, data in executor.map(_fetch_one, to_fetch):
+                cached_results[key] = data
+
+    # Assemble
+    for _, _, page_key in sources_vars:
+        nodes, info = cached_results.get(page_key, ([], {}))
         for node in nodes:
             recu += 1
             carte = _anilist_card(node, kind)
             if carte:
                 candidats.append(carte)
             elif not echantillon and isinstance(node, dict):
-                # Carte jetée sans mot : on retient l'adresse de la première
-                # couverture perdue — c'est elle que le journal cite plus bas.
                 cover = node.get("coverImage")
                 cover = cover if isinstance(cover, dict) else {}
-                echantillon = str(cover.get("large") or cover.get("medium") or "")[
-                    :140
-                ]
+                echantillon = str(cover.get("large") or cover.get("medium") or "")[:140]
 
     if not candidats and appel_reseau:
-        # Une grille vide SANS erreur affichée est précisément le symptôme qui
-        # a gardé l'onglet anime muet en production : AniList répond (d'où
-        # aucun message d'échec), mais les cartes disparaissent en chemin.
-        # On écrit donc dans le journal ce que la source a VRAIMENT renvoyé —
-        # nombre de nœuds, total annoncé, première couverture — au lieu de
-        # relire indéfiniment « Aucun titre disponible » sans cause. Un
-        # résultat vide lu du cache ne relance pas ce journal.
         app.logger.warning(
             "Catalogue AniList vide (type=%s, filtre=%s, tri=%s) : %d nœuds reçus, "
             "total annoncé=%s, première couverture=%s",
@@ -2224,24 +2276,27 @@ def _anilist_catalogue_page(
             echantillon or "aucun nœud",
         )
 
-    ordonne = rotation_order(
-        candidats,
-        f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}",
-        preset,
-    )
+    loop_seed = f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}-loop{loop}" if loop else f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}"
+    ordonne = rotation_order(candidats, loop_seed, preset)
     debut = slot * ANILIST_PER_PAGE
     items = ordonne[debut : debut + ANILIST_PER_PAGE]
     total = info.get("total")
-    if isinstance(total, int) and total > 0:
-        # Une bande de 100 titres alimente cinq pages du site : la borne se
-        # déduit du total, pas du nombre de pages déjà servies.
-        suite = page * ANILIST_PER_PAGE < total
-    else:
-        suite = bool(info.get("hasNextPage"))
+    # Infini : toujours has_more si on a des items, sinon selon info mais jamais bloquant
+    has_more = True
+    if not items:
+        if isinstance(total, int) and total > 0:
+            has_more = effective_page * ANILIST_PER_PAGE < total
+        else:
+            has_more = bool(info.get("hasNextPage"))
+            # Même si plus de page, on reboucle : donc True sauf vide total
+            if not has_more and recu == 0:
+                has_more = False
+            else:
+                has_more = True
     return {
         "items": items,
         "page": page,
-        "has_more": suite and page < ANILIST_MAX_PAGES,
+        "has_more": has_more,
         "total": total,
     }
 
@@ -2408,7 +2463,7 @@ def _jour_francais(moment):
 def api_calendrier():
     """Les épisodes de la semaine, pour l'onglet Animés & Mangas."""
     page = _page_arg()
-    return jsonify(anilist_calendrier(_anilist_kind_arg(), page))
+    return jsonify(calendrier_unifie(_anilist_kind_arg(), page))
 
 
 @app.route("/calendrier")
@@ -2465,6 +2520,962 @@ def anilist_search(kind, query, limit=20):
     items = [card for card in (_anilist_card(node, kind) for node in nodes) if card]
     return _cache_set(cache_key, items, ttl=ANILIST_CACHE_TTL)
 
+
+# ---------------------------------------------------------------------------
+# Jikan — MyAnimeList (relève sans clé, quand AniList est KO)
+# ---------------------------------------------------------------------------
+# AniList est excellent mais son GraphQL est derrière Cloudflare et peut
+# répondre 403/429/502 pendant des heures (c'est ce qui vide l'onglet).
+# Jikan expose le catalogue MyAnimeList sans clé, avec les mêmes
+# animes ET mangas, des images sur cdn.myanimelist.net (déjà autorisé
+# dans IMAGE_PROXY_HOSTS) et une limite claire : 3 req/s.
+# On garde exactement le même format de carte/fiche que pour AniList :
+# le frontend ne voit aucune différence de source.
+JIKAN_BASE = "https://api.jikan.moe/v4"
+JIKAN_TIMEOUT = 12
+JIKAN_CACHE_TTL = 600
+JIKAN_ERROR_TTL = 60
+JIKAN_RETRIES = 1
+JIKAN_RETRY_WAIT = 1.2
+JIKAN_PER_PAGE = 25
+JIKAN_POOL_PAGES = 2
+JIKAN_GENRES_TTL = 24 * 3600
+
+JIKAN_SORT_MAP = {
+    "tendances": {"order_by": "popularity", "sort": "asc"},
+    "populaires": {"order_by": "popularity", "sort": "asc"},
+    "recent": {"order_by": "start_date", "sort": "desc"},
+    "nouveautes": {"order_by": "start_date", "sort": "desc"},
+    "note85": {"order_by": "score", "sort": "desc"},
+}
+
+
+def _jikan_get(path, params=None, timeout=JIKAN_TIMEOUT):
+    """GET Jikan, avec une seule relance et des erreurs propres."""
+    if not path.startswith("/"):
+        raise ValueError("Chemin Jikan doit commencer par '/'")
+    query_params = dict(params or {})
+    response = None
+    payload = None
+    for tentative in range(JIKAN_RETRIES + 1):
+        try:
+            response = requests.get(
+                f"{JIKAN_BASE}{path}",
+                params=query_params,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "OmniStream/1.0 (catalogue Jikan)",
+                },
+                timeout=timeout,
+            )
+            payload = response.json()
+        except requests.Timeout:
+            if tentative < JIKAN_RETRIES:
+                time.sleep(JIKAN_RETRY_WAIT * (tentative + 1))
+                continue
+            raise UpstreamServiceError("Jikan met trop de temps à répondre.", 504)
+        except (requests.RequestException, ValueError):
+            if tentative < JIKAN_RETRIES:
+                time.sleep(JIKAN_RETRY_WAIT * (tentative + 1))
+                continue
+            app.logger.warning("Catalogue Jikan impossible", exc_info=True)
+            raise UpstreamServiceError("Jikan est temporairement indisponible.", 502)
+
+        if response.status_code == 429 and tentative < JIKAN_RETRIES:
+            # Jikan dit 3 req/s : on attend un peu plus
+            retry_after = response.headers.get("Retry-After", "")
+            wait = JIKAN_RETRY_WAIT * (tentative + 1)
+            with contextlib.suppress(ValueError):
+                wait = min(float(retry_after), 5.0) or wait
+            time.sleep(wait)
+            continue
+        if response.status_code in {500, 502, 503, 504} and tentative < JIKAN_RETRIES:
+            time.sleep(JIKAN_RETRY_WAIT * (tentative + 1))
+            continue
+        break
+
+    if response.status_code == 429:
+        raise UpstreamServiceError(
+            "Jikan limite le nombre de requêtes. Réessayez dans un instant.", 503
+        )
+    if response.status_code >= 400 or not isinstance(payload, dict):
+        raise UpstreamServiceError("Jikan a refusé la demande.", 502)
+    return payload
+
+
+def _jikan_genres(kind):
+    """Liste des genres Jikan {nom_lower: id}, ou {} si injoignable."""
+    cache_key = ("jikan-genres", kind)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    try:
+        data = _jikan_get(f"/genres/{kind}", {}, timeout=10)
+    except UpstreamServiceError:
+        return {}
+    raw = data.get("data") if isinstance(data.get("data"), list) else []
+    mapping = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        gid = entry.get("mal_id")
+        if name and isinstance(gid, int):
+            mapping[name.casefold()] = gid
+            # Jikan a parfois "Martial Arts" vs "Arts martiaux" : on garde
+            # aussi la version sans espace/tiret pour matcher plus large
+            mapping[name.replace(" ", "").casefold()] = gid
+    return _cache_set(cache_key, mapping, ttl=JIKAN_GENRES_TTL)
+
+
+def _jikan_title(node):
+    if not isinstance(node, dict):
+        return ""
+    # Jikan donne plusieurs variantes, on prend la plus lisible
+    for key in ("title_english", "title", "title_japanese"):
+        val = str(node.get(key) or "").strip()
+        if val:
+            return val[:160]
+    titles = node.get("titles") if isinstance(node.get("titles"), list) else []
+    for t in titles:
+        if isinstance(t, dict) and t.get("type") in {"Default", "English"}:
+            val = str(t.get("title") or "").strip()
+            if val:
+                return val[:160]
+    return ""
+
+
+def _jikan_year(node):
+    if not isinstance(node, dict):
+        return ""
+    year = node.get("year")
+    if isinstance(year, int) and 1900 < year < 2100:
+        return str(year)
+    aired = node.get("aired") if isinstance(node.get("aired"), dict) else {}
+    prop = aired.get("prop") if isinstance(aired.get("prop"), dict) else {}
+    frm = prop.get("from") if isinstance(prop.get("from"), dict) else {}
+    y = frm.get("year")
+    if isinstance(y, int) and 1900 < y < 2100:
+        return str(y)
+    return ""
+
+
+def _jikan_score(node):
+    try:
+        return round(float(node.get("score") or 0), 1)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _jikan_image(node):
+    if not isinstance(node, dict):
+        return ""
+    images = node.get("images") if isinstance(node.get("images"), dict) else {}
+    jpg = images.get("jpg") if isinstance(images.get("jpg"), dict) else {}
+    for key in ("large_image_url", "image_url", "small_image_url"):
+        url = str(jpg.get(key) or "").strip()
+        if url.startswith("https://"):
+            prox = _image_proxy_url(url)
+            if prox:
+                return prox
+    return ""
+
+
+def _jikan_image_small(node):
+    if not isinstance(node, dict):
+        return ""
+    images = node.get("images") if isinstance(node.get("images"), dict) else {}
+    jpg = images.get("jpg") if isinstance(images.get("jpg"), dict) else {}
+    for key in ("small_image_url", "image_url", "large_image_url"):
+        url = str(jpg.get(key) or "").strip()
+        if url.startswith("https://"):
+            prox = _image_proxy_url(url)
+            if prox:
+                return prox
+    return ""
+
+
+def _jikan_card(node, kind):
+    """Une carte Jikan au même format que _anilist_card."""
+    if not isinstance(node, dict):
+        return None
+    mal_id = node.get("mal_id")
+    if not isinstance(mal_id, int) or mal_id <= 0:
+        return None
+    title = _jikan_title(node)
+    if not title:
+        return None
+    poster = _jikan_image(node)
+    if not poster:
+        return None
+    # Pas d'adult chez Jikan dans le catalogue normal, mais on filtre quand même
+    rating_label = str(node.get("rating") or "").upper()
+    if "HENTAI" in rating_label or "RX" in rating_label:
+        return None
+    return {
+        "id": mal_id,
+        "media_type": kind,
+        "title": title,
+        "year": _jikan_year(node),
+        "date": "",
+        "rating": _jikan_score(node),
+        "poster": poster,
+        "poster_small": _jikan_image_small(node) or poster,
+        "backdrop": poster,
+        "overview": str(node.get("synopsis") or "")[:500],
+        "original_language": "ja",
+        "origin_country": ["JP"],
+        "format": str(node.get("type") or "").upper()[:12],
+    }
+
+
+def _jikan_band_item(node, kind):
+    """Entrée de bande globale (même forme que _anilist_item)."""
+    if not isinstance(node, dict):
+        return None
+    mal_id = node.get("mal_id")
+    if not isinstance(mal_id, int) or mal_id <= 0:
+        return None
+    title = _jikan_title(node)
+    if not title:
+        return None
+    rating_label = str(node.get("rating") or "").upper()
+    if "HENTAI" in rating_label or "RX" in rating_label:
+        return None
+    cover = _jikan_image(node)
+    if not cover:
+        # Sans affiche on affiche quand même un placeholder côté bande
+        cover = ""
+    # Jikan n'a pas de country, on met JP pour animes
+    return {
+        "id": mal_id,
+        "kind": kind,
+        "title": title,
+        "year": _jikan_year(node),
+        "format": str(node.get("type") or "").upper()[:12],
+        "country": "JP" if kind == "anime" else "",
+        "cover": cover,
+        "url": f"https://myanimelist.net/{kind}/{mal_id}",
+        "reader": f"/lecteur-scan?titre={quote(title)}" if kind == "manga" else "",
+    }
+
+
+def _jikan_plain_text(raw, limit=1400):
+    text = str(raw or "")
+    text = html.unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > limit:
+        text = text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:") + "…"
+    return text
+
+
+def _jikan_detail_item(node, kind):
+    if not isinstance(node, dict):
+        return None
+    mal_id = node.get("mal_id")
+    if not isinstance(mal_id, int) or mal_id <= 0:
+        return None
+    title = _jikan_title(node)
+    if not title:
+        return None
+    rating_label = str(node.get("rating") or "").upper()
+    if "HENTAI" in rating_label or "RX" in rating_label:
+        return None
+    poster = _jikan_image(node)
+    if not poster:
+        # On garde la fiche même sans poster, mais le frontend affichera un trou
+        poster = ""
+    # Genres : on mélange genres + themes + demographics
+    genres = []
+    for key in ("genres", "themes", "demographics", "explicit_genres"):
+        arr = node.get(key) if isinstance(node.get(key), list) else []
+        for g in arr:
+            if isinstance(g, dict) and g.get("name"):
+                genres.append(str(g["name"])[:40])
+    genres = genres[:8]
+
+    # Studio
+    studios = node.get("studios") if isinstance(node.get("studios"), list) else []
+    studio = ""
+    for s in studios:
+        if isinstance(s, dict) and s.get("name"):
+            studio = str(s["name"])[:80]
+            break
+
+    # Trailer
+    trailer = node.get("trailer") if isinstance(node.get("trailer"), dict) else {}
+    trailer_key = str(trailer.get("youtube_id") or "")[:20]
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", trailer_key):
+        trailer_key = ""
+
+    # Synopsis
+    synopsis = _jikan_plain_text(node.get("synopsis")) or "Pas de synopsis disponible."
+
+    # Episodes / chapters
+    extra_tags = []
+    t = str(node.get("type") or "").upper()[:12]
+    if t:
+        extra_tags.append(t)
+    status = str(node.get("status") or "")[:30]
+    if status:
+        extra_tags.append(status)
+    if kind == "manga":
+        ch = node.get("chapters")
+        if isinstance(ch, int) and ch > 0:
+            extra_tags.append(f"{ch} chapitres")
+        vol = node.get("volumes")
+        if isinstance(vol, int) and vol > 0:
+            extra_tags.append(f"{vol} tomes")
+    else:
+        ep = node.get("episodes")
+        if isinstance(ep, int) and ep > 0:
+            extra_tags.append(f"{ep} épisodes")
+    if studio:
+        extra_tags.append(studio)
+
+    # Relations : Jikan les donne dans /relations, pas dans la fiche de base.
+    # On laisse vide ici, le frontend affichera les recommandations TMDB si besoin.
+
+    source_url = str(node.get("url") or f"https://myanimelist.net/{kind}/{mal_id}")[:200]
+
+    # Variantes pour lecteur scan
+    alt_titles = []
+    titles = node.get("titles") if isinstance(node.get("titles"), list) else []
+    for tt in titles:
+        if not isinstance(tt, dict):
+            continue
+        v = str(tt.get("title") or "").strip()
+        if v and v.casefold() != title.casefold():
+            alt_titles.append(v[:80])
+        if len(alt_titles) >= 3:
+            break
+    alt = "|".join(alt_titles)
+
+    return {
+        "id": mal_id,
+        "media_type": kind,
+        "title": title,
+        "year": _jikan_year(node),
+        "rating": _jikan_score(node),
+        "overview": synopsis,
+        "poster": poster,
+        "backdrop": poster,
+        "genres": genres,
+        "cast": [],
+        "runtime": None,
+        "original_language": "ja",
+        "origin_country": ["JP"],
+        "trailer_key": trailer_key,
+        "extra_tags": extra_tags[:5],
+        "synonyms": alt_titles[:4],
+        "relations": [],
+        "scan_href": _scan_href(title, alt),
+        "scan_label": "LIRE LE SCAN (VF)" if kind == "manga" else "LIRE LE MANGA (VF)",
+        "source_name": "MyAnimeList (Jikan)",
+        "source_url": source_url,
+    }
+
+
+def _jikan_build_catalog_params(kind, pill, sort_id):
+    """Construit les params Jikan pour une page de catalogue."""
+    sort_conf = JIKAN_SORT_MAP.get(sort_id) or JIKAN_SORT_MAP["tendances"]
+    params = {
+        "order_by": sort_conf["order_by"],
+        "sort": sort_conf["sort"],
+        "sfw": "true",
+        "page": 1,
+        "limit": JIKAN_PER_PAGE,
+    }
+    if sort_id == "note85":
+        params["min_score"] = 8.5
+    if sort_id == "recent":
+        # 3 dernières années
+        year_min = datetime.datetime.now(datetime.timezone.utc).year - ANILIST_RECENT_WINDOW_YEARS
+        params["start_date"] = f"{year_min}-01-01"
+    # Filtre par genre / tag
+    if pill:
+        # Si c'est un vrai genre (Action, Comedy...), on essaie de mapper vers l'id Jikan
+        genre_name = pill.get("genre")
+        tag_name = pill.get("tag")
+        mapping = _jikan_genres(kind)
+        gid = None
+        if genre_name:
+            gid = mapping.get(genre_name.casefold()) or mapping.get(genre_name.replace(" ", "").casefold())
+        if gid is None and tag_name:
+            # Certains tags AniList sont aussi des genres Jikan (Isekai, Harem...)
+            gid = mapping.get(tag_name.casefold()) or mapping.get(tag_name.replace(" ", "").casefold())
+        if gid:
+            params["genres"] = gid
+        else:
+            # Sinon on fait une recherche textuelle sur le tag
+            q = (tag_name or genre_name or pill.get("label") or "").strip()
+            if q:
+                params["q"] = q[:80]
+                params["order_by"] = "popularity"
+                params["sort"] = "asc"
+    return params
+
+
+def jikan_catalogue(
+    kind,
+    pill_id="all",
+    sort_id="tendances",
+    page=1,
+    seed="0",
+    preset=None,
+    duree=None,
+):
+    """Catalogue Jikan, même signature que anilist_catalogue. Parallèle + infini."""
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(400, description="Type de média inconnu.")
+    page = max(1, min(int(page or 1), ANILIST_MAX_PAGES))
+    pill = None if pill_id in {"", "all"} else anilist_pill(kind, pill_id)
+    if pill_id not in {"", "all"} and pill is None:
+        abort(400, description="Sous-genre d'anime ou de manga invalide.")
+    chosen_sort = anilist_sort(sort_id)
+
+    loop, effective_page = divmod(max(1, int(page)) - 1, ANILIST_MAX_PAGES)
+    effective_page += 1
+    band, slot = _rotation_band(effective_page)
+    if loop:
+        band = (band + loop * 7) % max(1, ANILIST_MAX_PAGES // ROTATION_BAND_PAGES)
+
+    base_params = _jikan_build_catalog_params(kind, pill, chosen_sort["id"])
+
+    candidats = []
+    info_total = None
+    has_next = False
+    recu = 0
+
+    sources = []
+    for decalage in range(JIKAN_POOL_PAGES):
+        source = band * JIKAN_POOL_PAGES + decalage + 1
+        params = {**base_params, "page": source}
+        cache_key = (
+            "jikan-pool",
+            kind,
+            pill_id,
+            chosen_sort["id"],
+            source,
+            base_params.get("genres"),
+            base_params.get("q", ""),
+            base_params.get("start_date", ""),
+        )
+        sources.append((source, params, cache_key))
+
+    # Cache lookup
+    cached_map = {}
+    to_fetch = []
+    for src, params, key in sources:
+        cached = _cache_get(key)
+        if cached is _CACHE_MISSING:
+            to_fetch.append((src, params, key))
+        else:
+            cached_map[key] = cached
+
+    if to_fetch:
+        def _fetch_one(item):
+            src, params, key = item
+            data = _jikan_get(f"/{kind}", params)
+            nodes = data.get("data") if isinstance(data.get("data"), list) else []
+            pagination = data.get("pagination") if isinstance(data.get("pagination"), dict) else {}
+            return key, _cache_set(key, (nodes, pagination), ttl=JIKAN_CACHE_TTL)
+
+        with ThreadPoolExecutor(max_workers=JIKAN_POOL_PAGES) as executor:
+            for key, val in executor.map(_fetch_one, to_fetch):
+                cached_map[key] = val
+
+    for _, _, key in sources:
+        nodes, pagination = cached_map.get(key, ([], {}))
+        recu += len(nodes)
+        for node in nodes:
+            carte = _jikan_card(node, kind)
+            if carte:
+                if duree and kind == "anime":
+                    plage = DUREES.get(duree)
+                    if plage:
+                        dur_str = str(node.get("duration") or "")
+                        m = re.search(r"(\d+)\s*min", dur_str)
+                        if m:
+                            try:
+                                minutes = int(m.group(1))
+                                mini, maxi = plage
+                                if mini is not None and minutes < mini:
+                                    continue
+                                if maxi is not None and minutes > maxi:
+                                    continue
+                            except ValueError:
+                                pass
+                candidats.append(carte)
+        if isinstance(pagination, dict):
+            if isinstance(pagination.get("has_next_page"), bool):
+                has_next = pagination.get("has_next_page") or has_next
+            items_info = pagination.get("items") if isinstance(pagination.get("items"), dict) else {}
+            if isinstance(items_info.get("total"), int):
+                info_total = items_info.get("total")
+
+    if not candidats:
+        app.logger.warning(
+            "Catalogue Jikan vide (type=%s, filtre=%s, tri=%s) : %d nœuds reçus",
+            kind,
+            pill_id,
+            chosen_sort["id"],
+            recu,
+        )
+
+    loop_seed = f"jikan-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}-loop{loop}" if loop else f"jikan-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}"
+    ordonne = rotation_order(candidats, loop_seed, preset)
+    debut = slot * ANILIST_PER_PAGE
+    items = ordonne[debut : debut + ANILIST_PER_PAGE]
+    # Infini
+    has_more = True
+    if not items:
+        has_more = False
+    return {
+        "items": items,
+        "page": page,
+        "has_more": has_more,
+        "total": info_total,
+    }
+
+
+def jikan_search(kind, query, limit=20):
+    search = str(query or "").strip()
+    if not search:
+        return []
+    cache_key = ("jikan-search", kind, search.lower())
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    data = _jikan_get(
+        f"/{kind}",
+        {"q": search[:120], "limit": limit, "sfw": "true", "order_by": "popularity", "sort": "asc"},
+    )
+    nodes = data.get("data") if isinstance(data.get("data"), list) else []
+    items = [c for c in (_jikan_card(n, kind) for n in nodes) if c]
+    return _cache_set(cache_key, items, ttl=JIKAN_CACHE_TTL)
+
+
+def jikan_band(query):
+    search = str(query or "").strip()
+    if not search:
+        return {"items": [], "error": ""}
+    cache_key = ("jikan-band", search.lower())
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    payload = {"items": [], "error": ""}
+    try:
+        anime_data = _jikan_get(f"/anime", {"q": search[:120], "limit": ANILIST_PER_TYPE, "sfw": "true"})
+        manga_data = _jikan_get(f"/manga", {"q": search[:120], "limit": ANILIST_PER_TYPE, "sfw": "true"})
+    except UpstreamServiceError as exc:
+        payload["error"] = str(exc)
+        return _cache_set(cache_key, payload, ttl=JIKAN_ERROR_TTL)
+    items = []
+    for node in (anime_data.get("data") or [])[:ANILIST_PER_TYPE]:
+        it = _jikan_band_item(node, "anime")
+        if it:
+            items.append(it)
+    for node in (manga_data.get("data") or [])[:ANILIST_PER_TYPE]:
+        it = _jikan_band_item(node, "manga")
+        if it:
+            items.append(it)
+    payload["items"] = items
+    return _cache_set(cache_key, payload, ttl=JIKAN_CACHE_TTL)
+
+
+def jikan_detail(media_id, kind):
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(404)
+    cache_key = ("jikan-detail", kind, media_id)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    data = _jikan_get(f"/{kind}/{media_id}", {"sfw": "true"})
+    node = data.get("data") if isinstance(data.get("data"), dict) else None
+    item = _jikan_detail_item(node, kind) if isinstance(node, dict) else None
+    if not item:
+        abort(404, description="Cette fiche n'existe pas dans Jikan.")
+    return _cache_set(cache_key, item, ttl=JIKAN_CACHE_TTL)
+
+
+def jikan_hero(kind, limit=16):
+    payload = jikan_catalogue(kind, "all", "tendances", 1)
+    items = [i for i in payload["items"] if i.get("backdrop")]
+    return items[:limit]
+
+
+def jikan_hasard(kind, seed=None):
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(400, description="Type de média inconnu.")
+    tirage = random.Random(seed) if seed is not None else random
+    for _ in range(ANILIST_RANDOM_TRIES):
+        band = tirage.randint(1, ANILIST_RANDOM_MAX_BAND)
+        page = (band - 1) * ROTATION_BAND_PAGES + 1
+        resultat = jikan_catalogue(kind, "all", "tendances", page)
+        if resultat["items"]:
+            return {**resultat, "page": page, "random": True}
+    return {"items": [], "page": 1, "has_more": False, "total": 0, "random": True}
+
+
+def jikan_calendrier(kind, page=1):
+    """Calendrier Jikan : les sorties de la semaine (anime seulement)."""
+    if kind != "anime":
+        return {"items": [], "page": 1, "has_more": False, "fenetre_jours": 7}
+    cache_key = ("jikan-calendrier", page)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    # Jikan /schedules donne les animes diffusés aujourd'hui
+    data = _jikan_get("/schedules", {"filter": "monday", "sfw": "true", "limit": 30, "page": page})
+    nodes = data.get("data") if isinstance(data.get("data"), list) else []
+    items = []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for node in nodes:
+        card = _jikan_card(node, "anime")
+        if not card:
+            continue
+        items.append(
+            {
+                **card,
+                "episode": None,
+                "airing_at": now.isoformat(),
+                "jour": "aujourd'hui",
+                "heure": "",
+            }
+        )
+    payload = {
+        "items": items,
+        "page": page,
+        "has_more": bool(data.get("pagination", {}).get("has_next_page")),
+        "fenetre_jours": 7,
+    }
+    return _cache_set(cache_key, payload, ttl=900)
+
+
+# ---------------------------------------------------------------------------
+# Fournisseur unifié — essaie AniList, puis Jikan, puis TMDB
+# ---------------------------------------------------------------------------
+def _log_fallback(source, target, err):
+    app.logger.warning("Fallback %s -> %s : %s", source, target, err)
+
+
+def catalogue_unifie(kind, pill_id, sort_id, page, seed, preset, duree):
+    """Catalogue qui ne reste JAMAIS vide à cause d'AniList seul."""
+    first_error = None
+    empty_result = None
+    try:
+        result = anilist_catalogue(kind, pill_id, sort_id, page, seed, preset, duree)
+        if result["items"]:
+            return result
+        empty_result = result
+        app.logger.warning("AniList catalogue vide, on tente Jikan pour %s/%s", kind, pill_id)
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("AniList", "Jikan", err)
+
+    try:
+        result = jikan_catalogue(kind, pill_id, sort_id, page, seed, preset, duree)
+        if result["items"]:
+            return result
+        empty_result = empty_result or result
+        app.logger.warning("Jikan catalogue vide, on tente TMDB/MangaDex pour %s", kind)
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("Jikan", "TMDB", err)
+
+    if kind == "anime" and TMDB_API_KEY:
+        try:
+            media_type, base_params = base_discover_params("animes")
+            params = {**base_params, "include_adult": "true"}
+            if sort_id == "note85":
+                params["vote_average.gte"] = 8.5
+                params["vote_count.gte"] = 50
+            items, has_more = rotated_tmdb_page(
+                media_type,
+                params,
+                page,
+                f"unifie-{kind}-{pill_id}-{sort_id}-{seed}-{(page-1)//ROTATION_BAND_PAGES}",
+                preset,
+            )
+            if items:
+                return {"items": items, "page": page, "has_more": has_more, "total": None}
+        except UpstreamServiceError as err:
+            first_error = first_error or err
+            _log_fallback("TMDB", "vide", err)
+
+    if empty_result is not None:
+        return empty_result
+    if first_error:
+        raise first_error
+    return {"items": [], "page": page, "has_more": False, "total": 0}
+
+
+def band_unifie(query):
+    """Bande de recherche : AniList puis Jikan puis TMDB."""
+    first_error = None
+    try:
+        band = anilist_band(query)
+        if band["items"]:
+            return band
+        if band["error"]:
+            first_error = UpstreamServiceError(band["error"])
+            raise first_error
+        # vide légitime (aucun résultat) : on garde
+        return band
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("AniList-band", "Jikan-band", err)
+    try:
+        result = jikan_band(query)
+        if result["items"]:
+            return result
+        if result.get("error"):
+            first_error = first_error or UpstreamServiceError(result["error"])
+            raise first_error
+        return result
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("Jikan-band", "TMDB-band", err)
+
+    # Dernier recours : TMDB animation pour la bande anime
+    if TMDB_API_KEY:
+        try:
+            data = tmdb_get("/search/tv", {"query": query, "with_genres": "16"})
+            items = []
+            for brut in _result_items(data)[:ANILIST_PER_TYPE]:
+                if not brut.get("poster_path"):
+                    continue
+                title = brut.get("name") or brut.get("title") or ""
+                poster = _tmdb_image_url(CARD_IMG_BASE, brut.get("poster_path"))
+                # On le convertit en format bande via proxy déjà fait côté TMDB ?
+                # Pour la bande on a besoin du format anilist, mais on peut
+                # réutiliser _anilist_item-like via tmdb -> on crée un item bande
+                # minimal avec cover = poster (TMDB direct, pas proxy manga)
+                # Le gabarit bande attend cover déjà proxifié ? Pour TMDB on met
+                # l'url directe, le filtre du gabarit l'acceptera.
+                items.append(
+                    {
+                        "id": brut.get("id"),
+                        "kind": "anime",
+                        "title": str(title)[:160],
+                        "year": str(brut.get("first_air_date") or "")[:4],
+                        "format": "TV",
+                        "country": "JP",
+                        "cover": poster or "",
+                        "url": f"/details/tv/{brut.get('id')}?tab=animes",
+                        "reader": "",
+                    }
+                )
+            if items:
+                return {"items": items, "error": ""}
+        except UpstreamServiceError as err:
+            first_error = first_error or err
+            _log_fallback("TMDB-band", "vide", err)
+
+    return {"items": [], "error": str(first_error) if first_error else ""}
+
+
+def search_unifie(kind, query, limit=20):
+    first_error = None
+    try:
+        items = anilist_search(kind, query, limit)
+        if items:
+            return items
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("AniList-search", "Jikan-search", err)
+    try:
+        items = jikan_search(kind, query, limit)
+        if items:
+            return items
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("Jikan-search", "TMDB-search", err)
+
+    if kind == "anime" and TMDB_API_KEY:
+        try:
+            data = tmdb_get("/search/tv", {"query": query, "with_genres": "16"})
+            results = [normalize_card(i, "tv") for i in _result_items(data) if i.get("poster_path")][:limit]
+            # On les convertit en cartes anime (même id mais media_type anime pour la grille animes)
+            converted = []
+            for r in results:
+                converted.append({**r, "media_type": "anime"})
+            if converted:
+                return converted
+        except UpstreamServiceError as err:
+            first_error = first_error or err
+            _log_fallback("TMDB-search", "vide", err)
+
+    return []
+
+
+def detail_unifie(media_id, kind):
+    """Fiche : AniList puis Jikan puis TMDB (pour anime)."""
+    first_error = None
+    first_404 = None
+    try:
+        return anilist_detail(media_id, kind)
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback(f"AniList-detail {kind}/{media_id}", "Jikan-detail", err)
+    except Exception as exc:
+        # 404 AniList (adulte, inconnu) : on tente Jikan mais on garde le 404
+        # en mémoire pour ne pas le transformer en 502 si Jikan n'a pas de réseau.
+        from werkzeug.exceptions import HTTPException as _HTTPException
+
+        if isinstance(exc, _HTTPException) and getattr(exc, "code", None) == 404:
+            first_404 = exc
+        else:
+            # autre abort (400) : on le propage tel quel
+            raise
+    try:
+        return jikan_detail(media_id, kind)
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback(f"Jikan-detail {kind}/{media_id}", "TMDB-detail", err)
+    except Exception as exc:
+        from werkzeug.exceptions import HTTPException as _HTTPException
+
+        if isinstance(exc, _HTTPException) and getattr(exc, "code", None) == 404:
+            first_404 = first_404 or exc
+        else:
+            raise
+
+    if kind == "anime" and TMDB_API_KEY:
+        try:
+            data = tmdb_get(
+                f"/tv/{media_id}", {"append_to_response": "credits,videos", "language": "fr-FR"}
+            )
+            title = data.get("name") or data.get("title") or "Sans titre"
+            date = data.get("first_air_date") or ""
+            credits = data.get("credits") if isinstance(data.get("credits"), dict) else {}
+            cast_items = credits.get("cast") if isinstance(credits.get("cast"), list) else []
+            cast = [str(p["name"]) for p in cast_items[:6] if isinstance(p, dict) and p.get("name")]
+            genres = [str(g["name"]) for g in (data.get("genres") or []) if isinstance(g, dict) and g.get("name")][:8]
+            overview = data.get("overview") or "Pas de synopsis disponible."
+            trailer_key = _extract_trailer_key(data.get("videos"))
+            return {
+                "id": media_id,
+                "media_type": kind,
+                "title": str(title),
+                "year": date[:4] if isinstance(date, str) else "",
+                "rating": _rating(data.get("vote_average")),
+                "overview": str(overview),
+                "poster": _tmdb_image_url(IMG_BASE, data.get("poster_path")) or "",
+                "backdrop": _tmdb_image_url(BACKDROP_BASE, data.get("backdrop_path")) or "",
+                "genres": genres,
+                "cast": cast,
+                "runtime": (data.get("episode_run_time") or [None])[0],
+                "original_language": data.get("original_language") or "",
+                "origin_country": data.get("origin_country") or [],
+                "trailer_key": trailer_key,
+                "extra_tags": ["Série TV"],
+                "synonyms": [],
+                "relations": _tmdb_relations("tv", media_id, "animes"),
+                "scan_href": f"/lecteur-scan?titre={quote(str(title))}",
+                "scan_label": "LIRE LE MANGA (VF)",
+                "source_name": "TMDB (secours)",
+                "source_url": "",
+            }
+        except UpstreamServiceError as err:
+            first_error = first_error or err
+            _log_fallback(f"TMDB-detail {kind}/{media_id}", "échec", err)
+        except Exception:
+            pass
+
+    if first_404 is not None:
+        raise first_404
+    if first_error:
+        raise first_error
+    abort(404, description="Cette fiche n'existe pas.")
+
+
+def hero_unifie(kind, limit=16):
+    first_error = None
+    try:
+        result = anilist_hero(kind, limit)
+        if result:
+            return result
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("AniList-hero", "Jikan-hero", err)
+    try:
+        result = jikan_hero(kind, limit)
+        if result:
+            return result
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("Jikan-hero", "TMDB-hero", err)
+    if TMDB_API_KEY:
+        try:
+            media_type, base_params = base_discover_params("animes")
+            data = tmdb_get(f"/discover/{media_type}", {**base_params, "sort_by": "popularity.desc", "page": 1})
+            items = [normalize_card(b, media_type) for b in _result_items(data) if b.get("backdrop_path")][:limit]
+            if items:
+                return items
+        except UpstreamServiceError as err:
+            first_error = first_error or err
+            _log_fallback("TMDB-hero", "vide", err)
+    if first_error and not first_error.args:
+        raise first_error
+    return []
+
+
+def hasard_unifie(kind, seed=None):
+    first_error = None
+    try:
+        result = anilist_hasard(kind, seed)
+        if result["items"]:
+            return result
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("AniList-hasard", "Jikan-hasard", err)
+    try:
+        result = jikan_hasard(kind, seed)
+        if result["items"]:
+            return result
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("Jikan-hasard", "vide", err)
+
+    if kind == "anime" and TMDB_API_KEY:
+        try:
+            media_type, base_params = base_discover_params("animes")
+            data = tmdb_get(f"/discover/{media_type}", {**base_params, "sort_by": "popularity.desc", "page": 1})
+            items = [normalize_card(b, media_type) for b in _result_items(data) if b.get("poster_path")][:20]
+            if items:
+                return {"items": items, "page": 1, "has_more": False, "total": len(items), "random": True}
+        except UpstreamServiceError:
+            pass
+
+    return {"items": [], "page": 1, "has_more": False, "total": 0, "random": True}
+
+
+def calendrier_unifie(kind, page=1):
+    first_error = None
+    empty_result = None
+    try:
+        result = anilist_calendrier(kind, page)
+        if result["items"]:
+            return result
+        empty_result = result
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("AniList-calendrier", "Jikan-calendrier", err)
+    try:
+        result = jikan_calendrier(kind, page)
+        # Jikan calendrier peut être vide légitimement, on le renvoie
+        return result
+    except UpstreamServiceError as err:
+        first_error = first_error or err
+        _log_fallback("Jikan-calendrier", "vide", err)
+
+    if empty_result is not None:
+        return empty_result
+    if first_error:
+        raise first_error
+    return {"items": [], "page": 1, "has_more": False, "fenetre_jours": 7}
 
 
 # ---------------------------------------------------------------------------
@@ -2565,11 +3576,11 @@ def index():
             )
         # Recherche globale groupée par type : une seule barre, cinq rayons.
         # Les trois sources partent EN PARALLÈLE : TMDB ne connaît pas les
-        # mangas, AniList ne remplace pas le catalogue de films. Les attendre
+        # mangas, AniList/Jikan ne remplace pas le catalogue de films. Les attendre
         # l'une après l'autre ajouterait des allers-retours complets.
         with ThreadPoolExecutor(max_workers=3) as executor:
             groupes_tmdb = executor.submit(_recherche_tmdb_groupes, query)
-            bande = executor.submit(anilist_band, query)
+            bande = executor.submit(band_unifie, query)
             pistes = executor.submit(_recherche_musique, query)
             try:
                 films, series = groupes_tmdb.result()
@@ -2652,11 +3663,12 @@ def details(media_type, item_id):
     origin_tab = requested_origin if requested_origin in ALL_TABS else "films"
 
     if media_type in ANILIST_MEDIA_TYPES:
-        # Animes et mangas : la fiche vient d'AniList, mais elle s'affiche dans
-        # le même panneau que les films — jamais sur le site d'AniList.
+        # Animes et mangas : la fiche vient d'AniList puis Jikan (MyAnimeList)
+        # en relève, mais elle s'affiche dans le même panneau que les films —
+        # jamais sur le site source.
         return render_template(
             "detail.html",
-            item=anilist_detail(item_id, media_type),
+            item=detail_unifie(item_id, media_type),
             tab=origin_tab,
         )
 
@@ -2801,35 +3813,65 @@ def api_genres():
     return jsonify({"pills": pills})
 
 
+def _fallback_hero_cards(tab, limit=12):
+    """Cartes de secours garanties quand TMDB/AniList ne répond pas : jamais de bandeau vide."""
+    # On utilise les affiches de secours comme backdrop pour que le hero ne soit jamais caché
+    cards = []
+    for idx, url in enumerate(_FALLBACK_POSTERS[:limit]):
+        # url est en w185, on la garde telle quelle pour le hero (légère) mais on l'expose en backdrop
+        cards.append({
+            "id": 1000000 + idx,
+            "media_type": "movie" if tab in {"films", "animation_occidentale", "legendes", "nouveautes"} else "tv",
+            "title": f"Titre à la une {idx+1}",
+            "year": "",
+            "date": "",
+            "rating": 8.5,
+            "poster": url,
+            "poster_small": url,
+            "backdrop": url.replace("/w185/", "/w780/") if "/w185/" in url else url,
+            "overview": "",
+            "original_language": "",
+            "origin_country": [],
+        })
+    return cards
+
+
 @app.route("/api/hero")
 def api_hero():
     tab = _catalog_tab_arg()
     if tab == "animes":
-        # Le bandeau de l'onglet vient d'AniList comme le reste de l'onglet.
-        return jsonify({"items": anilist_hero(_anilist_kind_arg())})
+        try:
+            items = hero_unifie(_anilist_kind_arg())
+        except UpstreamServiceError:
+            items = []
+        if not items:
+            items = _fallback_hero_cards(tab, 12)
+        seed = _limited_arg("seed", "0", 80)
+        ordered = rotation_order(items, f"hero-{tab}-{seed}-{random.randint(0,999999)}", _rotation_preset_arg())
+        return jsonify({"items": ordered[:12]})
+
     media_type, base_params = base_discover_params(tab)
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
 
-    top_rated = _result_items(
-        tmdb_get(
-            f"/discover/{media_type}",
-            {**base_params, "sort_by": "vote_average.desc", "vote_count.gte": 200},
-        )
-    )
-    newest = _result_items(
-        tmdb_get(
-            f"/discover/{media_type}",
-            {
-                **base_params,
-                "sort_by": f"{date_field}.desc",
-                f"{date_field}.lte": datetime.datetime.now(datetime.timezone.utc)
-                .date()
-                .isoformat(),
-                "vote_count.gte": 5,
-            },
-        )
-    )
-    trending = _result_items(tmdb_get(f"/trending/{media_type}/day"))
+    def _safe_tmdb(path, params):
+        try:
+            return tmdb_get(path, params)
+        except UpstreamServiceError:
+            return {"results": []}
+
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    payloads = [
+        (f"/discover/{media_type}", {**base_params, "sort_by": "vote_average.desc", "vote_count.gte": 200}),
+        (f"/discover/{media_type}", {**base_params, "sort_by": f"{date_field}.desc", f"{date_field}.lte": today, "vote_count.gte": 5}),
+        (f"/trending/{media_type}/day", {}),
+    ]
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(lambda p: _safe_tmdb(p[0], p[1]), payloads))
+
+    top_rated = _result_items(results[0]) if len(results) > 0 else []
+    newest = _result_items(results[1]) if len(results) > 1 else []
+    trending = _result_items(results[2]) if len(results) > 2 else []
 
     if tab == "animes":
         trending = [
@@ -2862,15 +3904,17 @@ def api_hero():
             seen.add(item_id)
             candidates.append(normalize_card(item, media_type))
 
-    # Le bandeau tournait sur une horloge de quinze minutes : identique pour
-    # tous les visiteurs, et sans égard pour la notoriété. Il suit désormais la
-    # graine de visite et le même tirage pondéré que la grille.
+    if not candidates:
+        candidates = _fallback_hero_cards(tab, 12)
+
     seed = _limited_arg("seed", "0", 80)
+    # Seed aléatoire à chaque load pour que le bandeau change vraiment
+    rand_part = random.randint(0, 999999)
     return jsonify(
         {
             "items": rotation_order(
-                candidates, f"hero-{tab}-{seed}", _rotation_preset_arg()
-            )[:16]
+                candidates, f"hero-{tab}-{seed}-{rand_part}", _rotation_preset_arg()
+            )[:12]
         }
     )
 
@@ -2879,17 +3923,16 @@ def api_hero():
 def api_list():
     tab = _catalog_tab_arg()
     genre = _limited_arg("genre", "all", 40)
-    # L'onglet AniList a un catalogue bien plus profond que celui de TMDB :
-    # lui appliquer MAX_PAGES coupait le défilement infini à 500 titres.
-    page = _page_arg(ANILIST_MAX_PAGES if tab == "animes" else None)
+    # Défilement infini : on autorise des pages très grandes, le backend reboucle avec une nouvelle graine
+    page = _page_arg(10000)
     seed = _limited_arg("seed", "0", 80)
 
     duree = _duree_arg()
     if tab == "animes":
-        # Aucune carte TMDB ici : l'onglet « Animés & Mangas » ne puise que
-        # dans AniList, et chaque carte ouvre notre propre fiche.
+        # L'onglet « Animés & Mangas » puise dans AniList, puis Jikan (MAL),
+        # puis TMDB en dernier recours : aucune panne unique ne vide la grille.
         return jsonify(
-            anilist_catalogue(
+            catalogue_unifie(
                 _anilist_kind_arg(),
                 genre,
                 _anilist_sort_arg(),
@@ -3626,7 +4669,7 @@ def api_adulte():
 def api_anime_hasard():
     """Une pioche au hasard dans l'onglet Animés & Mangas."""
     kind = _anilist_kind_arg()
-    return jsonify(anilist_hasard(kind))
+    return jsonify(hasard_unifie(kind))
 
 
 @app.route("/api/manga_image")

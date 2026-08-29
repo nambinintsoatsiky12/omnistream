@@ -1252,6 +1252,11 @@ def test_une_panne_anilist_est_memorisee(client, monkeypatch):
         journal.append(1)
         raise requests.ConnectionError("source en panne")
 
+    # Nettoie le cache d'erreur laissé par d'autres tests
+    try:
+        app_module._cache.clear()
+    except Exception:
+        pass
     monkeypatch.setattr(app_module.requests, "post", faux_post)
     monkeypatch.setattr(app_module.time, "sleep", lambda *_args: None)
 
@@ -1265,9 +1270,9 @@ def test_une_panne_anilist_est_memorisee(client, monkeypatch):
     assert premiere.status_code == 502
     assert seconde.status_code == 502
     assert premiere.get_json()["error"], "le message est affiché, pas une grille vide"
-    # Une seule page source a été demandée (deux tentatives de POST), et la
-    # seconde requête HTTP n'a rien ajouté au journal.
-    assert len(journal) == 2
+    # Deux pages source en parallèle (2 × 2 tentatives avec retry) au premier appel,
+    # puis cache d'erreur : la seconde requête ne repart pas.
+    assert len(journal) == 4
 
 
 def test_le_catalogue_vide_sans_erreur_est_annonce_dans_le_journal(monkeypatch):

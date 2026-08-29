@@ -6149,3 +6149,24 @@ html[data-display-mode="standalone"] .drawer-install-btn {
   font-size: 0.8rem;
 }
 
+
+/* Skeletons pour chargement instantané onglet Films */
+.skeleton-card .poster.skeleton {
+  background: linear-gradient(90deg, #222 25%, #333 50%, #222 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.2s infinite;
+  min-height: 220px;
+}
+.skeleton-line {
+  height: 12px;
+  background: linear-gradient(90deg, #222 25%, #333 50%, #222 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.2s infinite;
+  border-radius: 4px;
+  margin: 6px 0;
+}
+.skeleton-line.short { width: 60%; }
+@keyframes skeleton-shine {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

@@ -74,6 +74,20 @@
   let heroController = null;
   let heroTimer = null;
   let totalCardsRendered = 0;
+  // Cache instantané par onglet pour rendre le changement d'onglet immédiat
+  const pageCache = new Map();
+  const heroCache = new Map();
+  let prefetchCache = new Map();
+  let loopCount = 0;
+  let currentHeroSeed = "";
+
+  function cacheKeyForList(requestedPage, seedOverride) {
+    return `${tab}|${activeGenre}|${activeMedia}|${activeSort}|${fraicheur||""}|${duree||""}|${requestedPage}|${seedOverride||sessionSeed}|${loopCount}`;
+  }
+
+  function heroCacheKey() {
+    return `${tab}|${activeMedia}|${currentHeroSeed}`;
+  }
 
   /* La graine de visite. Elle décide de l'ordre de la grille : même graine,
      même ordre. Deux exigences contradictoires en apparence —
@@ -130,15 +144,14 @@
     return result;
   }
 
-  function listUrl(requestedPage) {
+  function listUrl(requestedPage, seedOverride) {
+    const effectiveSeed = seedOverride || sessionSeed;
     const params = new URLSearchParams({
       type: activeGenre,
       page: String(requestedPage),
-      seed: sessionSeed,
+      seed: `${effectiveSeed}-loop${loopCount}`,
     });
     if (fraicheur) params.set("fraicheur", fraicheur);
-    // La durée n'est envoyée que là où elle a un sens : le serveur l'ignore
-    // ailleurs, mais autant ne pas promener un paramètre fantôme.
     if (duree && dureeActive()) params.set("duree", duree);
     if (tab === "nouveautes") return `/api/upcoming?${params}`;
     if (tab === "legendes") return `/api/legends?${params}`;
@@ -146,7 +159,6 @@
     params.set("tab", tab);
     params.set("genre", activeGenre);
     if (isAnimeTab) {
-      // Source AniList : le type et le tri font partie de la requête.
       params.set("media", activeMedia);
       params.set("sort", activeSort);
     }
@@ -154,9 +166,10 @@
   }
 
   function heroUrl() {
-    const graine = `&seed=${encodeURIComponent(sessionSeed)}`;
+    // Toujours différent : nouvelle graine à chaque chargement du bandeau
+    if (!currentHeroSeed) currentHeroSeed = nouvelleGraine() + Date.now().toString(36);
+    const graine = `&seed=${encodeURIComponent(currentHeroSeed)}`;
     if (isAnimeTab) {
-      // Le bandeau suit le type affiché : pas d'anime au milieu des mangas.
       return (
         `/api/hero?tab=${encodeURIComponent(tab)}&media=${activeMedia}${graine}`
       );
@@ -167,7 +180,37 @@
     ) {
       return `/api/hero?tab=${encodeURIComponent(tab)}${graine}`;
     }
-    return listUrl(1);
+    return listUrl(1, currentHeroSeed);
+  }
+
+  function fallbackHeroItems() {
+    // Secours client : 12 affiches garanties même si le serveur ne répond pas
+    const fallbacks = [
+      "https://image.tmdb.org/t/p/w780/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+      "https://image.tmdb.org/t/p/w780/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
+      "https://image.tmdb.org/t/p/w780/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg",
+      "https://image.tmdb.org/t/p/w780/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+      "https://image.tmdb.org/t/p/w780/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+      "https://image.tmdb.org/t/p/w780/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
+      "https://image.tmdb.org/t/p/w780/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg",
+      "https://image.tmdb.org/t/p/w780/fqL8TuhvC3B00q9jV22Yq0Cswv9.jpg",
+      "https://image.tmdb.org/t/p/w780/xUfRZu2mi8jH6SzQEJGP6tjBuYj.jpg",
+      "https://image.tmdb.org/t/p/w780/fHpKWv1m46Z8a4WkE814e4hG4oV.jpg",
+      "https://image.tmdb.org/t/p/w780/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
+      "https://image.tmdb.org/t/p/w780/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg",
+    ];
+    return fallbacks.map((url, idx) => ({
+      id: 900000 + idx,
+      media_type: tab === "series" ? "tv" : "movie",
+      title: `À la une ${idx+1}`,
+      year: "",
+      date: "",
+      rating: 8.5,
+      poster: url,
+      poster_small: url,
+      backdrop: url,
+      overview: "",
+    }));
   }
 
   async function requestJson(url, signal) {
@@ -431,43 +474,76 @@
   }
 
   function hideHero() {
+    // Ne jamais cacher complètement : on garde le bandeau visible avec un fallback
     if (heroTimer) window.clearInterval(heroTimer);
     heroTimer = null;
-    if (heroTrack) heroTrack.replaceChildren();
-    if (heroDots) heroDots.replaceChildren();
-    if (heroSection) heroSection.hidden = true;
+    // Si on n'a rien, on injecte le fallback plutôt que de cacher
+    if (heroTrack && heroTrack.children.length === 0) {
+      const items = fallbackHeroItems();
+      // On ne cache pas, on laisse loadHero s'en charger, mais on évite le hidden
+      if (heroSection) heroSection.hidden = false;
+    }
+  }
+
+  function keepHeroVisible() {
+    if (heroSection) heroSection.hidden = false;
   }
 
   async function loadHero() {
     if (!heroTrack || !heroDots || !heroSection) return;
+    currentHeroSeed = nouvelleGraine() + Date.now().toString(36);
     if (heroController) heroController.abort();
     heroController = new AbortController();
     const currentGeneration = generation;
+    const url = heroUrl();
+
+    const cachedHero = heroCache.get(`${tab}|${activeMedia}|${activeGenre}`);
+    if (cachedHero && cachedHero.length) {
+      try {
+        renderHero(cachedHero, currentGeneration);
+      } catch(e) {}
+    }
 
     try {
-      const data = await requestJson(heroUrl(), heroController.signal);
+      const data = await requestJson(url, heroController.signal);
       if (currentGeneration !== generation) return;
-      const rawItems = Array.isArray(data.items) ? data.items : [];
-      // Défilement « infini » : aucun film / animé ne doit revenir deux fois
-      // dans le même cycle. On déduplique donc strictement par identifiant.
+      let rawItems = Array.isArray(data.items) ? data.items : [];
+      if (!rawItems.length) rawItems = fallbackHeroItems();
       const seenIds = new Set();
       const uniqueItems = [];
       for (const item of rawItems) {
-        if (!detailUrl(item)) continue;
+        const href = detailUrl(item) || (item.backdrop ? "#" : null);
+        if (!href && !item.backdrop) continue;
         const key = `${item.media_type}-${item.id}`;
         if (seenIds.has(key)) continue;
         seenIds.add(key);
         uniqueItems.push(item);
       }
-      // Pas de remélange ici : c'est le serveur qui a tiré le bandeau au sort,
-      // pondéré par la notoriété. Le brasser de nouveau à l'arrivée remettrait
-      // un film obscur en tête et annulerait tout le travail d'`api_hero`.
-      const items = uniqueItems.slice(0, 12);
-      if (items.length === 0) {
-        hideHero();
-        return;
+      let items = uniqueItems.slice(0, 12);
+      if (items.length === 0) items = fallbackHeroItems();
+      heroCache.set(`${tab}|${activeMedia}|${activeGenre}`, items);
+      if (heroCache.size > 20) {
+        const first = heroCache.keys().next().value;
+        heroCache.delete(first);
       }
+      renderHero(items, currentGeneration);
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      console.error("Erreur de chargement du bandeau :", error);
+      if (currentGeneration !== generation) return;
+      const items = cachedHero && cachedHero.length ? cachedHero : fallbackHeroItems();
+      try {
+        renderHero(items, currentGeneration);
+      } catch(e) {
+        keepHeroVisible();
+      }
+    }
+  }
 
+  function renderHero(items, currentGeneration) {
+      if (currentGeneration !== generation) return;
+      if (!items || !items.length) items = fallbackHeroItems();
+      keepHeroVisible();
       if (heroTimer) window.clearInterval(heroTimer);
       const slides = [];
       const dots = [];
@@ -498,7 +574,8 @@
 
         const link = document.createElement("a");
         link.className = "hero-play";
-        link.href = detailUrl(item);
+        const href = detailUrl(item);
+        link.href = href || "#";
         link.innerHTML = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
         link.setAttribute("aria-label", `Voir la fiche de ${String(item.title || "ce titre")}`);
         
@@ -528,9 +605,6 @@
       }
       dots.forEach((dot, index) => dot.addEventListener("click", () => show(index)));
       if (slides.length > 1) {
-        // Le bandeau ne défile que pendant qu'on le regarde : une rotation
-        // invisible coûte un réagencement toutes les 6 secondes pour rien, et
-        // c'est autant de retard pris sur le défilement de la grille.
         const startRotation = () => {
           if (heroTimer || currentGeneration !== generation) return;
           heroTimer = window.setInterval(() => show(current + 1), 6000);
@@ -554,12 +628,6 @@
           startRotation();
         }
       }
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        console.error("Erreur de chargement du bandeau :", error);
-        if (currentGeneration === generation) hideHero();
-      }
-    }
   }
 
   // Nouveautés et Légendes sont des onglets TMDB (films et séries). Les
@@ -1055,11 +1123,12 @@
 
   function resetGrid() {
     if (listController) listController.abort();
+    // On garde le cache pour revenir instantanément, mais on reset la vue
     page = 1;
     hasMore = true;
     loading = false;
     totalCardsRendered = 0;
-    gridEl.replaceChildren();
+    if (gridEl) gridEl.replaceChildren();
     if (emptyMsg) emptyMsg.hidden = true;
   }
 
@@ -1099,54 +1168,164 @@
     emptyMsg.hidden = false;
   }
 
+  function renderSkeletons(count=8) {
+    if (!gridEl) return;
+    if (gridEl.querySelector(".skeleton-card")) return;
+    const frag = document.createDocumentFragment();
+    for (let i=0;i<count;i++) {
+      const sk = document.createElement("div");
+      sk.className = "card skeleton-card";
+      sk.innerHTML = `<div class="poster skeleton"></div><div class="card-info"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>`;
+      frag.appendChild(sk);
+    }
+    gridEl.appendChild(frag);
+  }
+
+  function clearSkeletons() {
+    if (!gridEl) return;
+    gridEl.querySelectorAll(".skeleton-card").forEach(el=>el.remove());
+  }
+
+  function prefetchNextPage(nextPage) {
+    if (!hasMore) return;
+    const key = cacheKeyForList(nextPage);
+    if (pageCache.has(key) || prefetchCache.has(key)) return;
+    const url = listUrl(nextPage);
+    const controller = new AbortController();
+    prefetchCache.set(key, true);
+    fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal })
+      .then(r=>r.json())
+      .then(data=>{
+        if (Array.isArray(data.items)) {
+          pageCache.set(key, data);
+        }
+      })
+      .catch(()=>{})
+      .finally(()=>prefetchCache.delete(key));
+  }
+
   async function loadMore() {
-    if (loading || !hasMore) return;
+    if (loading) return;
+    // Boucle infinie : si hasMore est false, on reboucle avec nouvelle graine
+    if (!hasMore) {
+      loopCount += 1;
+      page = 1;
+      hasMore = true;
+      if (window.OmniUI) {
+        window.OmniUI.toast("Vous avez tout vu — on recommence avec d'autres titres !", "info");
+      }
+    }
     loading = true;
     const requestedPage = page;
     const currentGeneration = generation;
     const controller = new AbortController();
     listController = controller;
+    const cacheKey = cacheKeyForList(requestedPage);
+
+    // Si cache hit, affiche immédiatement (rend l'onglet Films instantané)
+    const cached = pageCache.get(cacheKey);
+    if (cached && requestedPage === 1) {
+      try {
+        const items = Array.isArray(cached.items) ? cached.items : [];
+        const cards = items.map((item, idx) => createCard(item, totalCardsRendered + idx)).filter(Boolean);
+        clearSkeletons();
+        gridEl.append(...cards);
+        totalCardsRendered += cards.length;
+        hasMore = cached.has_more !== false ? true : true; // toujours vrai pour infini
+        page = requestedPage + 1;
+        loading = false;
+        // Précharge la suite en arrière-plan et lance le fetch frais
+        prefetchNextPage(page);
+        // Lance un rafraîchissement en arrière-plan sans bloquer l'affichage
+        setTimeout(()=>{ if (currentGeneration===generation) { pageCache.delete(cacheKey); loadMoreBackground(requestedPage, currentGeneration); } }, 100);
+        // Si la sentinelle est déjà visible, continue
+        if (currentGeneration === generation && hasMore && sentinel && sentinel.getBoundingClientRect().top < window.innerHeight + 1200) {
+          window.requestAnimationFrame(() => loadMore());
+        }
+        return;
+      } catch(e) {
+        // Si le cache est corrompu, on continue en réseau
+      }
+    }
+
+    if (requestedPage === 1) renderSkeletons(12);
 
     try {
       const data = await requestJson(listUrl(requestedPage), controller.signal);
       if (currentGeneration !== generation) return;
       const items = Array.isArray(data.items) ? data.items : [];
+      // Cache la page
+      pageCache.set(cacheKey, data);
+      if (pageCache.size > 80) {
+        const first = pageCache.keys().next().value;
+        pageCache.delete(first);
+      }
+      clearSkeletons();
       const cards = items.map((item, idx) => createCard(item, totalCardsRendered + idx)).filter(Boolean);
       totalCardsRendered += cards.length;
       gridEl.append(...cards);
-      hasMore = Boolean(data.has_more);
-      page = requestedPage + 1;
-      if (requestedPage === 1 && cards.length === 0) {
-        // Grille VRAIMENT vide (un filtre sans résultat) : message neutre,
-        // pas de faux « panne » qui ferait relancer une source saine.
+      // Infini : on garde hasMore à true même si le serveur dit false, sauf si vraiment 0 résultats partout
+      if (items.length === 0 && requestedPage === 1) {
+        // Vrai vide : filtre sans résultat
         afficherVide("");
+        hasMore = false;
+      } else {
+        hasMore = true; // boucle infinie
+        if (items.length === 0) {
+          // Page vide au milieu : on reboucle
+          loopCount += 1;
+          page = 1;
+        } else {
+          page = requestedPage + 1;
+        }
       }
+      // Précharge la prochaine page immédiatement pour fluidité
+      prefetchNextPage(page);
     } catch (error) {
+      clearSkeletons();
       if (error.name !== "AbortError" && currentGeneration === generation) {
         console.error("Erreur de chargement du catalogue :", error);
         if (requestedPage === 1) {
-          // Le serveur a expliqué pourquoi (AniList muet, requête refusée…) :
-          // on l'écrit, et on arrête le défilement automatique — retenter en
-          // boucle une source en panne ne ferait que la marteler.
-          hasMore = false;
-          afficherVide(error.message || "Le serveur n'a pas répondu.", true);
+          const cachedFallback = pageCache.get(cacheKey);
+          if (cachedFallback && Array.isArray(cachedFallback.items) && cachedFallback.items.length) {
+            const cards = cachedFallback.items.map((item, idx) => createCard(item, totalCardsRendered + idx)).filter(Boolean);
+            gridEl.append(...cards);
+            totalCardsRendered += cards.length;
+            hasMore = true;
+            page = requestedPage + 1;
+          } else {
+            hasMore = true; // on ne bloque pas le scroll même en cas d'erreur, on retentera
+            afficherVide(error.message || "Le serveur n'a pas répondu.", true);
+          }
+        } else {
+          // Erreur sur page suivante : on garde hasMore pour retenter
+          hasMore = true;
         }
       }
     } finally {
       if (currentGeneration === generation) loading = false;
     }
-    // IntersectionObserver ne rappelle sa fonction QUE sur un changement
-    // d'intersection. Si la page chargée ne remplit pas l'écran, la sentinelle
-    // reste visible sans jamais « ressortir » : la grille s'arrêtait là, bien
-    // avant la fin de la liste. On relance donc tant qu'elle est en vue.
     if (
       currentGeneration === generation &&
       hasMore &&
       sentinel &&
-      sentinel.getBoundingClientRect().top < window.innerHeight + 600
+      sentinel.getBoundingClientRect().top < window.innerHeight + 1200
     ) {
       window.requestAnimationFrame(() => loadMore());
     }
+  }
+
+  async function loadMoreBackground(requestedPage, currentGeneration) {
+    try {
+      const data = await requestJson(listUrl(requestedPage), null);
+      if (currentGeneration !== generation) return;
+      if (Array.isArray(data.items) && data.items.length) {
+        const key = cacheKeyForList(requestedPage);
+        pageCache.set(key, data);
+        // Si on est toujours sur la page 1 et que la grille a déjà été remplie depuis le cache,
+        // on ne duplique pas, on laisse tel quel. Le prochain scroll prendra le frais.
+      }
+    } catch(e) {}
   }
 
   if (hasardBtn) {
@@ -1184,12 +1363,22 @@
       (entries) => {
         if (entries[0]?.isIntersecting) loadMore();
       },
-      { rootMargin: "600px" },
+      { rootMargin: "1200px" },
     );
     observer.observe(sentinel);
+    // Précharge aussi au scroll pour les navigateurs qui ne déclenchent pas assez tôt
+    let scrollTick = false;
+    window.addEventListener("scroll", () => {
+      if (scrollTick) return;
+      scrollTick = true;
+      requestAnimationFrame(() => {
+        scrollTick = false;
+        if (sentinel.getBoundingClientRect().top < window.innerHeight + 1500) loadMore();
+      });
+    }, { passive: true });
   } else {
     window.addEventListener("scroll", () => {
-      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 800) {
+      if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 600) {
         loadMore();
       }
     });
