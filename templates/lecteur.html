@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Lecteur de Scan — {{ titre }} — OmniStream{% endblock %}
 {% block content %}
-<div class="scan-reader-container" id="scan-reader-root" data-title="{{ titre | tojson }}">
+{# Auto-échappement simple, PAS `| tojson` : tojson ajoute ses propres
+   guillemets JSON, ce qui donnait data-title=""One Piece"" — le lecteur
+   cherchait alors un titre guillemets compris et MangaDex ne trouvait rien. #}
+<div class="scan-reader-container" id="scan-reader-root" data-title="{{ titre }}"
+     data-alt="{{ alt | default('', true) }}">
   <div class="scan-header-bar">
     <div class="scan-title-group">
       <div class="section-kicker orange">LECTEUR MANGA VF</div>
@@ -43,6 +47,13 @@
         <input type="checkbox" id="scan-rating">
         <span>Contenu « sûr » uniquement</span>
       </label>
+
+      {# Lecture continue, sans espace entre les planches : c'est ainsi que
+         se lisent les webtoons et la plupart des manhwas. #}
+      <button id="scan-webtoon" class="scan-action-btn" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg>
+        <span>Lecture continue</span>
+      </button>
 
       <button id="scan-load" class="scan-action-btn">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
@@ -110,10 +121,59 @@
   const prevBtnBottom = document.getElementById("scan-prev-bottom");
   const nextBtnBottom = document.getElementById("scan-next-bottom");
   const labelEl = document.getElementById("scan-chapter-label");
+  const webtoonBtn = document.getElementById("scan-webtoon");
+  const pagesFlow = document.getElementById("scan-pages");
 
   let mangaId = null;
   let chapters = [];
   let currentChapter = 0;
+
+  /* Historique de lecture : le dernier chapitre ouvert, par série.
+     Tout reste dans localStorage — aucune donnée ne quitte l'appareil, et le
+     site n'a pas de compte auquel raccrocher cette information. */
+  const HISTORIQUE_CLE = "omni-scan-historique";
+  const HISTORIQUE_MAX = 40;
+
+  function lireHistorique() {
+    try {
+      const brut = window.localStorage.getItem(HISTORIQUE_CLE);
+      const donnees = brut ? JSON.parse(brut) : {};
+      return donnees && typeof donnees === "object" ? donnees : {};
+    } catch (erreur) {
+      return {};
+    }
+  }
+
+  function noterChapitre() {
+    const chapitre = chapters[currentChapter];
+    if (!mangaId || !chapitre) return;
+    try {
+      const historique = lireHistorique();
+      historique[mangaId] = {
+        titre: String(title || "").slice(0, 120),
+        numero: String(chapitre.attributes.chapter || "").slice(0, 20),
+        indice: currentChapter,
+        vu_le: Date.now(),
+      };
+      // Borné : sans limite, la clé grossirait indéfiniment sur un appareil
+      // partagé où personne ne la nettoie jamais.
+      const cles = Object.keys(historique).sort(function (a, b) {
+        return (historique[a].vu_le || 0) - (historique[b].vu_le || 0);
+      });
+      while (cles.length > HISTORIQUE_MAX) {
+        delete historique[cles.shift()];
+      }
+      window.localStorage.setItem(HISTORIQUE_CLE, JSON.stringify(historique));
+    } catch (erreur) { /* stockage indisponible : la lecture continue */ }
+  }
+
+  function reprendre() {
+    const entree = lireHistorique()[mangaId];
+    if (!entree || typeof entree.indice !== "number") return 0;
+    // L'indice enregistré peut dépasser la liste si des chapitres ont été
+    // retirés depuis : on reste dans les clous plutôt que de planter.
+    return entree.indice >= 0 && entree.indice < chapters.length ? entree.indice : 0;
+  }
 
   function langue() { return langSelect ? langSelect.value : "fr"; }
   function filtreContenu() { return ratingBox && ratingBox.checked ? "safe" : null; }
@@ -135,11 +195,36 @@
     seriesEl.textContent = annee ? `Série retenue : ${nom} (${annee})` : `Série retenue : ${nom}`;
   }
 
-  async function api(endpoint, params) {
+  /* Le proxy renvoie maintenant la raison exacte du refus MangaDex
+     (`{"error": "…"}`) : l'afficher est la seule façon de distinguer un
+     « trop de requêtes » d'un « cette série n'existe pas ». L'ancien message
+     unique masquait les deux derrière la même phrase. */
+  async function api(endpoint, params, tentatives) {
+    const essais = typeof tentatives === "number" ? tentatives : 2;
     const qs = new URLSearchParams({ endpoint, ...params });
-    const r = await fetch(`/api/mangadex_proxy?${qs}`);
-    if (!r.ok) throw new Error("Erreur de communication avec MangaDex.");
-    return r.json();
+    let reponse;
+    try {
+      reponse = await fetch(`/api/mangadex_proxy?${qs}`);
+    } catch (erreur) {
+      // Coupure réseau ou Service Worker : un seul essai de plus suffit
+      // souvent, surtout sur mobile où la connexion vacille.
+      if (essais > 0) {
+        await new Promise(r => setTimeout(r, 900));
+        return api(endpoint, params, essais - 1);
+      }
+      throw new Error("Connexion perdue avec le serveur OmniStream.");
+    }
+    if (!reponse.ok) {
+      let detail = "";
+      try {
+        const corps = await reponse.json();
+        detail = (corps && corps.error) || "";
+      } catch (erreur) { /* réponse non-JSON : on garde le message générique */ }
+      throw new Error(
+        detail || `MangaDex a refusé la demande (code ${reponse.status}).`
+      );
+    }
+    return reponse.json();
   }
 
   /* ------------------------------------------------------------------
@@ -232,31 +317,80 @@
     return (data.data || []).filter(function (m) { return m && m.attributes && m.attributes.title; });
   }
 
+  /* Plusieurs orthographes du même titre. La fiche donne le titre choisi par
+     le catalogue (souvent japonais ou décoré) ; MangaDex, lui, indexe le
+     rōmaji. Essayer les deux évite le « aucun scan trouvé » sur un titre qui
+     existe pourtant bel et bien. */
+  function candidats() {
+    const brut = [title].concat(root.dataset.alt
+      ? String(root.dataset.alt).split("|").slice(0, 3)
+      : []);
+    const vus = [];
+    const liste = [];
+    brut.forEach(function (candidat) {
+      // « One Piece Film : Red » → « One Piece » : le suffixe de saison ou de
+      // film n'existe jamais tel quel dans l'index MangaDex.
+      [candidat, String(candidat).replace(/\s+(?:film|movie|saison|season)\b.*$/i, "")]
+        .map(function (v) { return v.trim(); })
+        .filter(Boolean)
+        .forEach(function (net) {
+          const cle = normaliser(net);
+          if (!cle || vus.indexOf(cle) !== -1) return;
+          vus.push(cle);
+          liste.push(net);
+        });
+    });
+    return liste;
+  }
+
   async function searchManga() {
     preciser("");
     charger("Recherche de l'œuvre originale sur MangaDex...");
-    const base = { title, limit: "20", "order[year]": "asc" };
+    // Plus de `order[year]` : il forçait MangaDex à renvoyer les vingt
+    // correspondances les plus anciennes, ce qui faisait sortir la vraie
+    // série de la page dès qu'un titre comptait beaucoup d'homonymes. Le
+    // classement par pertinence de MangaDex, lui, la garde en tête — et
+    // `choisirSerie` départage ensuite, comme avant.
+    const base = { title, limit: "30" };
     const filtre = filtreContenu();
-    let results = await rechercherSeries(
-      filtre ? { ...base, "contentRating[]": filtre } : base
-    );
-    if (!results.length && filtre) {
-      // Un filtre qui vide la page ne doit pas passer pour « ce manga
-      // n'existe pas » : on relance sans lui, et on le dit.
-      results = await rechercherSeries(base);
-      if (results.length) {
-        preciser("Aucune série avec le filtre « contenu sûr » : filtre retiré, tous les résultats sont affichés.");
+    const essais = candidats();
+    const notes = [];
+    let results = [];
+    let retenu = title;
+    for (const candidat of essais) {
+      const params = { ...base, title: candidat };
+      results = await rechercherSeries(
+        filtre ? { ...params, "contentRating[]": filtre } : params
+      );
+      if (!results.length && filtre) {
+        // Un filtre qui vide la page ne doit pas passer pour « ce manga
+        // n'existe pas » : on relance sans lui, et on le dit.
+        results = await rechercherSeries(params);
+        if (results.length) {
+          notes.push("filtre « contenu sûr » retiré");
+        }
       }
+      if (results.length) { retenu = candidat; break; }
     }
     if (!results.length) {
-      dire("Aucun scan trouvé pour ce titre. Essayez avec le nom original du manga.");
+      dire(
+        essais.length > 1
+          ? `Aucun scan trouvé pour « ${essais.join(" » ni « ")} ». Essayez le nom original japonais du manga.`
+          : "Aucun scan trouvé pour ce titre. Essayez avec le nom original du manga."
+      );
       return;
     }
-    const serie = choisirSerie(results, normaliser(title));
+    const serie = choisirSerie(results, normaliser(retenu));
     if (!serie) { dire("Aucun scan exploitable pour ce titre."); return; }
     mangaId = serie.id;
     const nomSerie = titreAffiche(serie);
     nommerSerie(nomSerie, serie);
+    if (normaliser(retenu) !== normaliser(title)) {
+      notes.push(`recherche élargie au titre « ${retenu} »`);
+    }
+    preciser(notes.length
+      ? `Pour arriver à ce résultat : ${notes.join(", ")}.`
+      : "");
     dire(`Manga identifié : ${nomSerie}`);
     await loadChapters();
   }
@@ -269,8 +403,48 @@
     const params = { "order[chapter]": "asc", limit: "500" };
     if (lang) params["translatedLanguage[]"] = lang;
     if (filtre) params["contentRating[]"] = filtre;
-    const data = await api(`/manga/${mangaId}/feed`, params);
-    return (data.data || []).filter(function (c) { return c && c.attributes; });
+    // MangaDex ne renvoie jamais plus de 500 chapitres d'un coup : sans
+    // pagination, un manga à 900 chapitres perdait silencieusement sa fin.
+    const recolte = [];
+    for (let page = 0; page < 8; page += 1) {
+      if (page) params.offset = String(page * 500);
+      const data = await api(`/manga/${mangaId}/feed`, params);
+      const lot = (data.data || []).filter(function (c) { return c && c.attributes; });
+      recolte.push(...lot);
+      const total = Number(data.total) || 0;
+      if (!lot.length || recolte.length >= total) break;
+    }
+    return recolte;
+  }
+
+  // Les langues des chapitres obtenus, dans l'ordre d'apparition. Dire
+  // « toutes langues » quand on vient de charger 200 chapitres coréens ne
+  // renseignait personne.
+  const LANGUES_CONNUES = {
+    fr: "français", en: "anglais", es: "espagnol", "es-la": "espagnol (latino)",
+    "pt-br": "portugais (brésilien)", it: "italien", de: "allemand",
+    ru: "russe", pl: "polonais", tr: "turc", id: "indonésien", vi: "vietnamien",
+    th: "thaï", ko: "coréen", ja: "japonais", "ja-ro": "japonais (rōmaji)",
+    zh: "chinois", "zh-hans": "chinois simplifié", ar: "arabe", hi: "hindi",
+  };
+
+  function langueReelle(chapitres) {
+    const vus = {};
+    const ordre = [];
+    chapitres.forEach(function (chapitre) {
+      const code = String(
+        (chapitre.attributes || {}).translatedLanguage || ""
+      ).toLowerCase();
+      if (!code || vus[code]) return;
+      vus[code] = true;
+      ordre.push(code);
+    });
+    if (!ordre.length) return "";
+    const noms = ordre.slice(0, 3).map(function (code) {
+      return LANGUES_CONNUES[code] || code;
+    });
+    if (ordre.length > 3) noms.push(`${ordre.length - 3} autres`);
+    return noms.join(", ");
   }
 
   async function loadChapters() {
@@ -302,10 +476,25 @@
 
     const relaches = [];
     if (filtre && !retenu.filtre) relaches.push("filtre « contenu sûr » retiré");
-    if (demande && !retenu.lang) relaches.push("chapitres en toutes langues, pas seulement en français");
+    if (demande && !retenu.lang) {
+      // Dire « toutes langues » ne renseigne pas : on nomme la langue qu'on a
+      // réellement trouvée, coréen ou espagnol compris.
+      const trouvee = langueReelle(retenus);
+      relaches.push(
+        trouvee
+          ? `chapitres en ${trouvee}, pas en français`
+          : "chapitres en toutes langues, pas seulement en français"
+      );
+    }
     preciser(relaches.length ? `Aucun chapitre avec tous les filtres : ${relaches.join(", ")}.` : "");
 
-    currentChapter = 0;
+    const deja_lu = reprendre();
+    currentChapter = deja_lu;
+    if (deja_lu > 0) {
+      preciser(
+        `Reprise au chapitre ${chapters[deja_lu].attributes.chapter} (${deja_lu + 1} / ${chapters.length}), là où vous vous étiez arrêté.`
+      );
+    }
     if (navTop) navTop.hidden = false;
     if (navBottom) navBottom.hidden = false;
     await renderChapter();
@@ -349,8 +538,9 @@
         return wrap;
       }));
       dire(`Chapitre ${chNum} prêt (${pages.length} pages)`);
+      noterChapitre();
     } catch (err) {
-      dire("Erreur lors du chargement des images de ce chapitre.");
+      dire(`Chapitre ${chNum} illisible : ${err.message}`);
     }
   }
 
@@ -383,6 +573,30 @@
   }
 
   if (loadBtn) loadBtn.addEventListener("click", relancer);
+
+  if (webtoonBtn && pagesFlow) {
+    const repris = (() => {
+      try {
+        return window.localStorage.getItem("omni-scan-webtoon") === "oui";
+      } catch (erreur) {
+        return false;
+      }
+    })();
+    const appliquer = function (actif) {
+      pagesFlow.classList.toggle("mode-webtoon", actif);
+      webtoonBtn.setAttribute("aria-pressed", actif ? "true" : "false");
+      webtoonBtn.classList.toggle("is-on", actif);
+    };
+    appliquer(repris);
+    webtoonBtn.addEventListener("click", function () {
+      const actif = !pagesFlow.classList.contains("mode-webtoon");
+      appliquer(actif);
+      try {
+        if (actif) window.localStorage.setItem("omni-scan-webtoon", "oui");
+        else window.localStorage.removeItem("omni-scan-webtoon");
+      } catch (erreur) { /* préférence non mémorisée, sans gravité */ }
+    });
+  }
   if (langSelect) {
     langSelect.addEventListener("change", function () {
       if (mangaId) loadChapters().catch(function (e) { dire(e.message); });

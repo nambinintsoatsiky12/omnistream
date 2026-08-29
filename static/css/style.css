@@ -5,21 +5,21 @@
    ================================================================ */
 
 :root {
-  --bg: #090b10;
-  --bg-deep: #050608;
-  --surface: #10131b;
-  --surface-2: #151924;
-  --surface-3: #1c2231;
-  --surface-hover: #242c3f;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-subtle: rgba(255, 255, 255, 0.05);
+  --bg: #141824;
+  --bg-deep: #0f1320;
+  --surface: #1c2130;
+  --surface-2: #232939;
+  --surface-3: #2b3244;
+  --surface-hover: #343c52;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.07);
   --border-hover: rgba(255, 122, 46, 0.38);
   --border-focus: rgba(255, 122, 46, 0.55);
   
-  --text: #e2e5ed;
+  --text: #e9ecf4;
   --text-bright: #ffffff;
-  --muted: #949db2;
-  --muted-dark: #5f687a;
+  --muted: #a6afc2;
+  --muted-dark: #7b8598;
   
   --accent: #ff7a2e;
   --accent-hover: #ff9550;
@@ -32,12 +32,12 @@
   --gradient: linear-gradient(135deg, #ff7a2e 0%, #e8452b 100%);
   --gradient-gold: linear-gradient(135deg, #e3b95f 0%, #d9a84e 50%, #b98a35 100%);
   --gradient-cyan: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
-  --gradient-card: linear-gradient(180deg, rgba(22, 27, 38, 0.75) 0%, rgba(15, 18, 26, 0.95) 100%);
+  --gradient-card: linear-gradient(180deg, rgba(41, 48, 65, 0.78) 0%, rgba(29, 34, 48, 0.94) 100%);
   
   --glow-accent: rgba(255, 122, 46, 0.2);
   --glow-gold: rgba(217, 168, 78, 0.2);
   --glow-cyan: rgba(56, 189, 248, 0.2);
-  --glass: rgba(16, 19, 27, 0.85);
+  --glass: rgba(30, 36, 50, 0.86);
   
   --radius-sm: 8px;
   --radius: 12px;
@@ -104,6 +104,15 @@ html.is-scrolling .icon-spinner,
 html.is-scrolling .musique-card.is-playing::after,
 html.is-scrolling .pjax-bar {
   animation-play-state: paused;
+}
+
+/* Hors écran, une boucle infinie ne sert à personne : tout ce qui porte
+   `data-anim-idle` est mis en pause dès qu'il quitte la viewport (voir
+   OmniIdle dans app-shell.js). C'est le premier gisement de fluidité de la
+   page d'accueil : la fresque d'affiches y tourne en permanence. */
+[data-anim-idle].is-offscreen,
+[data-anim-idle].is-offscreen * {
+  animation-play-state: paused !important;
 }
 
 body, button, input, select, textarea, a {
@@ -229,7 +238,7 @@ img {
   left: 0;
   right: 0;
   z-index: 100;
-  background: rgba(9, 11, 16, 0.96);
+  background: rgba(29, 35, 48, 0.96);
   border-bottom: 1px solid var(--border);
   /* Le fond n'est plus dans la liste : animer une barre pleine largeur à
      chaque frame de défilement coûte plus cher que l'effet produit. Il ne
@@ -238,18 +247,18 @@ img {
 }
 
 .topbar.scrolled {
-  background: rgba(7, 9, 13, 0.98);
+  background: rgba(25, 30, 42, 0.98);
   border-bottom-color: rgba(255, 255, 255, 0.12);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
 }
 
 .topbar-landing {
-  background: rgba(9, 11, 16, 0.88);
+  background: rgba(29, 35, 48, 0.88);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .topbar-landing.scrolled {
-  background: rgba(7, 9, 13, 0.98);
+  background: rgba(25, 30, 42, 0.98);
   border-bottom-color: rgba(255, 255, 255, 0.12);
 }
 
@@ -259,9 +268,9 @@ img {
 @media (hover: none), (pointer: coarse) {
   .topbar,
   .topbar-landing { transition: none; }
-  .topbar.scrolled { background: rgba(9, 11, 16, 0.96); }
+  .topbar.scrolled { background: rgba(29, 35, 48, 0.96); }
   .topbar-landing.scrolled {
-    background: rgba(9, 11, 16, 0.88);
+    background: rgba(29, 35, 48, 0.88);
     border-bottom-color: rgba(255, 255, 255, 0.08);
   }
 }
@@ -464,7 +473,7 @@ img {
    d'onglets défile (l'onglet coupé à droite reste ainsi découvrable). */
 .tabs-wrap {
   position: relative;
-  background: rgba(7, 9, 13, 0.95);
+  background: rgba(25, 30, 42, 0.95);
 }
 
 .tabs-wrap::after {
@@ -474,7 +483,7 @@ img {
   right: 0;
   bottom: 0;
   width: 44px;
-  background: linear-gradient(90deg, rgba(7, 9, 13, 0) 0%, rgba(7, 9, 13, 0.85) 60%, rgba(7, 9, 13, 0.98) 100%);
+  background: linear-gradient(90deg, rgba(25, 30, 42, 0) 0%, rgba(25, 30, 42, 0.85) 60%, rgba(25, 30, 42, 0.98) 100%);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -487,7 +496,7 @@ img {
   left: 0;
   bottom: 0;
   width: 36px;
-  background: linear-gradient(270deg, rgba(7, 9, 13, 0) 0%, rgba(7, 9, 13, 0.85) 60%, rgba(7, 9, 13, 0.98) 100%);
+  background: linear-gradient(270deg, rgba(25, 30, 42, 0) 0%, rgba(25, 30, 42, 0.85) 60%, rgba(25, 30, 42, 0.98) 100%);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -509,7 +518,7 @@ img {
   scrollbar-width: none;
   -ms-overflow-style: none;
   border-top: 1px solid var(--border-subtle);
-  background: rgba(7, 9, 13, 0.95);
+  background: rgba(25, 30, 42, 0.95);
 }
 
 .tabs::-webkit-scrollbar {
@@ -553,7 +562,7 @@ img {
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 5, 8, 0.75);
+  background: rgba(12, 15, 22, 0.75);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 1000;
@@ -574,7 +583,7 @@ img {
   bottom: 0;
   width: 330px;
   max-width: 86vw;
-  background: rgba(10, 13, 19, 0.98);
+  background: rgba(31, 37, 51, 0.98);
   border-left: 1px solid var(--border);
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.8);
   z-index: 1001;
@@ -595,7 +604,7 @@ img {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
-  background: rgba(7, 9, 13, 0.7);
+  background: rgba(25, 30, 42, 0.7);
 }
 
 .drawer-brand {
@@ -758,7 +767,7 @@ img {
 .drawer-footer {
   padding: 16px 18px;
   border-top: 1px solid var(--border);
-  background: rgba(5, 7, 10, 0.6);
+  background: rgba(18, 22, 32, 0.6);
 }
 
 .drawer-credits span {
@@ -784,7 +793,9 @@ img {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: #eef2f7;
+  /* Fond sombre de secours, visible une demi-seconde avant l'arrivée des
+     affiches : la fresque d'affiches est le vrai décor du héros. */
+  background: #10141f;
   padding: 110px 24px 60px;
 }
 
@@ -801,7 +812,9 @@ img {
   gap: 14px;
   padding: 0 10px;
   opacity: 1;
-  filter: saturate(1.12) contrast(1.05);
+  /* Pas de `filter` ici : un filtre sur le conteneur d'une animation infinie
+     est réappliqué sur toute la surface à CHAQUE frame. C'était le plus gros
+     consommateur de GPU de l'accueil, pour un rendu quasi identique. */
 }
 
 .poster-col {
@@ -829,11 +842,13 @@ img {
 .hero-ua-overlay {
   position: absolute;
   inset: 0;
-  /* Voile clair : on garde la fresque d'affiches bien visible tout en
-     assurant la lisibilité du texte (thème blanc demandé pour l'accueil). */
+  /* Voile sombre et TRANSPARENT (façon portail de l'Université
+     d'Antananarivo) : les affiches restent nettement visibles, le texte
+     passe devant. On n'assombrit que le strict nécessaire à la lecture —
+     un voile à 0,9 cacherait le décor que la page est censée montrer. */
   background:
-    radial-gradient(ellipse at center, rgba(238, 242, 247, 0.55) 0%, rgba(238, 242, 247, 0.74) 55%, rgba(238, 242, 247, 0.9) 100%),
-    linear-gradient(180deg, rgba(238, 242, 247, 0.62) 0%, rgba(238, 242, 247, 0.78) 82%, #eef2f7 100%);
+    radial-gradient(ellipse 78% 62% at 50% 46%, rgba(13, 17, 27, 0.3) 0%, rgba(13, 17, 27, 0.62) 68%, rgba(13, 17, 27, 0.86) 100%),
+    linear-gradient(180deg, rgba(13, 17, 27, 0.6) 0%, rgba(13, 17, 27, 0.28) 42%, rgba(13, 17, 27, 0.9) 100%);
 }
 
 .hero-ua-content {
@@ -842,13 +857,15 @@ img {
   max-width: 900px;
   margin: 0 auto;
   text-align: center;
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 24px;
+  /* TRANSPARENT : ni fond, ni bordure, ni flou. Les affiches se lisent
+     derrière le texte, exactement comme sur la bannière du portail de
+     l'Université d'Antananarivo. La lisibilité vient de l'ombre portée du
+     texte, pas d'un panneau opaque. */
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   padding: 44px 42px 40px;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+  box-shadow: none;
 }
 
 .hero-ua-kicker {
@@ -856,8 +873,9 @@ img {
   font-weight: 800;
   letter-spacing: 2.2px;
   text-transform: uppercase;
-  color: #b45309;
+  color: var(--gold-hover);
   margin-bottom: 14px;
+  text-shadow: 0 2px 14px rgba(8, 10, 16, 0.8);
 }
 
 .hero-ua-title {
@@ -865,14 +883,15 @@ img {
   font-size: 3.3rem;
   line-height: 1.1;
   font-weight: 700;
-  color: #0f172a;
+  color: #ffffff;
   margin-bottom: 16px;
-  text-shadow: none;
+  text-shadow: 0 3px 22px rgba(8, 10, 16, 0.85), 0 1px 3px rgba(8, 10, 16, 0.6);
 }
 
 .hero-ua-gold {
-  color: #c08a2d;
+  color: var(--gold-hover);
   font-style: italic;
+  text-shadow: 0 2px 18px rgba(8, 10, 16, 0.7);
 }
 
 .hero-ua-orange {
@@ -884,12 +903,12 @@ img {
 }
 
 .hero-ua-sub {
-  color: #334155;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 1.05rem;
   line-height: 1.7;
   max-width: 680px;
   margin: 0 auto 28px;
-  text-shadow: none;
+  text-shadow: 0 2px 16px rgba(8, 10, 16, 0.85);
 }
 
 .hero-ua-buttons {
@@ -921,9 +940,11 @@ img {
 }
 
 .ua-btn-dark {
-  background: #0f172a;
-  border: 1px solid #0f172a;
+  background: rgba(20, 25, 37, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.24);
   color: #fff;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   padding: 13px 28px;
   border-radius: 8px;
   font-weight: 800;
@@ -935,8 +956,8 @@ img {
 }
 
 .ua-btn-dark:hover {
-  background: #1e293b;
-  border-color: #334155;
+  background: rgba(30, 37, 54, 0.86);
+  border-color: rgba(255, 255, 255, 0.4);
   transform: translateY(-2px);
 }
 
@@ -946,24 +967,26 @@ img {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #ffffff;
-  border: 1px solid #d7dee8;
+  background: rgba(20, 25, 37, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.26);
   border-radius: var(--radius-pill);
   padding: 5px 6px 5px 16px;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
-  color: #64748b;
+  box-shadow: 0 10px 26px rgba(8, 10, 16, 0.4);
+  color: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .hero-ua-search input {
   flex: 1;
   background: transparent;
-  color: #0f172a;
+  color: #ffffff;
   font-size: 0.9rem;
   padding: 6px 0;
 }
 
 .hero-ua-search input::placeholder {
-  color: #94a3b8;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .hero-ua-search button {
@@ -1487,7 +1510,7 @@ img {
 
 .ua-partners-section {
   padding: 85px 24px;
-  background: linear-gradient(135deg, #091728 0%, #0c233d 50%, #071220 100%);
+  background: linear-gradient(135deg, #14263d 0%, #1a3a5c 50%, #122033 100%);
   border-top: 1px solid rgba(56, 189, 248, 0.2);
 }
 
@@ -1886,7 +1909,7 @@ main:has(.landing-hero-ua),
   position: absolute;
   top: 8px;
   left: 8px;
-  background: rgba(8, 10, 14, 0.88);
+  background: rgba(27, 32, 45, 0.88);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: #fff;
@@ -1919,14 +1942,14 @@ main:has(.landing-hero-ua),
 .rank-badge.rank-1 { background: var(--gradient-gold); }
 .rank-badge.rank-2 { background: linear-gradient(135deg, #c9cfd9, #8d95a5); }
 .rank-badge.rank-3 { background: linear-gradient(135deg, #cd8a4e, #9c6430); }
-.rank-badge.rank-default { background: rgba(8, 10, 14, 0.88); border: 1px solid var(--border); }
+.rank-badge.rank-default { background: rgba(27, 32, 45, 0.88); border: 1px solid var(--border); }
 
 /* Rating Badge */
 .rating-badge {
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(8, 10, 14, 0.88);
+  background: rgba(27, 32, 45, 0.88);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: var(--gold);
@@ -1989,12 +2012,120 @@ main:has(.landing-hero-ua),
 }
 
 /* Genre Pills */
+/* ----------------------------------------------------------------
+   ONGLET « ANIMÉS & MANGAS » (source AniList)
+   La bascule choisit la moitié du catalogue ; les deux ne se mélangent
+   jamais, chacune a ses propres sous-genres.
+   ---------------------------------------------------------------- */
+.media-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.media-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.media-switch-btn:hover { color: var(--text-bright); }
+
+.media-switch-btn.active {
+  background: var(--gradient);
+  color: #fff;
+  box-shadow: 0 4px 14px var(--glow-accent);
+}
+
+/* Rangée des tris : un critère à la fois, donc aucun mélange d'époques
+   ni de notes dans la grille. */
+.pills-sort {
+  padding: 0 0 20px;
+  margin-top: -12px;
+}
+
+.pills-sort .pill {
+  font-size: 0.76rem;
+  background: var(--surface-3);
+}
+
+.pills-sort .pill.active {
+  background: var(--gradient-gold);
+  color: #1a1408;
+  box-shadow: 0 4px 14px var(--glow-gold);
+}
+
 .pills {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   padding: 4px 0 20px;
   scrollbar-width: none;
+}
+
+/* Sous-genres d'anime et de manga : une centaine d'entrées par moitié.
+   Dépliée, la bande devient une grille qui tient à l'écran au lieu d'une
+   règle interminable à faire glisser au doigt. */
+.pills.is-wrapped {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  padding-bottom: 12px;
+}
+
+.pills-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pill-search {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 13px;
+  border: 1px solid var(--surface-3);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.pill-search:focus {
+  outline: none;
+  border-color: var(--accent-blue, #38bdf8);
+}
+
+.pill-expand {
+  flex: none;
+  padding: 9px 14px;
+  border: 1px solid var(--surface-3);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.pill-expand:hover {
+  color: var(--text);
+  border-color: var(--accent-blue, #38bdf8);
 }
 
 .pills::-webkit-scrollbar {
@@ -2070,7 +2201,7 @@ main:has(.landing-hero-ua),
   align-items: flex-end;
   gap: 26px;
   padding: 40px 48px;
-  background: linear-gradient(180deg, rgba(8, 10, 14, 0.05) 0%, rgba(8, 10, 14, 0.55) 45%, rgba(8, 10, 14, 0.92) 78%, rgba(8, 10, 14, 0.99) 100%);
+  background: linear-gradient(180deg, rgba(27, 32, 45, 0.05) 0%, rgba(27, 32, 45, 0.55) 45%, rgba(27, 32, 45, 0.92) 78%, rgba(27, 32, 45, 0.99) 100%);
 }
 
 .hero-poster {
@@ -2291,18 +2422,35 @@ main:has(.landing-hero-ua),
   gap: 16px;
 }
 .anilist-card {
+  /* Lien étendu : c'est le lien de la couverture qui rend toute la carte
+     cliquable, donc « Lire le scan » reste un vrai lien par-dessus, sans
+     imbrication de <a> (interdite en HTML). */
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--gradient-card);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+.anilist-card:hover,
+.anilist-card:focus-within {
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
 }
 .anilist-cover-link {
-  position: relative;
+  /* Non positionné : le ::after ci-dessous s'ancre alors sur la carte, ce qui
+     rend toute la carte cliquable (et non la seule couverture). */
   display: block;
   aspect-ratio: 2 / 3;
   background: var(--surface-2);
+}
+.anilist-cover-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 .anilist-cover {
   width: 100%;
@@ -2325,13 +2473,16 @@ main:has(.landing-hero-ua),
   left: 8px;
   padding: 2px 7px;
   border-radius: 6px;
-  background: rgba(8, 10, 14, 0.88);
+  background: rgba(27, 32, 45, 0.88);
   color: #fff;
   font-size: 0.58rem;
   font-weight: 800;
   letter-spacing: 0.6px;
 }
 .anilist-info {
+  /* Au-dessus du lien étendu de la carte : « Lire le scan » reste cliquable. */
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2342,10 +2493,15 @@ main:has(.landing-hero-ua),
   font-size: 0.8rem;
   font-weight: 700;
   line-height: 1.3;
+  text-decoration: none;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.anilist-card:hover .anilist-name,
+.anilist-name:focus-visible {
+  color: var(--accent);
 }
 .anilist-meta {
   display: flex;
@@ -2406,7 +2562,7 @@ main:has(.landing-hero-ua),
 .detail-hero-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(9, 11, 16, 0.7) 0%, rgba(9, 11, 16, 0.94) 70%, var(--bg) 100%);
+  background: linear-gradient(180deg, rgba(29, 35, 48, 0.7) 0%, rgba(29, 35, 48, 0.94) 70%, var(--bg) 100%);
 }
 
 .detail-hero-inner {
@@ -2548,6 +2704,66 @@ main:has(.landing-hero-ua),
   color: var(--text);
 }
 
+/* Les œuvres liées (suite, préquelle, manga d'origine). Une liste sobre :
+   ce sont des portes de sortie vers d'autres fiches, pas une galerie. */
+.detail-relations {
+  margin-bottom: 24px;
+}
+
+.detail-relations-title {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--accent-gold, #d9a84e);
+  margin-bottom: 10px;
+}
+
+.detail-relations-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detail-relation-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid var(--surface-3);
+  border-radius: 999px;
+  background: var(--surface-2);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.detail-relation-link:hover {
+  border-color: var(--accent-gold, #d9a84e);
+  transform: translateY(-1px);
+}
+
+.detail-relation-kind {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--muted-dark);
+}
+
+.detail-relation-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.detail-relation-format {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
 .detail-actions-row {
   display: flex;
   gap: 14px;
@@ -2602,7 +2818,7 @@ main:has(.landing-hero-ua),
 
 .chat-header {
   padding: 16px 20px;
-  background: rgba(7, 9, 13, 0.8);
+  background: rgba(25, 30, 42, 0.8);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -2688,7 +2904,7 @@ main:has(.landing-hero-ua),
 
 .chat-input-row {
   padding: 14px 20px;
-  background: rgba(7, 9, 13, 0.8);
+  background: rgba(25, 30, 42, 0.8);
   border-top: 1px solid var(--border);
   display: flex;
   gap: 10px;
@@ -3080,7 +3296,7 @@ main:has(.landing-hero-ua),
   left: 0;
   right: 0;
   z-index: 1000;
-  background: rgba(10, 13, 19, 0.96);
+  background: rgba(31, 37, 51, 0.96);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--border-hover);
@@ -3113,7 +3329,7 @@ main:has(.landing-hero-ua),
 .video-topbar {
   height: 54px;
   padding: 0 20px;
-  background: rgba(10, 12, 18, 0.9);
+  background: rgba(31, 37, 51, 0.9);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
@@ -3361,7 +3577,7 @@ main:has(.landing-hero-ua),
   display: flex;
   align-items: center;
   gap: 10px;
-  background: rgba(16, 20, 29, 0.9);
+  background: rgba(37, 43, 59, 0.9);
   border: 1px solid rgba(217, 168, 78, 0.35);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -3400,7 +3616,7 @@ main:has(.landing-hero-ua),
 
 /* Site Footer */
 .site-footer {
-  background: #06070a;
+  background: #12161f;
   border-top: 1px solid var(--border);
   padding: 60px 24px 30px;
   margin-top: auto;
@@ -3563,7 +3779,7 @@ main:has(.landing-hero-ua),
     left: 12px;
     right: 12px;
     max-width: none;
-    background: rgba(10, 13, 19, 0.98);
+    background: rgba(31, 37, 51, 0.98);
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.8);
   }
   
@@ -3652,7 +3868,7 @@ main:has(.landing-hero-ua),
   bottom: calc(var(--bottom-nav-total, 64px) + 8px);
   width: min(620px, calc(100% - 16px));
   z-index: 950;
-  background: rgba(14, 17, 24, 0.97);
+  background: rgba(34, 40, 55, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -3871,7 +4087,7 @@ body[data-player-status="loading"] .omni-modal-main .icon-spinner { display: blo
 .omni-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(4, 5, 8, 0.78);
+  background: rgba(12, 15, 22, 0.78);
   cursor: pointer;
 }
 .omni-modal-content {
@@ -3882,7 +4098,7 @@ body[data-player-status="loading"] .omni-modal-main .icon-spinner { display: blo
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: linear-gradient(180deg, #141824 0%, #0a0d14 100%);
+  background: linear-gradient(180deg, #1e2432 0%, #161b28 100%);
   border-top-left-radius: 22px;
   border-top-right-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -3937,7 +4153,7 @@ body[data-player-status="loading"] .omni-modal-main .icon-spinner { display: blo
   width: 172px;
   height: 172px;
   border-radius: 50%;
-  background: radial-gradient(circle, #1a1e2b 0%, #05060a 72%);
+  background: radial-gradient(circle, #2a3040 0%, #12161f 72%);
   border: 6px solid #0a0c12;
   display: flex;
   align-items: center;
@@ -4121,7 +4337,7 @@ body.media-fullscreen { overflow: hidden; }
   font-size: 0.74rem;
   font-weight: 600;
   color: #fff;
-  background: rgba(18, 22, 31, 0.96);
+  background: rgba(39, 46, 62, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--radius-pill);
   padding: 8px 14px;
@@ -4272,7 +4488,7 @@ body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
   z-index: 900;
   display: none;
   height: var(--bottom-nav-h, 58px);
-  background: #090b10;
+  background: var(--bg);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
@@ -4425,7 +4641,7 @@ body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(6, 8, 12, 0.62);
+  background: rgba(22, 27, 38, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.18);
   color: #fff;
   cursor: pointer;
@@ -4434,7 +4650,7 @@ body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(4px);
 }
 .card-fav-btn:hover,
-.music-fav-btn:hover { background: rgba(6, 8, 12, 0.85); transform: scale(1.08); }
+.music-fav-btn:hover { background: rgba(22, 27, 38, 0.85); transform: scale(1.08); }
 .card-fav-btn.on,
 .music-fav-btn.on { color: #ff5b6e; border-color: rgba(255, 91, 110, 0.5); }
 
@@ -4543,7 +4759,7 @@ body.has-audio-bar .bottom-nav { box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: rgba(6, 8, 12, 0.75);
+  background: rgba(22, 27, 38, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
   display: flex;
@@ -4749,7 +4965,7 @@ body.has-audio-bar .sponsor-gift {
   font-size: 0.62rem;
   font-weight: 800;
   color: #fff;
-  background: rgba(6, 8, 12, 0.7);
+  background: rgba(22, 27, 38, 0.7);
   padding: 2px 7px;
   border-radius: 5px;
 }
@@ -4807,7 +5023,7 @@ body.has-audio-bar .sponsor-gift {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(6, 8, 12, 0.05), rgba(6, 8, 12, 0.55));
+  background: linear-gradient(180deg, rgba(22, 27, 38, 0.05), rgba(22, 27, 38, 0.55));
   opacity: 0;
   transition: opacity var(--transition-fast);
   pointer-events: none;
@@ -4932,7 +5148,7 @@ body.has-audio-bar .sponsor-gift {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(6, 8, 12, 0.62);
+  background: rgba(22, 27, 38, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.18);
   color: #fff;
   cursor: pointer;
@@ -4941,11 +5157,11 @@ body.has-audio-bar .sponsor-gift {
 }
 .music-pin-btn { top: 6px; right: 37px; }
 .card-pin-btn:hover,
-.music-pin-btn:hover { background: rgba(6, 8, 12, 0.85); color: var(--accent-cyan); }
+.music-pin-btn:hover { background: rgba(22, 27, 38, 0.85); color: var(--accent-cyan); }
 .card-pin-btn:active,
 .music-pin-btn:active { transform: scale(0.9); }
 .card-pin-btn.on,
-.music-pin-btn.on { color: var(--accent-cyan); border-color: rgba(56, 189, 248, 0.5); background: rgba(6, 8, 12, 0.85); }
+.music-pin-btn.on { color: var(--accent-cyan); border-color: rgba(56, 189, 248, 0.5); background: rgba(22, 27, 38, 0.85); }
 .card-pin-btn.busy,
 .music-pin-btn.busy,
 .detail-icon-btn.busy { opacity: 0.6; pointer-events: none; }
@@ -5016,7 +5232,7 @@ body.has-audio-bar .sponsor-gift {
   min-height: 52px;
   padding: 10px 12px 10px 18px;
   border-radius: var(--radius-pill);
-  background: rgba(18, 22, 31, 0.97);
+  background: rgba(39, 46, 62, 0.97);
   border: 1px solid rgba(56, 189, 248, 0.4);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
   font-size: 0.92rem;
@@ -5290,7 +5506,8 @@ html[data-ui-scale="large"] { font-size: 17.5px; }
 .hero-ua-content {
   max-width: 800px;
   padding: 32px 34px 30px;
-  background: rgba(255, 255, 255, 0.86);
+  /* Toujours transparent : le décor doit se voir, y compris sur téléphone. */
+  background: transparent;
 }
 .hero-ua-title { font-size: clamp(1.85rem, 4.2vw, 2.75rem); margin-bottom: 12px; }
 .hero-ua-sub { font-size: 0.96rem; line-height: 1.65; margin-bottom: 24px; max-width: 620px; }
@@ -5301,17 +5518,15 @@ html[data-ui-scale="large"] { font-size: 17.5px; }
 .landing-stats-band { padding: 30px 20px; }
 .mini-stat-number { font-size: 1.8rem; }
 .mini-stat-label { font-size: 0.7rem; }
-.poster-wall { filter: none; opacity: 0.85; }
+.poster-wall { opacity: 1; }
 .ua-section-title { font-size: clamp(1.4rem, 3vw, 2rem); }
 
 @media (max-width: 768px) {
   .landing-hero-ua { min-height: 0; padding: 78px 12px 30px; }
   .hero-ua-content {
     padding: 22px 16px 24px;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: rgba(255, 255, 255, 0.92);
-    border-radius: 16px;
+    background: transparent;
+    border-radius: 0;
   }
   .hero-ua-title { font-size: 1.72rem; }
   .hero-ua-sub { font-size: 0.85rem; line-height: 1.6; margin-bottom: 18px; }
@@ -5392,4 +5607,570 @@ html[data-display-mode="standalone"] .drawer-install-btn {
 /* Un bandeau d'état visible ne doit jamais manger le fil de progression. */
 .pjax-bar {
   top: var(--top-banner-h, 0px);
+}
+
+/* --------------------------------------------------------------------------
+   Rayon adulte : le portail d'abord, le contenu ensuite.
+   Le voile couvre toute la page et reste au-dessus de tout le reste : tant
+   qu'il est là, la grille en dessous est vide dans le DOM.
+   -------------------------------------------------------------------------- */
+.adulte-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 19, 32, 0.96);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.adulte-gate-box {
+  max-width: 520px;
+  padding: 30px 26px;
+  border: 1px solid var(--surface-3);
+  border-radius: 18px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.adulte-gate-title {
+  margin: 10px 0 14px;
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.adulte-gate-text {
+  margin-bottom: 12px;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.adulte-gate-note {
+  margin-bottom: 24px;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--muted-dark);
+}
+
+.adulte-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.adulte-btn-yes,
+.adulte-btn-no,
+.adulte-btn-lock {
+  padding: 12px 22px;
+  border-radius: 10px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  transition: transform var(--transition-fast);
+}
+
+.adulte-btn-yes {
+  background: var(--gradient-red, #e5484d);
+  color: #fff;
+}
+
+.adulte-btn-yes:hover {
+  transform: translateY(-2px);
+}
+
+.adulte-btn-no {
+  border: 1px solid var(--surface-3);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.adulte-btn-no:hover {
+  color: var(--text);
+}
+
+.adulte-btn-lock {
+  border: 1px solid var(--surface-3);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.adulte-warning {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-left: 3px solid #e5484d;
+  border-radius: 8px;
+  background: rgba(229, 72, 77, 0.1);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.adulte-content .section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* « Au hasard » et l'indice de préchargement, propres à l'onglet AniList. */
+.pill-hasard {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 15px;
+  border: 1px solid var(--accent-gold, #d9a84e);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent-gold, #d9a84e);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.pill-hasard:hover:not(:disabled) {
+  background: var(--accent-gold, #d9a84e);
+  color: #1a1206;
+}
+
+.pill-hasard:disabled {
+  opacity: 0.5;
+}
+
+.pills-hint {
+  font-size: 0.72rem;
+  color: var(--muted-dark);
+}
+
+@media (max-width: 720px) {
+  .pills-hint {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Calendrier : les épisodes diffusés cette semaine.
+   Un rail horizontal, comme le bandeau principal : il ne doit pas prendre
+   plus de place qu'une rangée d'affiches.
+   -------------------------------------------------------------------------- */
+.calendrier {
+  margin-bottom: 22px;
+}
+
+.calendrier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.calendrier-titre {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  color: var(--text);
+}
+
+.calendrier-soustitre {
+  font-size: 0.72rem;
+  color: var(--muted-dark);
+}
+
+.calendrier-rail {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: none;
+}
+
+.calendrier-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.calendrier-carte {
+  display: flex;
+  flex: none;
+  gap: 10px;
+  width: 232px;
+  padding: 8px;
+  border: 1px solid var(--surface-3);
+  border-radius: 12px;
+  background: var(--surface-2);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.calendrier-carte:hover {
+  border-color: var(--accent-blue, #38bdf8);
+  transform: translateY(-2px);
+}
+
+.calendrier-affiche {
+  flex: none;
+  width: 46px;
+  height: 66px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: var(--surface-3);
+}
+
+.calendrier-corps {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+.calendrier-nom {
+  overflow: hidden;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendrier-episode {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-gold, #d9a84e);
+}
+
+.calendrier-quand {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+/* --------------------------------------------------------------------------
+   Lecteur : lecture continue (webtoon) et recherche du rayon adulte.
+   -------------------------------------------------------------------------- */
+/* Les planches se touchent : c'est ainsi que se lisent les webtoons et la
+   plupart des manhwas, où le découpage en pages n'existe pas à l'origine. */
+.scan-pages-flow.mode-webtoon {
+  gap: 0;
+}
+
+.scan-pages-flow.mode-webtoon .scan-page-wrap {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.scan-pages-flow.mode-webtoon .scan-page-img {
+  display: block;
+  width: 100%;
+  border-radius: 0;
+}
+
+.scan-action-btn.is-on {
+  border-color: var(--accent-blue, #38bdf8);
+  color: var(--accent-blue, #38bdf8);
+}
+
+.adulte-recherche {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+/* --------------------------------------------------------------------------
+   Le cran de fraîcheur de la grille.
+   -------------------------------------------------------------------------- */
+.fraicheur {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.fraicheur-label {
+  margin-right: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted-dark);
+}
+
+.fraicheur-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--surface-3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.fraicheur-btn:hover {
+  color: var(--text);
+}
+
+.fraicheur-btn.active {
+  border-color: var(--accent-blue, #38bdf8);
+  color: var(--accent-blue, #38bdf8);
+}
+
+/* --------------------------------------------------------------------------
+   « Pas intéressé » : troisième bouton de coin de la carte.
+   -------------------------------------------------------------------------- */
+.card-skip-btn {
+  position: absolute;
+  top: 8px;
+  right: 72px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(22, 27, 38, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.82);
+  opacity: 0;
+  transition: opacity var(--transition-fast), transform var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.card:hover .card-skip-btn,
+.card-skip-btn:focus-visible {
+  opacity: 1;
+}
+
+.card-skip-btn:hover {
+  color: #ff5b6e;
+  border-color: rgba(255, 91, 110, 0.5);
+  transform: scale(1.08);
+}
+
+/* Sur tactile il n'y a pas de survol : le bouton doit rester atteignable. */
+@media (hover: none) {
+  .card-skip-btn {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Page calendrier : une liste verticale, pas un rail.
+   -------------------------------------------------------------------------- */
+.calendrier-page {
+  max-width: 900px;
+}
+
+.calendrier-page-intro {
+  margin: 0 0 18px;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.calendrier-page-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendrier-ligne {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--surface-3);
+  border-radius: 12px;
+  background: var(--surface-2);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.calendrier-ligne:hover {
+  border-color: var(--accent-blue, #38bdf8);
+  transform: translateX(2px);
+}
+
+.calendrier-ligne-affiche {
+  flex: none;
+  width: 42px;
+  height: 60px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface-3);
+}
+
+.calendrier-ligne-corps {
+  flex: 1;
+  min-width: 0;
+}
+
+.calendrier-ligne-titre {
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendrier-ligne-detail {
+  margin-top: 3px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.calendrier-ligne-note {
+  flex: none;
+  min-width: 34px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--accent-gold, #d9a84e);
+  text-align: right;
+}
+
+/* Bibliothèque : la vignette d'un manga en cours de lecture. */
+.lib-scan-link {
+  display: block;
+}
+
+.lib-scan-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+  background: var(--gradient-gold, #d9a84e);
+  color: #1a1206;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+/* Bouton d'alerte des nouveaux épisodes, dans la barre d'outils AniList. */
+.pill-notif {
+  padding: 9px 15px;
+  border: 1px solid var(--surface-3);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.pill-notif:hover {
+  color: var(--text);
+  border-color: var(--accent-blue, #38bdf8);
+}
+
+.pill-notif.is-on {
+  border-color: var(--accent-blue, #38bdf8);
+  color: var(--accent-blue, #38bdf8);
+}
+
+/* --- Recherche globale : rayons groupés par type ----------------------- */
+.search-group {
+  margin: 18px 0 6px;
+}
+.search-group-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  margin: 0 0 10px;
+  padding-left: 2px;
+}
+.search-music-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.search-music-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.search-music-play {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent, #ff7a2e);
+  color: #141824;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.search-music-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.search-music-channel {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* --- « Dans le même univers » : rangée horizontale de l'accueil --------- */
+.univers-row {
+  margin: 4px 0 14px;
+}
+.univers-row-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 10px;
+  padding-left: 2px;
+}
+.univers-row-list {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.univers-carte {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 190px;
+  background: var(--surface-2);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+.univers-carte-kind {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.univers-carte-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

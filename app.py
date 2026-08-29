@@ -28,6 +28,7 @@ from flask import (
     session,
     stream_with_context,
 )
+from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth_db
@@ -503,12 +504,48 @@ def handle_internal_error(error):
     return render_template("error.html", title="Erreur interne", message=message), 500
 
 
-def _page_arg():
+def _rotation_preset_arg():
+    """Le cran de fraîcheur demandé, ou None pour laisser le défaut.
+
+    Une valeur inconnue retombe sur le défaut plutôt que de renvoyer un 400 :
+    c'est un réglage d'affichage, pas un contrat de données.
+    """
+    valeur = _limited_arg("fraicheur", "", 12)
+    return valeur if valeur in ROTATION_PRESETS else None
+
+
+# « Ce soir j'ai 1 h 30 » : plages de durée en minutes, fermées et sans
+# chevauchement, pour qu'un filtre ne repêche jamais les titres d'un autre.
+# TMDB compte la durée des films ; AniList celle des épisodes d'anime.
+DUREES = {
+    "court": (None, 90),
+    "moyen": (91, 120),
+    "long": (121, None),
+}
+
+
+def _duree_arg():
+    """La plage de durée demandée, ou None pour « toutes les durées ».
+
+    Comme pour la fraîcheur, une valeur inconnue retombe sur le défaut plutôt
+    que de renvoyer un 400 : c'est un réglage d'affichage.
+    """
+    valeur = _limited_arg("duree", "", 12)
+    return valeur if valeur in DUREES else None
+
+
+def _page_arg(plafond=None):
+    """Le numéro de page demandé, borné.
+
+    Le plafond par défaut est celui de TMDB (MAX_PAGES). L'onglet AniList en
+    passe un autre, bien plus haut : écrêter à 25 ici arrêtait son défilement
+    infini à 500 titres, quel que soit le plafond demandé plus bas.
+    """
     try:
         value = int(request.args.get("page", "1"))
     except (TypeError, ValueError):
         abort(400, description="Le numéro de page doit être un entier.")
-    return min(max(value, 1), MAX_PAGES)
+    return min(max(value, 1), plafond or MAX_PAGES)
 
 
 def _limited_arg(name, default="", max_length=200):
@@ -533,6 +570,22 @@ def _media_filter_arg():
     if media_filter not in MEDIA_FILTERS:
         abort(400, description="Type de média invalide.")
     return media_filter
+
+
+def _anilist_kind_arg():
+    """« anime » ou « manga » : les deux moitiés de l'onglet Animés & Mangas."""
+    kind = _limited_arg("media", "anime", 20)
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(400, description="Type « anime » ou « manga » attendu.")
+    return kind
+
+
+def _anilist_sort_arg():
+    """Un tri connu, ou rien : un tri inventé ne doit pas passer en silence."""
+    sort_id = _limited_arg("sort", "tendances", 40)
+    if not any(item["id"] == sort_id for item in ANILIST_SORTS):
+        abort(400, description="Tri du catalogue AniList invalide.")
+    return sort_id
 
 
 def _total_pages(data):
@@ -673,15 +726,6 @@ def get_keyword_id(name):
     return _cache_set(cache_key, keyword_id, ttl=86400)
 
 
-ANIME_SUBGENRES = [
-    {"id": "shonen", "label": "Shonen", "keyword": "shounen"},
-    {"id": "isekai", "label": "Isekai / Réincarnation", "keyword": "isekai"},
-    {"id": "shoujo", "label": "Shoujo", "keyword": "shoujo"},
-    {"id": "romance", "label": "Romance", "keyword": "anime romance"},
-    {"id": "horreur", "label": "Horreur", "keyword": "horror"},
-    {"id": "sport", "label": "Sport", "keyword": "sports"},
-    {"id": "comedie", "label": "Comédie", "keyword": "comedy"},
-]
 
 FILM_BONUS_PILLS = [
     {"id": "zombie", "label": "Zombie", "genre": 27, "keyword": "zombie"},
@@ -697,6 +741,139 @@ FILM_BONUS_PILLS = [
         ],
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Rotation « à la Facebook » : la grille se redessine à chaque ouverture
+# ---------------------------------------------------------------------------
+# Un `popularity.desc` brut figeait le haut de page : les vingt mêmes titres,
+# indéfiniment. Un tirage uniforme, à l'inverse, noierait les œuvres marquantes
+# au milieu du reste. Le tri aléatoire pondéré (Efraimidis-Spirakis) fait les
+# deux à la fois : la clé d'un titre est u^(1/poids) avec u tiré dans ]0,1[,
+# donc plus le poids est grand plus le titre remonte EN MOYENNE — sans qu'aucune
+# place ne soit jamais garantie d'une visite à l'autre.
+#
+# On ne peut pas faire tourner une page de vingt titres sur elle-même : ce
+# seraient toujours les mêmes vingt. La grille est donc découpée en BANDES de
+# cent titres ; chaque bande est relue en une fois, réordonnée, puis servie
+# cinq pages par cinq. Le haut de page puise dans les cent titres les plus
+# courus, les pages suivantes dans le reste de la même bande — sans doublon.
+ROTATION_POOL_PAGES = 5  # pages TMDB lues par bande (5 × 20 = 100 titres)
+ROTATION_BAND_PAGES = 5  # pages du site servies par bande (100 / 20)
+TMDB_PAGE_SIZE = 20
+# Courbe calibrée par simulation sur une bande de 100 titres : à 6, environ
+# 14 des 20 affichés viennent du vrai top 20 du catalogue, et le premier
+# titre change malgré tout à (presque) chaque visite. Plus bas, la grille
+# devenait un bruit ; plus haut, elle se figeait de nouveau.
+ROTATION_FLOOR = 0.0
+ROTATION_POP_POWER = 6.0
+# Le dosage est un choix, pas une constante : certains veulent retrouver leurs
+# repères, d'autres veulent être surpris. Trois crans, exposés dans l'onglet.
+# Plus la puissance est haute, plus les poids lourds sont cloués en haut.
+ROTATION_PRESETS = {
+    "stable": 10.0,
+    "normal": 6.0,
+    "frais": 3.0,
+}
+ROTATION_RATING_BASE = 0.75  # socle multiplicatif appliqué à la note
+ROTATION_RATING_WEIGHT = 0.05  # par point de note, au-dessus du socle
+ROTATION_FRESHNESS_YEARS = 4
+ROTATION_FRESHNESS_BONUS = 0.10
+
+
+def _rotation_weight(rang, total, note, annee, annee_courante, puissance=None):
+    """Le poids d'un titre dans le tirage : rang, note, fraîcheur.
+
+    Le rang dans le catalogue source porte l'essentiel du signal. C'est
+    volontaire : TMDB classe par popularité et AniList par tendances, mais
+    leurs scores bruts ne sont pas comparables — le rang, lui, l'est.
+    """
+    position = (total - rang + 1) / total
+    poids = ROTATION_FLOOR + position ** (
+        ROTATION_POP_POWER if puissance is None else puissance
+    )
+    try:
+        poids *= ROTATION_RATING_BASE + ROTATION_RATING_WEIGHT * min(
+            float(note or 0), 10.0
+        )
+    except (TypeError, ValueError):
+        poids *= ROTATION_RATING_BASE
+    try:
+        age = annee_courante - int(str(annee)[:4])
+    except (TypeError, ValueError):
+        return poids
+    if 0 <= age <= ROTATION_FRESHNESS_YEARS:
+        poids *= 1 + ROTATION_FRESHNESS_BONUS * (
+            ROTATION_FRESHNESS_YEARS - age
+        ) / ROTATION_FRESHNESS_YEARS
+    return poids
+
+
+def _rotation_power(preset):
+    """La puissance du tirage pour un cran donné, en retombant sur le défaut."""
+    try:
+        return float(ROTATION_PRESETS.get(str(preset or ""), ROTATION_POP_POWER))
+    except (TypeError, ValueError):
+        return ROTATION_POP_POWER
+
+
+def rotation_order(items, seed_key, preset=None):
+    """Réordonne en gardant les poids lourds en haut, mais jamais figés.
+
+    Même graine ⇒ exactement le même ordre : indispensable au défilement
+    infini, qui demande les pages une par une et ne doit ni se répéter ni
+    sauter de titres en cours de route.
+    """
+    total = len(items)
+    if total < 2:
+        return list(items)
+    rng = random.Random(seed_key)  # nosec B311 — ordre d'affichage, pas de secret
+    puissance = _rotation_power(preset)
+    annee_courante = datetime.datetime.now(datetime.timezone.utc).year
+    clefs = []
+    for rang, item in enumerate(items, start=1):
+        poids = _rotation_weight(
+            rang,
+            total,
+            item.get("rating") if isinstance(item, dict) else None,
+            item.get("year") if isinstance(item, dict) else None,
+            annee_courante,
+            puissance,
+        )
+        tirage = rng.random()
+        while tirage <= 0.0:  # log(0) casserait la clé
+            tirage = rng.random()
+        clefs.append((tirage ** (1.0 / max(poids, 1e-9)), item))
+    clefs.sort(key=lambda paire: -paire[0])
+    return [item for _, item in clefs]
+
+
+def _rotation_band(page):
+    """(indice de bande, rang dans la bande) pour une page du site."""
+    band, slot = divmod(max(1, int(page)) - 1, ROTATION_BAND_PAGES)
+    return band, slot
+
+
+def rotated_tmdb_page(media_type, params, page, seed_key, preset=None):
+    """Une page du site, puisée dans une bande de cent titres réordonnés."""
+    band, slot = _rotation_band(page)
+    candidats = []
+    total_pages = 1
+    for decalage in range(ROTATION_POOL_PAGES):
+        source = band * ROTATION_POOL_PAGES + decalage + 1
+        donnees = tmdb_get(f"/discover/{media_type}", {**params, "page": source})
+        total_pages = max(total_pages, _total_pages(donnees))
+        candidats.extend(
+            normalize_card(brut, media_type)
+            for brut in _result_items(donnees)
+            if isinstance(brut, dict) and brut.get("poster_path")
+        )
+    ordonne = rotation_order(candidats, f"{seed_key}-{band}", preset)
+    debut = slot * TMDB_PAGE_SIZE
+    # Les bandes réordonnent par groupes de cinq pages sans en changer le
+    # nombre : la page 3 du site puise toujours dans la page 3 de TMDB. La
+    # borne de fin reste donc total_pages, comme avant les bandes.
+    return ordonne[debut : debut + TMDB_PAGE_SIZE], page < total_pages
 
 
 def seeded_block_shuffle(items, seed_key, block_size=4):
@@ -764,11 +941,10 @@ def search_by_tab(tab, query):
         return [normalize_card(i, "tv") for i in results if i.get("poster_path")]
 
     if tab == "animes":
-        data = tmdb_get("/search/tv", {"query": query, "include_adult": "true"})
-        # Le genre Animation suffit : le filtre sur le pays d'origine faisait
-        # répondre « aucun résultat » à une recherche d'animé coréen ou chinois.
-        results = [i for i in _result_items(data) if 16 in (i.get("genre_ids") or [])]
-        return [normalize_card(i, "tv") for i in results if i.get("poster_path")]
+        # Recherche dans AniList uniquement : TMDB ne connaît pas les mangas
+        # et rate une partie des animes. Les animes passent d'abord, puis les
+        # mangas — jamais un film ou une série au milieu.
+        return anilist_search("anime", query) + anilist_search("manga", query)
 
     if tab == "animation_occidentale":
         data = tmdb_get("/search/movie", {"query": query, "include_adult": "true"})
@@ -778,6 +954,56 @@ def search_by_tab(tab, query):
             if 16 in (i.get("genre_ids") or []) and i.get("original_language") != "ja"
         ]
         return [normalize_card(i, "movie") for i in results if i.get("poster_path")]
+
+
+def _recherche_tmdb_groupes(query):
+    """Films d'un côté, séries de l'autre, pour la recherche globale.
+
+    Un seul appel TMDB « multi » renvoie les deux types ; on applique les
+    mêmes filtres anti-mélange que le catalogue : pas d'animation japonaise
+    au milieu des films et des séries.
+    """
+    data = tmdb_get("/search/multi", {"query": query, "include_adult": "true"})
+    films, series = [], []
+    for brut in _result_items(data):
+        if not isinstance(brut, dict) or not brut.get("poster_path"):
+            continue
+        type_brut = brut.get("media_type")
+        if type_brut == "movie":
+            if str(brut.get("original_language") or "") == "ja" and 16 in (
+                brut.get("genre_ids") or []
+            ):
+                continue
+            if len(films) < 12:
+                films.append(normalize_card(brut, "movie"))
+        elif type_brut == "tv":
+            if 16 in (brut.get("genre_ids") or []) and "JP" in (
+                brut.get("origin_country") or []
+            ):
+                continue
+            if len(series) < 12:
+                series.append(normalize_card(brut, "tv"))
+    return films, series
+
+
+def _recherche_musique(query):
+    """Quelques pistes pour la recherche globale ; vide sans clé YouTube."""
+    if not YOUTUBE_API_KEY:
+        return []
+    try:
+        data = _youtube_get(
+            "search",
+            {
+                "part": "snippet",
+                "type": "video",
+                "videoCategoryId": "10",
+                "maxResults": 6,
+                "q": query,
+            },
+        )
+    except UpstreamServiceError:
+        return []
+    return _format_youtube_items(data.get("items", []), id_is_object=True)[:6]
 
     return []
 
@@ -963,6 +1189,1193 @@ def anilist_band(query):
 
 
 # ---------------------------------------------------------------------------
+# AniList — FICHE complète (anime ou manga) servie PAR NOTRE PANNEAU
+# ---------------------------------------------------------------------------
+# AniList est une source, pas une destination : on y lit la fiche, et c'est
+# OmniStream qui l'affiche dans son panneau habituel (synopsis, bande-annonce,
+# Ma liste, assistant Gemini, lecteur de scan). Aucune carte ne part donc vers
+# anilist.co — le visiteur reste ici.
+ANILIST_MEDIA_TYPES = {"anime", "manga"}
+ANILIST_DETAIL_QUERY = """
+query ($id: Int, $type: MediaType) {
+  Media(id: $id, type: $type) {
+    id
+    type
+    format
+    title { romaji english native userPreferred }
+    status(version: 2)
+    isAdult
+    seasonYear
+    episodes
+    chapters
+    volumes
+    duration
+    averageScore
+    countryOfOrigin
+    siteUrl
+    genres
+    synonyms
+    description(asHtml: false)
+    startDate { year }
+    coverImage { medium large extraLarge }
+    bannerImage
+    trailer { id site }
+    characters(perPage: 8, sort: ROLE) {
+      edges { role node { name { userPreferred } } }
+    }
+    staff(perPage: 5) {
+      edges { role node { name { userPreferred } } }
+    }
+    studios(isMain: true) { nodes { name } }
+    relations {
+      edges {
+        relationType
+        node { id type format title { userPreferred } }
+      }
+    }
+  }
+}
+"""
+
+# AniList renvoie un synopsis en HTML (<br>, <i>, liens). On n'injecte jamais
+# du HTML tiers dans la page : les balises sont retirées et les entités
+# décodées, le texte seul reste.
+_ANILIST_TAG_RE = re.compile(r"<[^>]+>")
+ANILIST_STATUSES = {
+    "FINISHED": "Terminé",
+    "RELEASING": "En cours",
+    "NOT_YET_RELEASED": "À venir",
+    "CANCELLED": "Annulé",
+    "HIATUS": "En pause",
+}
+ANILIST_FORMATS = {
+    "TV": "Série TV",
+    "TV_SHORT": "Série courte",
+    "MOVIE": "Film",
+    "SPECIAL": "Spécial",
+    "OVA": "OVA",
+    "ONA": "ONA",
+    "MUSIC": "Clip",
+    "MANGA": "Manga",
+    "NOVEL": "Roman",
+    "ONE_SHOT": "One-shot",
+}
+
+
+def _anilist_plain_text(raw, limit=1400):
+    """Le synopsis AniList en texte brut, sans aucune balise."""
+    text = str(raw or "")
+    text = text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    text = _ANILIST_TAG_RE.sub(" ", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if len(text) > limit:
+        text = text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:") + "…"
+    return text
+
+
+def _anilist_name(node, key="userPreferred", limit=90):
+    """Le nom lisible d'un personnage, d'un membre du staff ou d'un studio."""
+    if not isinstance(node, dict):
+        return ""
+    names = node.get("name") if key == "userPreferred" else node
+    value = ""
+    if isinstance(names, dict):
+        value = str(names.get(key) or "").strip()
+    if not value:
+        value = str(node.get(key) or node.get("name") or "").strip()
+    return value[:limit]
+
+
+def _anilist_characters(node):
+    """Les personnages principaux, dans l'ordre donné par AniList."""
+    raw = node.get("characters")
+    characters = raw if isinstance(raw, dict) else {}
+    edges = characters.get("edges") if isinstance(characters.get("edges"), list) else []
+    names = []
+    for edge in edges[:8]:
+        if not isinstance(edge, dict):
+            continue
+        role = str(edge.get("role") or "").upper()
+        name = _anilist_name(edge.get("node"))
+        if name and role in {"MAIN", "SUPPORTING"}:
+            names.append(name)
+    return names
+
+
+def _anilist_studio(node):
+    studios = node.get("studios") if isinstance(node.get("studios"), dict) else {}
+    nodes = studios.get("nodes") if isinstance(studios.get("nodes"), list) else []
+    for studio in nodes:
+        name = _anilist_name(studio, key="name")
+        if name:
+            return name
+    return ""
+
+
+def _anilist_trailer_key(node):
+    """L'identifiant YouTube de la bande-annonce AniList, ou ''."""
+    trailer = node.get("trailer") if isinstance(node.get("trailer"), dict) else {}
+    if str(trailer.get("site") or "").lower() not in {"youtube", "yt"}:
+        return ""
+    key = str(trailer.get("id") or "")
+    return key if re.fullmatch(r"[A-Za-z0-9_-]{11}", key) else ""
+
+
+# Libellés français des liens entre œuvres AniList. Un lien non reconnu est
+# écarté plutôt que traduit mot à mot : « Character » ou « Other » n'apportent
+# rien au lecteur.
+ANILIST_RELATIONS = {
+    "SEQUEL": "Suite",
+    "PREQUEL": "Préquelle",
+    "SIDE_STORY": "Histoire parallèle",
+    "SPIN_OFF": "Spin-off",
+    "PARENT": "Œuvre d'origine",
+    "SOURCE": "Œuvre d'origine",
+    "ADAPTATION": "Adaptation",
+    "ALTERNATIVE": "Version alternative",
+    "SUMMARY": "Résumé",
+    "CHARACTER": "",
+    "OTHER": "",
+}
+# Les orthographes alternatives données au lecteur de scan.
+_SCAN_ALT_MAX = 3
+
+
+def _scan_href(title, alt):
+    """Le lien vers le lecteur, avec les variantes de titre en renfort."""
+    href = f"/lecteur-scan?titre={quote(title)}"
+    if alt:
+        href += f"&alt={quote(alt)}"
+    return href
+
+
+def _scan_alt(node, title):
+    """Rōmaji, anglais et synonymes — ce que MangaDex indexe réellement.
+
+    La fiche affiche le titre « préféré » de l'utilisateur AniList, souvent
+    natif (« 鬼滅の刃 ») ; MangaDex, lui, classe « Kimetsu no Yaiba ». Sans
+    variante, la recherche ne trouvait rien sur la moitié des séries.
+    """
+    titles = node.get("title") if isinstance(node.get("title"), dict) else {}
+    vus = {str(title or "").strip().casefold()}
+    candidats = [
+        titles.get("romaji"),
+        titles.get("english"),
+        *(node.get("synonyms") or []),
+    ]
+    retenus = []
+    for brut in candidats:
+        valeur = str(brut or "").strip()[:80]
+        if not valeur or "|" in valeur:
+            continue
+        cle = valeur.casefold()
+        if cle in vus:
+            continue
+        vus.add(cle)
+        retenus.append(valeur)
+        if len(retenus) >= _SCAN_ALT_MAX:
+            break
+    return "|".join(retenus)
+
+
+def _anilist_relations(node):
+    """Les œuvres liées (suite, préquelle, manga d'origine…), triées utiles."""
+    raw = node.get("relations") if isinstance(node.get("relations"), dict) else {}
+    edges = raw.get("edges") if isinstance(raw.get("edges"), list) else []
+    ordre = list(ANILIST_RELATIONS).index
+    retenus = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        relation = str(edge.get("relationType") or "").upper()
+        label = ANILIST_RELATIONS.get(relation)
+        cible = edge.get("node") if isinstance(edge.get("node"), dict) else {}
+        cible_id = cible.get("id")
+        cible_type = str(cible.get("type") or "").lower()
+        if not label or not isinstance(cible_id, int) or cible_id <= 0:
+            continue
+        if cible_type not in ANILIST_MEDIA_TYPES:
+            continue
+        nom = cible.get("title") if isinstance(cible.get("title"), dict) else {}
+        titre = str(nom.get("userPreferred") or "").strip()
+        if not titre:
+            continue
+        retenus.append(
+            {
+                "relation": label,
+                "order": ordre(relation),
+                "id": cible_id,
+                "media_type": cible_type,
+                "title": titre[:120],
+                "format": ANILIST_FORMATS.get(
+                    str(cible.get("format") or "").upper(), ""
+                ),
+                "href": f"/details/{cible_type}/{cible_id}?tab=animes",
+            }
+        )
+    retenus.sort(key=lambda lien: lien["order"])
+    for lien in retenus:
+        lien.pop("order", None)
+    return retenus[:8]
+
+
+def _tmdb_relations(media_type, item_id, origin_tab="films"):
+    """Les titres recommandés par TMDB, présentés « dans le même univers ».
+
+    Même forme que les relations AniList : la fiche et la rangée d'accueil
+    affichent les deux sources avec le même gabarit, et chaque carte ouvre
+    NOTRE fiche — jamais TMDB.
+    """
+    try:
+        data = tmdb_get(
+            f"/{media_type}/{item_id}/recommendations", {"language": "fr-FR"}
+        )
+    except UpstreamServiceError:
+        return []
+    liens = []
+    vus = set()
+    for brut in _result_items(data):
+        if not isinstance(brut, dict) or not brut.get("poster_path"):
+            continue
+        cible_id = brut.get("id")
+        if not isinstance(cible_id, int) or cible_id <= 0 or cible_id in vus:
+            continue
+        titre = str(brut.get("title") or brut.get("name") or "").strip()
+        if not titre:
+            continue
+        vus.add(cible_id)
+        liens.append(
+            {
+                "relation": "À voir aussi",
+                "id": cible_id,
+                "media_type": media_type,
+                "title": titre[:120],
+                "format": "",
+                "href": f"/details/{media_type}/{cible_id}?tab={origin_tab}",
+            }
+        )
+        if len(liens) >= 8:
+            break
+    return liens
+
+
+def _anilist_score(node):
+    """AniList note sur 100 ; le panneau affiche sur 10, comme pour TMDB."""
+    try:
+        score = float(node.get("averageScore") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(score / 10, 1) if score > 0 else 0.0
+
+
+def _anilist_detail_item(node, kind):
+    """La fiche complète, au même format que celle que TMDB alimente."""
+    if not isinstance(node, dict) or node.get("isAdult"):
+        return None
+    title = _anilist_title(node)
+    media_id = node.get("id")
+    if not title or not isinstance(media_id, int) or media_id <= 0:
+        return None
+
+    cover = node.get("coverImage") if isinstance(node.get("coverImage"), dict) else {}
+    poster = _image_proxy_url(
+        cover.get("extraLarge") or cover.get("large") or cover.get("medium")
+    )
+    raw_format = str(node.get("format") or "").upper()[:12]
+    status_key = str(node.get("status") or "").upper()
+    country = str(node.get("countryOfOrigin") or "")[:2]
+    episodes = node.get("episodes")
+    chapters = node.get("chapters")
+    duration = node.get("duration")
+
+    extra_tags = []
+    label = ANILIST_FORMATS.get(raw_format, raw_format.title() if raw_format else "")
+    if label:
+        extra_tags.append(label)
+    if status_key in ANILIST_STATUSES:
+        extra_tags.append(ANILIST_STATUSES[status_key])
+    if kind == "manga":
+        if isinstance(chapters, int) and chapters > 0:
+            extra_tags.append(f"{chapters} chapitres")
+        volumes = node.get("volumes")
+        if isinstance(volumes, int) and volumes > 0:
+            extra_tags.append(f"{volumes} tomes")
+    else:
+        if isinstance(episodes, int) and episodes > 0:
+            extra_tags.append(f"{episodes} épisodes")
+    studio = _anilist_studio(node)
+    if studio:
+        extra_tags.append(studio)
+
+    source = str(node.get("siteUrl") or "").strip()
+    if not source.startswith("https://anilist.co/"):
+        source = f"https://anilist.co/{kind}/{media_id}"
+
+    return {
+        "id": media_id,
+        "media_type": kind,
+        "title": title,
+        "year": _anilist_year(node),
+        "rating": _anilist_score(node),
+        "overview": _anilist_plain_text(node.get("description"))
+        or "Pas de synopsis disponible.",
+        "poster": poster,
+        "backdrop": _image_proxy_url(node.get("bannerImage")) or poster,
+        "genres": [
+            str(genre)[:40] for genre in (node.get("genres") or []) if genre
+        ][:8],
+        "cast": _anilist_characters(node),
+        "runtime": duration if kind != "manga" and isinstance(duration, int) else None,
+        "original_language": "ja" if country == "JP" else "",
+        "origin_country": [country] if country else [],
+        "trailer_key": _anilist_trailer_key(node),
+        "extra_tags": extra_tags[:5],
+        "synonyms": [str(item)[:80] for item in (node.get("synonyms") or [])][:4],
+        "relations": _anilist_relations(node),
+        # Le lecteur de scan : un manga se lit tel quel, un anime renvoie vers
+        # son manga quand il existe. MangaDex indexe surtout le rōmaji, donc
+        # chaque orthographe connue est transmise comme variante de recherche.
+        "scan_href": _scan_href(title, _scan_alt(node, title)),
+        "scan_label": "LIRE LE SCAN (VF)" if kind == "manga" else "LIRE LE MANGA (VF)",
+        "source_name": "AniList",
+        "source_url": source[:200],
+    }
+
+
+def anilist_detail(media_id, kind):
+    """La fiche AniList d'un anime ou d'un manga, servie par notre panneau.
+
+    Lève ``UpstreamServiceError`` (page d'erreur propre) si AniList ne répond
+    pas, et un 404 si l'identifiant est inconnu ou réservé aux adultes.
+    """
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(404)
+    cache_key = ("anilist-detail", kind, media_id)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+
+    try:
+        response = requests.post(
+            ANILIST_URL,
+            json={
+                "query": ANILIST_DETAIL_QUERY,
+                "variables": {"id": media_id, "type": kind.upper()},
+            },
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "OmniStream/1.0 (fiche anime et manga)",
+            },
+            timeout=ANILIST_TIMEOUT,
+        )
+        data = response.json()
+    except requests.Timeout as exc:
+        raise UpstreamServiceError(
+            "AniList met trop de temps à répondre.", 504
+        ) from exc
+    except (requests.RequestException, ValueError) as exc:
+        app.logger.warning("Fiche AniList impossible", exc_info=True)
+        raise UpstreamServiceError(
+            "AniList est temporairement indisponible.", 502
+        ) from exc
+
+    if response.status_code == 429:
+        raise UpstreamServiceError(
+            "AniList limite le nombre de requêtes. Réessayez dans un instant.", 503
+        )
+    if response.status_code >= 400 or not isinstance(data, dict):
+        raise UpstreamServiceError("AniList a refusé la demande de fiche.", 502)
+
+    root = data.get("data") if isinstance(data.get("data"), dict) else {}
+    node = root.get("Media")
+    item = _anilist_detail_item(node, kind) if isinstance(node, dict) else None
+    if not item:
+        abort(404, description="Cette fiche n'existe pas dans le catalogue AniList.")
+    return _cache_set(cache_key, item, ttl=ANILIST_CACHE_TTL)
+
+
+# ---------------------------------------------------------------------------
+# AniList — CATALOGUE « Animés & Mangas » (grille, sous-genres et tris)
+# ---------------------------------------------------------------------------
+# Cet onglet ne puise QUE dans AniList : TMDB ignore les mangas et classe mal
+# une partie des animes, mélanger les deux catalogues ferait apparaître des
+# films d'animation là où le visiteur attend un anime. Aucune carte de cet
+# onglet ne vient donc d'ailleurs, et chacune ouvre notre propre fiche.
+ANILIST_PER_PAGE = 20
+# Bande de rotation : deux pages AniList de cinquante titres, réordonnées puis
+# servies cinq pages du site par cinq. Sans cette réserve, la première page
+# aurait toujours été les vingt mêmes titres.
+ANILIST_POOL_PER_PAGE = 50
+ANILIST_POOL_PAGES = 2
+# MAX_PAGES (25) est calibré pour TMDB, dont le catalogue film/série tient dans
+# 500 cartes. AniList en compte des dizaines de milliers : s'en tenir à 25 pages
+# arrêtait la grille à 500 titres et le défilement infini s'arrêtait net, alors
+# que le visiteur s'attend à parcourir TOUT l'onglet. AniList accepte 50 titres
+# par page ; 250 pages donnent 12 500 fiches avant le plafond.
+ANILIST_MAX_PAGES = 250
+ANILIST_CATALOGUE_TTL = 600
+ANILIST_TAGS_TTL = 24 * 3600
+
+ANILIST_LIST_QUERY = """
+fragment carte on Media {
+  id
+  type
+  format
+  isAdult
+  seasonYear
+  countryOfOrigin
+  averageScore
+  startDate { year }
+  title { romaji english native userPreferred }
+  coverImage { medium large extraLarge }
+  bannerImage
+}
+query ($page: Int, $perPage: Int, $type: MediaType, $genre: String, $tag: String,
+       $sort: [MediaSort], $scoreMin: Int, $yearMin: Int,
+       $durationMin: Int, $durationMax: Int) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { total currentPage lastPage hasNextPage perPage }
+    media(type: $type, genre: $genre, tag: $tag, sort: $sort,
+          averageScore_greater: $scoreMin, seasonYear_greater: $yearMin,
+          duration_greater: $durationMin, duration_lesser: $durationMax,
+          isAdult: false, format_not_in: [MUSIC]) {
+      ...carte
+    }
+  }
+}
+"""
+
+ANILIST_TAGS_QUERY = "query { MediaTagCollection { name isAdult } }"
+
+# Genres AniList (liste fermée et stable) avec leur libellé français.
+ANILIST_GENRES = [
+    {"id": "action", "label": "Action", "genre": "Action"},
+    {"id": "aventure", "label": "Aventure", "genre": "Adventure"},
+    {"id": "comedie", "label": "Comédie", "genre": "Comedy"},
+    {"id": "drame", "label": "Drame", "genre": "Drama"},
+    {"id": "fantasy", "label": "Fantasy", "genre": "Fantasy"},
+    {"id": "horreur", "label": "Horreur", "genre": "Horror"},
+    {"id": "romance", "label": "Romance", "genre": "Romance"},
+    {"id": "sf", "label": "Science-fiction", "genre": "Sci-Fi"},
+    {"id": "tranche-de-vie", "label": "Tranche de vie", "genre": "Slice of Life"},
+    {"id": "sport", "label": "Sport", "genre": "Sports"},
+    {"id": "surnaturel", "label": "Surnaturel", "genre": "Supernatural"},
+    {"id": "mecha", "label": "Mecha", "genre": "Mecha"},
+    {"id": "musique", "label": "Musique", "genre": "Music"},
+    {"id": "mystere", "label": "Mystère", "genre": "Mystery"},
+    {"id": "psychologique", "label": "Psychologique", "genre": "Psychological"},
+    {"id": "thriller", "label": "Thriller", "genre": "Thriller"},
+    {"id": "ecchi", "label": "Ecchi", "genre": "Ecchi"},
+    {"id": "magical-girl", "label": "Magical Girl", "genre": "Mahou Shoujo"},
+]
+
+# Thèmes AniList (étiquettes) : c'est ici que vivent Zombie, Isekai,
+# Shōnen, Réincarnation… Chaque étiquette est vérifiée à chaud contre la
+# liste officielle d'AniList (anilist_known_tags) : une étiquette qu'AniList
+# ne connaît pas disparaît des pastilles plutôt que de renvoyer une grille
+# vide. Les listes sont volontairement longues — l'onglet doit couvrir les
+# mêmes rayons que l'onglet Films, pas seulement une poignée de classiques.
+ANILIST_THEMES_ANIME = [
+    {"id": "zombie", "label": "Zombie", "tag": "Zombie"},
+    {"id": "isekai", "label": "Isekai", "tag": "Isekai"},
+    {"id": "reincarnation", "label": "Réincarnation", "tag": "Reincarnation"},
+    {"id": "transmigration", "label": "Transmigration", "tag": "Transmigration"},
+    {"id": "harem", "label": "Harem", "tag": "Harem"},
+    {"id": "arts-martiaux", "label": "Arts martiaux", "tag": "Martial Arts"},
+    {"id": "ecole", "label": "École", "tag": "School"},
+    {"id": "club-scolaire", "label": "Club scolaire", "tag": "School Club"},
+    {"id": "professeur", "label": "Professeur", "tag": "Teacher"},
+    {"id": "militaire", "label": "Militaire", "tag": "Military"},
+    {"id": "guerre", "label": "Guerre", "tag": "War"},
+    {"id": "historique", "label": "Historique", "tag": "Historical"},
+    {"id": "mythologie", "label": "Mythologie", "tag": "Mythology"},
+    {"id": "samourai", "label": "Samouraï", "tag": "Samurai"},
+    {"id": "ninja", "label": "Ninja", "tag": "Ninja"},
+    {"id": "pirates", "label": "Pirates", "tag": "Pirates"},
+    {"id": "tragedie", "label": "Tragédie", "tag": "Tragedy"},
+    {"id": "gore", "label": "Gore", "tag": "Gore"},
+    {"id": "vampire", "label": "Vampire", "tag": "Vampire"},
+    {"id": "loup-garou", "label": "Loup-garou", "tag": "Werewolf"},
+    {"id": "sorciere", "label": "Sorcière", "tag": "Witch"},
+    {"id": "anges", "label": "Anges", "tag": "Angels"},
+    {"id": "demons", "label": "Démons", "tag": "Demons"},
+    {"id": "fantomes", "label": "Fantômes", "tag": "Ghost"},
+    {"id": "espace", "label": "Espace", "tag": "Space"},
+    {"id": "space-opera", "label": "Space opera", "tag": "Space Opera"},
+    {"id": "steampunk", "label": "Steampunk", "tag": "Steampunk"},
+    {"id": "robots", "label": "Robots", "tag": "Robots"},
+    {"id": "detective", "label": "Détective", "tag": "Detective"},
+    {"id": "crime", "label": "Crime", "tag": "Crime"},
+    {"id": "yakuza", "label": "Yakuza", "tag": "Yakuza"},
+    {"id": "mafia", "label": "Mafia", "tag": "Mafia"},
+    {"id": "prison", "label": "Prison", "tag": "Prison"},
+    {"id": "vengeance", "label": "Vengeance", "tag": "Revenge"},
+    {"id": "super-pouvoir", "label": "Super-pouvoir", "tag": "Super Power"},
+    {"id": "super-heros", "label": "Super-héros", "tag": "Super Hero"},
+    {"id": "magie", "label": "Magie", "tag": "Magic"},
+    {"id": "idols", "label": "Idoles", "tag": "Idols"},
+    {"id": "groupe-de-musique", "label": "Groupe de musique", "tag": "Band"},
+    {"id": "post-apo", "label": "Post-apocalyptique", "tag": "Post-Apocalyptic"},
+    {"id": "dystopie", "label": "Dystopie", "tag": "Dystopian"},
+    {"id": "survie", "label": "Survie", "tag": "Survival"},
+    {"id": "jeu-de-la-mort", "label": "Jeu de la mort", "tag": "Death Game"},
+    {"id": "jeux-video", "label": "Jeux vidéo", "tag": "Video Games"},
+    {"id": "esport", "label": "E-sport", "tag": "E-Sports"},
+    {"id": "espionnage", "label": "Espionnage", "tag": "Espionage"},
+    {"id": "voyage-temporel", "label": "Voyage dans le temps", "tag": "Time Travel"},
+    {"id": "saut-temporel", "label": "Saut dans le temps", "tag": "Time Skip"},
+    {"id": "mondes-paralleles", "label": "Mondes parallèles", "tag": "Parallel World"},
+    {"id": "amnesie", "label": "Amnésie", "tag": "Amnesia"},
+    {"id": "echange-de-corps", "label": "Échange de corps", "tag": "Bodyswap"},
+    {"id": "triangle-amoureux", "label": "Triangle amoureux", "tag": "Love Triangle"},
+    {"id": "yuri", "label": "Yuri", "tag": "Girls' Love"},
+    {"id": "yaoi", "label": "Boys' Love", "tag": "Boys' Love"},
+    {"id": "tsundere", "label": "Tsundere", "tag": "Tsundere"},
+    {"id": "yandere", "label": "Yandere", "tag": "Yandere"},
+    {"id": "delinquants", "label": "Délinquants", "tag": "Delinquents"},
+    {"id": "otaku", "label": "Culture otaku", "tag": "Otaku Culture"},
+    {"id": "cosplay", "label": "Cosplay", "tag": "Cosplay"},
+    {"id": "parodie", "label": "Parodie", "tag": "Parody"},
+    {
+        "id": "passage-a-l-age-adulte",
+        "label": "Passage à l'âge adulte",
+        "tag": "Coming of Age",
+    },
+    {"id": "iyashikei", "label": "Iyashikei (apaisant)", "tag": "Iyashikei"},
+    {"id": "cuisine", "label": "Cuisine", "tag": "Food"},
+    {"id": "medecin", "label": "Médical", "tag": "Medical"},
+    {"id": "politique", "label": "Politique", "tag": "Politics"},
+    {"id": "theatre", "label": "Théâtre", "tag": "Theater"},
+    {"id": "calligraphie", "label": "Calligraphie", "tag": "Calligraphy"},
+    {"id": "wuxia", "label": "Wuxia", "tag": "Wuxia"},
+    {
+        "id": "litterature-classique",
+        "label": "Littérature classique",
+        "tag": "Classic Literature",
+    },
+    {"id": "monstres", "label": "Monstres", "tag": "Monster"},
+    {"id": "donjon", "label": "Donjon", "tag": "Dungeon"},
+    {"id": "slime", "label": "Slime", "tag": "Slime"},
+    {"id": "necromancien", "label": "Nécromancien", "tag": "Necromancer"},
+    {"id": "elfes", "label": "Elfes", "tag": "Elves"},
+    {"id": "sports-de-balle", "label": "Basket-ball", "tag": "Basketball"},
+    {"id": "football", "label": "Football", "tag": "Soccer"},
+    {"id": "volley", "label": "Volley-ball", "tag": "Volleyball"},
+    {"id": "tennis", "label": "Tennis", "tag": "Tennis"},
+    {"id": "baseball", "label": "Base-ball", "tag": "Baseball"},
+    {"id": "natation", "label": "Natation", "tag": "Swimming"},
+    {"id": "athletisme", "label": "Athlétisme", "tag": "Athletics"},
+    {"id": "boxe", "label": "Boxe", "tag": "Boxing"},
+    {"id": "kendo", "label": "Kendo", "tag": "Kendo"},
+    {"id": "judo", "label": "Judo", "tag": "Judo"},
+    {"id": "sumo", "label": "Sumo", "tag": "Sumo"},
+    {"id": "catch", "label": "Catch", "tag": "Wrestling"},
+    {"id": "course-auto", "label": "Course automobile", "tag": "Motorsport"},
+    {"id": "velo", "label": "Cyclisme", "tag": "Cycling"},
+    {"id": "peche", "label": "Pêche", "tag": "Fishing"},
+    {"id": "camping", "label": "Plein air", "tag": "Outdoor"},
+    {"id": "skate", "label": "Skateboard", "tag": "Skateboarding"},
+    {"id": "patinage", "label": "Patinage", "tag": "Ice Skating"},
+    {"id": "gymnastique", "label": "Gymnastique", "tag": "Gymnastics"},
+    {"id": "echecs", "label": "Shōgi", "tag": "Shogi"},
+    {"id": "mahjong", "label": "Mah-jong", "tag": "Mahjong"},
+    {"id": "gambling", "label": "Jeu d'argent", "tag": "Gambling"},
+    {"id": "cartes", "label": "Jeux de cartes", "tag": "Cards"},
+    {"id": "tokusatsu", "label": "Tokusatsu", "tag": "Tokusatsu"},
+    {"id": "vtuber", "label": "VTuber", "tag": "VTuber"},
+    {"id": "maids", "label": "Maids", "tag": "Maids"},
+    {"id": "shrine-maiden", "label": "Miko", "tag": "Shrine Maiden"},
+    {"id": "chibi", "label": "Chibi", "tag": "Chibi"},
+    {"id": "voyage", "label": "Voyage", "tag": "Travel"},
+]
+
+ANILIST_THEMES_MANGA = [
+    {"id": "shonen", "label": "Shōnen", "tag": "Shounen"},
+    {"id": "shojo", "label": "Shōjo", "tag": "Shoujo"},
+    {"id": "seinen", "label": "Seinen", "tag": "Seinen"},
+    {"id": "josei", "label": "Josei", "tag": "Josei"},
+    {"id": "kodomo", "label": "Kodomo (enfants)", "tag": "Kids"},
+    {"id": "isekai", "label": "Isekai", "tag": "Isekai"},
+    {"id": "reincarnation", "label": "Réincarnation", "tag": "Reincarnation"},
+    {"id": "transmigration", "label": "Transmigration", "tag": "Transmigration"},
+    {"id": "villainess", "label": "Villainesse (otome)", "tag": "Villainess"},
+    {"id": "harem", "label": "Harem", "tag": "Harem"},
+    {"id": "arts-martiaux", "label": "Arts martiaux", "tag": "Martial Arts"},
+    {"id": "ecole", "label": "École", "tag": "School"},
+    {"id": "club-scolaire", "label": "Club scolaire", "tag": "School Club"},
+    {"id": "professeur", "label": "Professeur", "tag": "Teacher"},
+    {"id": "historique", "label": "Historique", "tag": "Historical"},
+    {"id": "mythologie", "label": "Mythologie", "tag": "Mythology"},
+    {"id": "samourai", "label": "Samouraï", "tag": "Samurai"},
+    {"id": "ninja", "label": "Ninja", "tag": "Ninja"},
+    {"id": "pirates", "label": "Pirates", "tag": "Pirates"},
+    {"id": "wuxia", "label": "Wuxia", "tag": "Wuxia"},
+    {"id": "medieval", "label": "Médiéval", "tag": "Medieval"},
+    {"id": "detective", "label": "Policier / Détective", "tag": "Detective"},
+    {"id": "crime", "label": "Crime", "tag": "Crime"},
+    {"id": "yakuza", "label": "Yakuza", "tag": "Yakuza"},
+    {"id": "mafia", "label": "Mafia", "tag": "Mafia"},
+    {"id": "triades", "label": "Triades", "tag": "Triads"},
+    {"id": "prison", "label": "Prison", "tag": "Prison"},
+    {"id": "vengeance", "label": "Vengeance", "tag": "Revenge"},
+    {"id": "tragedie", "label": "Tragédie", "tag": "Tragedy"},
+    {"id": "gore", "label": "Gore", "tag": "Gore"},
+    {"id": "cannibalisme", "label": "Cannibalisme", "tag": "Cannibalism"},
+    {"id": "vampire", "label": "Vampire", "tag": "Vampire"},
+    {"id": "loup-garou", "label": "Loup-garou", "tag": "Werewolf"},
+    {"id": "sorciere", "label": "Sorcière", "tag": "Witch"},
+    {"id": "anges", "label": "Anges", "tag": "Angels"},
+    {"id": "demons", "label": "Démons", "tag": "Demons"},
+    {"id": "fantomes", "label": "Fantômes", "tag": "Ghost"},
+    {"id": "zombie", "label": "Zombie", "tag": "Zombie"},
+    {"id": "monstres", "label": "Monstres", "tag": "Monster"},
+    {"id": "fille-monstre", "label": "Monster girl", "tag": "Monster Girl"},
+    {"id": "donjon", "label": "Donjon", "tag": "Dungeon"},
+    {"id": "slime", "label": "Slime", "tag": "Slime"},
+    {"id": "necromancien", "label": "Nécromancien", "tag": "Necromancer"},
+    {"id": "elfes", "label": "Elfes", "tag": "Elves"},
+    {"id": "fees", "label": "Fées", "tag": "Faeries"},
+    {"id": "magie", "label": "Magie", "tag": "Magic"},
+    {"id": "tag-magical-girl", "label": "Magical girl", "tag": "Magical Girl"},
+    {"id": "super-pouvoir", "label": "Super-pouvoir", "tag": "Super Power"},
+    {"id": "super-heros", "label": "Super-héros", "tag": "Super Hero"},
+    {"id": "militaire", "label": "Militaire", "tag": "Military"},
+    {"id": "guerre", "label": "Guerre", "tag": "War"},
+    {"id": "espace", "label": "Espace", "tag": "Space"},
+    {"id": "robots", "label": "Robots", "tag": "Robots"},
+    {"id": "steampunk", "label": "Steampunk", "tag": "Steampunk"},
+    {"id": "post-apo", "label": "Post-apocalyptique", "tag": "Post-Apocalyptic"},
+    {"id": "dystopie", "label": "Dystopie", "tag": "Dystopian"},
+    {"id": "survie", "label": "Survie", "tag": "Survival"},
+    {"id": "jeu-de-la-mort", "label": "Jeu de la mort", "tag": "Death Game"},
+    {"id": "gambling", "label": "Jeu d'argent", "tag": "Gambling"},
+    {"id": "cartes", "label": "Jeux de cartes", "tag": "Cards"},
+    {"id": "mahjong", "label": "Mah-jong", "tag": "Mahjong"},
+    {"id": "echecs", "label": "Shōgi", "tag": "Shogi"},
+    {"id": "puzzle", "label": "Énigmes", "tag": "Puzzle"},
+    {"id": "jeux-video", "label": "Jeux vidéo", "tag": "Video Games"},
+    {"id": "esport", "label": "E-sport", "tag": "E-Sports"},
+    {"id": "idols", "label": "Idoles", "tag": "Idols"},
+    {"id": "groupe-de-musique", "label": "Groupe de musique", "tag": "Band"},
+    {"id": "cosplay", "label": "Cosplay", "tag": "Cosplay"},
+    {"id": "otaku", "label": "Culture otaku", "tag": "Otaku Culture"},
+    {"id": "vtuber", "label": "VTuber", "tag": "VTuber"},
+    {"id": "maids", "label": "Maids", "tag": "Maids"},
+    {"id": "shrine-maiden", "label": "Miko", "tag": "Shrine Maiden"},
+    {"id": "voyage-temporel", "label": "Voyage dans le temps", "tag": "Time Travel"},
+    {"id": "saut-temporel", "label": "Saut dans le temps", "tag": "Time Skip"},
+    {"id": "mondes-paralleles", "label": "Mondes parallèles", "tag": "Parallel World"},
+    {"id": "amnesie", "label": "Amnésie", "tag": "Amnesia"},
+    {"id": "echange-de-corps", "label": "Échange de corps", "tag": "Bodyswap"},
+    {"id": "triangle-amoureux", "label": "Triangle amoureux", "tag": "Love Triangle"},
+    {"id": "yuri", "label": "Yuri", "tag": "Girls' Love"},
+    {"id": "yaoi", "label": "Boys' Love", "tag": "Boys' Love"},
+    {"id": "tsundere", "label": "Tsundere", "tag": "Tsundere"},
+    {"id": "yandere", "label": "Yandere", "tag": "Yandere"},
+    {"id": "delinquants", "label": "Délinquants", "tag": "Delinquents"},
+    {"id": "hikikomori", "label": "Hikikomori", "tag": "Hikikomori"},
+    {"id": "neet", "label": "NEET", "tag": "Neet"},
+    {
+        "id": "passage-a-l-age-adulte",
+        "label": "Passage à l'âge adulte",
+        "tag": "Coming of Age",
+    },
+    {"id": "iyashikei", "label": "Iyashikei (apaisant)", "tag": "Iyashikei"},
+    {"id": "parodie", "label": "Parodie", "tag": "Parody"},
+    {"id": "satire", "label": "Satire", "tag": "Satire"},
+    {"id": "cuisine", "label": "Cuisine", "tag": "Food"},
+    {"id": "mode", "label": "Mode", "tag": "Fashion"},
+    {"id": "art", "label": "Art", "tag": "Art"},
+    {"id": "dessin", "label": "Dessin", "tag": "Drawing"},
+    {"id": "ecriture", "label": "Écriture", "tag": "Writing"},
+    {"id": "photographie", "label": "Photographie", "tag": "Photography"},
+    {"id": "calligraphie", "label": "Calligraphie", "tag": "Calligraphy"},
+    {"id": "theatre", "label": "Théâtre", "tag": "Theater"},
+    {"id": "danse", "label": "Danse", "tag": "Dancing"},
+    {"id": "medecin", "label": "Médical", "tag": "Medical"},
+    {"id": "politique", "label": "Politique", "tag": "Politics"},
+    {"id": "economie", "label": "Économie", "tag": "Economics"},
+    {"id": "philosophie", "label": "Philosophie", "tag": "Philosophy"},
+    {"id": "religion", "label": "Folklore", "tag": "Folklore"},
+    {"id": "animaux", "label": "Animaux", "tag": "Animals"},
+    {"id": "chiens", "label": "Chiens", "tag": "Dogs"},
+    {"id": "famille", "label": "Famille", "tag": "Family"},
+    {"id": "adoption", "label": "Adoption", "tag": "Adoption"},
+    {"id": "mariage", "label": "Mariage", "tag": "Marriage"},
+    {"id": "bureaucratie", "label": "Office lady", "tag": "Office Lady"},
+    {"id": "butlers", "label": "Butlers", "tag": "Butlers"},
+    {"id": "camping", "label": "Plein air", "tag": "Outdoor"},
+    {"id": "peche", "label": "Pêche", "tag": "Fishing"},
+    {"id": "voyage", "label": "Voyage", "tag": "Travel"},
+    {"id": "sports-de-balle", "label": "Basket-ball", "tag": "Basketball"},
+    {"id": "football", "label": "Football", "tag": "Soccer"},
+    {"id": "volley", "label": "Volley-ball", "tag": "Volleyball"},
+    {"id": "tennis", "label": "Tennis", "tag": "Tennis"},
+    {"id": "baseball", "label": "Base-ball", "tag": "Baseball"},
+    {"id": "natation", "label": "Natation", "tag": "Swimming"},
+    {"id": "boxe", "label": "Boxe", "tag": "Boxing"},
+    {"id": "kendo", "label": "Kendo", "tag": "Kendo"},
+    {"id": "sumo", "label": "Sumo", "tag": "Sumo"},
+    {"id": "course-auto", "label": "Course automobile", "tag": "Motorsport"},
+    {"id": "skate", "label": "Skateboard", "tag": "Skateboarding"},
+    {"id": "gymnastique", "label": "Gymnastique", "tag": "Gymnastics"},
+]
+
+# Tris proposés. Chacun est strict : un seul critère à la fois, jamais de
+# mélange entre deux catalogues ni entre deux époques.
+ANILIST_SORTS = [
+    {"id": "tendances", "label": "Tendances", "sort": "TRENDING_DESC"},
+    {"id": "populaires", "label": "Les plus vus", "sort": "POPULARITY_DESC"},
+    {"id": "recent", "label": "Dernière génération", "sort": "START_DATE_DESC"},
+    {"id": "nouveautes", "label": "Ajouts récents", "sort": "ID_DESC"},
+    {"id": "note85", "label": "Note ≥ 8,5", "sort": "SCORE_DESC"},
+]
+# « 3 dernières années » n'est pas un tri mais une fenêtre : on garde le tri
+# par date de sortie et on coupe tout ce qui est plus ancien.
+ANILIST_RECENT_WINDOW_YEARS = 3
+ANILIST_SCORE_MINIMUM = 85  # AniList note sur 100 : 8,5 sur 10.
+
+
+def anilist_themes(kind):
+    return ANILIST_THEMES_MANGA if kind == "manga" else ANILIST_THEMES_ANIME
+
+
+def anilist_pill(kind, pill_id):
+    """Retrouve un sous-genre par identifiant, ou None s'il n'existe pas."""
+    for pill in ANILIST_GENRES + anilist_themes(kind):
+        if pill["id"] == pill_id:
+            return pill
+    return None
+
+
+def anilist_sort(sort_id):
+    for item in ANILIST_SORTS:
+        if item["id"] == sort_id:
+            return item
+    return ANILIST_SORTS[0]
+
+
+def _anilist_post(query, variables, timeout=ANILIST_TIMEOUT):
+    """Un appel GraphQL AniList. Renvoie ``data`` ou lève UpstreamServiceError."""
+    try:
+        response = requests.post(
+            ANILIST_URL,
+            json={"query": query, "variables": variables},
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "OmniStream/1.0 (catalogue animes et mangas)",
+            },
+            timeout=timeout,
+        )
+        payload = response.json()
+    except requests.Timeout as exc:
+        raise UpstreamServiceError(
+            "AniList met trop de temps à répondre.", 504
+        ) from exc
+    except (requests.RequestException, ValueError) as exc:
+        app.logger.warning("Catalogue AniList impossible", exc_info=True)
+        raise UpstreamServiceError(
+            "AniList est temporairement indisponible.", 502
+        ) from exc
+
+    if response.status_code == 429:
+        raise UpstreamServiceError(
+            "AniList limite le nombre de requêtes. Réessayez dans un instant.", 503
+        )
+    if response.status_code >= 400 or not isinstance(payload, dict):
+        raise UpstreamServiceError("AniList a refusé la demande.", 502)
+    data = payload.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def anilist_known_tags():
+    """Les étiquettes réellement connues d'AniList, ou None si injoignable.
+
+    Sert à ne jamais proposer un bouton qui renverrait une liste vide parce
+    que son étiquette n'existe pas. Si AniList ne répond pas, on garde tous
+    les boutons : mieux vaut un onglet vide expliqué qu'un filtre amputé.
+    """
+    cached = _cache_get(("anilist-tags",))
+    if cached is not _CACHE_MISSING:
+        return cached
+    try:
+        data = _anilist_post(ANILIST_TAGS_QUERY, {}, timeout=10)
+    except UpstreamServiceError:
+        return None
+    collection = data.get("MediaTagCollection")
+    if not isinstance(collection, list):
+        return None
+    names = {
+        str(tag["name"])
+        for tag in collection
+        if isinstance(tag, dict)
+        and isinstance(tag.get("name"), str)
+        and not tag.get("isAdult")
+    }
+    if not names:
+        return None
+    return _cache_set(("anilist-tags",), names, ttl=ANILIST_TAGS_TTL)
+
+
+def _anilist_card(node, kind):
+    """Une carte de grille, au même format que celles venues de TMDB."""
+    if not isinstance(node, dict) or node.get("isAdult"):
+        return None
+    title = _anilist_title(node)
+    media_id = node.get("id")
+    if not title or not isinstance(media_id, int) or media_id <= 0:
+        return None
+    cover = node.get("coverImage") if isinstance(node.get("coverImage"), dict) else {}
+    poster = _image_proxy_url(cover.get("large") or cover.get("medium"))
+    if not poster:
+        # Sans affiche, la carte serait un trou gris dans la grille.
+        return None
+    banner = _image_proxy_url(node.get("bannerImage"))
+    country = str(node.get("countryOfOrigin") or "")[:2]
+    return {
+        "id": media_id,
+        "media_type": kind,
+        "title": title,
+        "year": _anilist_year(node),
+        "date": "",
+        "rating": _anilist_score(node),
+        "poster": poster,
+        "poster_small": _image_proxy_url(cover.get("medium")) or poster,
+        "backdrop": banner or poster,
+        "overview": "",
+        "original_language": "ja" if country == "JP" else "",
+        "origin_country": [country] if country else [],
+        "format": str(node.get("format") or "").upper()[:12],
+    }
+
+
+def _anilist_page_nodes(data):
+    page = data.get("Page") if isinstance(data.get("Page"), dict) else {}
+    nodes = page.get("media") if isinstance(page.get("media"), list) else []
+    info = page.get("pageInfo") if isinstance(page.get("pageInfo"), dict) else {}
+    return nodes, info
+
+
+def anilist_catalogue(
+    kind,
+    pill_id="all",
+    sort_id="tendances",
+    page=1,
+    seed="0",
+    preset=None,
+    duree=None,
+):
+    """Une page du catalogue AniList : cartes, page courante, suite ou pas."""
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(400, description="Type de média inconnu.")
+    page = max(1, min(int(page or 1), ANILIST_MAX_PAGES))
+    pill = None if pill_id in {"", "all"} else anilist_pill(kind, pill_id)
+    if pill_id not in {"", "all"} and pill is None:
+        abort(400, description="Sous-genre d'anime ou de manga invalide.")
+    chosen_sort = anilist_sort(sort_id)
+
+    # La durée n'a de sens que pour les animes : un manga n'a pas de minutes.
+    plage = DUREES.get(duree) if duree and kind == "anime" else None
+
+    band, slot = _rotation_band(page)
+    base_variables = {
+        "type": kind.upper(),
+        "genre": pill.get("genre") if pill and "genre" in pill else None,
+        "tag": pill.get("tag") if pill and "tag" in pill else None,
+        "sort": [chosen_sort["sort"]],
+        "scoreMin": ANILIST_SCORE_MINIMUM if chosen_sort["id"] == "note85" else None,
+        "yearMin": (
+            datetime.datetime.now(datetime.timezone.utc).year
+            - ANILIST_RECENT_WINDOW_YEARS
+            if chosen_sort["id"] == "recent"
+            else None
+        ),
+        "durationMin": plage[0] if plage else None,
+        "durationMax": plage[1] if plage else None,
+    }
+
+    # Une bande de cent titres, lue en deux pages de cinquante (le maximum
+    # qu'AniList accorde). Chaque page source a son propre cache : les cinq
+    # pages du site qui découlent d'une bande ne repaient pas l'appel.
+    candidats = []
+    info = {}
+    for decalage in range(ANILIST_POOL_PAGES):
+        source = band * ANILIST_POOL_PAGES + decalage + 1
+        variables = {
+            **base_variables,
+            "page": source,
+            "perPage": ANILIST_POOL_PER_PAGE,
+        }
+        page_key = (
+            "anilist-pool",
+            kind,
+            pill_id,
+            chosen_sort["id"],
+            source,
+            variables["yearMin"],
+            variables["durationMin"],
+            variables["durationMax"],
+        )
+        cached = _cache_get(page_key)
+        if cached is _CACHE_MISSING:
+            cached = _cache_set(
+                page_key,
+                _anilist_page_nodes(_anilist_post(ANILIST_LIST_QUERY, variables)),
+                ttl=ANILIST_CATALOGUE_TTL,
+            )
+        nodes, info = cached
+        candidats.extend(
+            carte for carte in (_anilist_card(node, kind) for node in nodes) if carte
+        )
+
+    ordonne = rotation_order(
+        candidats,
+        f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}",
+        preset,
+    )
+    debut = slot * ANILIST_PER_PAGE
+    items = ordonne[debut : debut + ANILIST_PER_PAGE]
+    total = info.get("total")
+    if isinstance(total, int) and total > 0:
+        # Une bande de 100 titres alimente cinq pages du site : la borne se
+        # déduit du total, pas du nombre de pages déjà servies.
+        suite = page * ANILIST_PER_PAGE < total
+    else:
+        suite = bool(info.get("hasNextPage"))
+    return {
+        "items": items,
+        "page": page,
+        "has_more": suite and page < ANILIST_MAX_PAGES,
+        "total": total,
+    }
+
+
+# « Au hasard » : AniList n'a pas de tri aléatoire, on tire donc une page au
+# sort dans la partie profonde du catalogue. La profondeur est bornée pour ne
+# jamais atterrir sur les queues vides, et trois essais suffisent à retomber
+# sur une page pleine.
+# La pioche se compte en BANDES de cent titres, pas en pages : une page prise
+# au hasard tomberait le plus souvent sur un emplacement vide au milieu d'une
+# bande. 50 bandes × 5 pages = exactement ANILIST_MAX_PAGES : la pioche ne
+# peut pas proposer une page que le catalogue refuserait ensuite.
+ANILIST_RANDOM_MAX_BAND = ANILIST_MAX_PAGES // ROTATION_BAND_PAGES
+ANILIST_RANDOM_TRIES = 3
+
+
+def anilist_hasard(kind, seed=None):
+    """Une bande tirée au sort dans le catalogue, pour découvrir sans choisir."""
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(400, description="Type de média inconnu.")
+    tirage = random.Random(seed) if seed is not None else random  # nosec B311
+    for _ in range(ANILIST_RANDOM_TRIES):
+        band = tirage.randint(1, ANILIST_RANDOM_MAX_BAND)
+        # Première page de la bande : c'est là que se trouvent les titres.
+        page = (band - 1) * ROTATION_BAND_PAGES + 1
+        resultat = anilist_catalogue(kind, "all", "tendances", page)
+        if resultat["items"]:
+            return {**resultat, "page": page, "random": True}
+    return {"items": [], "page": 1, "has_more": False, "total": 0, "random": True}
+
+
+# ---------------------------------------------------------------------------
+# Calendrier : les épisodes qui sortent cette semaine
+# ---------------------------------------------------------------------------
+# AniList tient à jour l'heure de diffusion de chaque épisode. C'est la seule
+# des cinq idées proposées qui demande une requête de plus : `airingSchedules`
+# n'est pas dans la requête de catalogue, et l'y ajouter aurait alourdi chaque
+# page de la grille pour un bandeau qui ne sert qu'une fois.
+ANILIST_AIRING_QUERY = """
+query ($page: Int, $perPage: Int, $debut: Int, $fin: Int, $type: MediaType) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { total hasNextPage }
+    airingSchedules(
+      airingAt_greater: $debut
+      airingAt_lesser: $fin
+      sort: TIME
+    ) {
+      airingAt
+      episode
+      mediaId
+      media {
+        id
+        type
+        format
+        isAdult
+        countryOfOrigin
+        averageScore
+        title { romaji english native userPreferred }
+        coverImage { medium large extraLarge }
+      }
+    }
+  }
+}
+"""
+ANILIST_AIRING_PER_PAGE = 30
+ANILIST_AIRING_DAYS = 7
+ANILIST_AIRING_TTL = 900
+
+
+def anilist_calendrier(kind, page=1):
+    """Les prochains épisodes diffusés, du plus proche au plus lointain."""
+    if kind not in ANILIST_MEDIA_TYPES:
+        abort(400, description="Type de média inconnu.")
+    page = max(1, min(int(page or 1), MAX_PAGES))
+    maintenant = datetime.datetime.now(datetime.timezone.utc)
+    debut = int(maintenant.timestamp())
+    fin = int((maintenant + datetime.timedelta(days=ANILIST_AIRING_DAYS)).timestamp())
+
+    cache_key = ("anilist-calendrier", kind, page, debut // 300)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+
+    donnees = _anilist_post(
+        ANILIST_AIRING_QUERY,
+        {
+            "page": page,
+            "perPage": ANILIST_AIRING_PER_PAGE,
+            "debut": debut,
+            "fin": fin,
+            "type": kind.upper(),
+        },
+    )
+    racine = donnees.get("Page") if isinstance(donnees.get("Page"), dict) else {}
+    lignes = racine.get("airingSchedules")
+    lignes = lignes if isinstance(lignes, list) else []
+    info = racine.get("pageInfo") if isinstance(racine.get("pageInfo"), dict) else {}
+
+    items = []
+    for ligne in lignes:
+        item = _anilist_airing_item(ligne, kind)
+        if item:
+            items.append(item)
+
+    payload = {
+        "items": items,
+        "page": page,
+        "has_more": bool(info.get("hasNextPage")),
+        "fenetre_jours": ANILIST_AIRING_DAYS,
+    }
+    return _cache_set(cache_key, payload, ttl=ANILIST_AIRING_TTL)
+
+
+def _anilist_airing_item(ligne, kind):
+    """Une ligne du calendrier, ou None si elle n'est pas publiable."""
+    if not isinstance(ligne, dict):
+        return None
+    media = ligne.get("media") if isinstance(ligne.get("media"), dict) else {}
+    if media.get("isAdult") or str(media.get("type") or "").lower() != kind:
+        return None
+    carte = _anilist_card(media, kind)
+    if not carte:
+        return None
+    episode = ligne.get("episode")
+    horodatage = ligne.get("airingAt")
+    moment = None
+    if isinstance(horodatage, int) and horodatage > 0:
+        moment = datetime.datetime.fromtimestamp(horodatage, datetime.timezone.utc)
+    return {
+        **carte,
+        "episode": episode if isinstance(episode, int) and episode > 0 else None,
+        "airing_at": moment.isoformat() if moment else "",
+        "jour": _jour_francais(moment) if moment else "",
+        "heure": moment.strftime("%H:%M") if moment else "",
+    }
+
+
+ANILIST_JOURS = [
+    "lundi",
+    "mardi",
+    "mercredi",
+    "jeudi",
+    "vendredi",
+    "samedi",
+    "dimanche",
+]
+
+
+def _jour_francais(moment):
+    """« aujourd'hui », « demain », sinon le jour de la semaine en français."""
+    if moment is None:
+        return ""
+    aujourdhui = datetime.datetime.now(datetime.timezone.utc).date()
+    cible = moment.date()
+    delta = (cible - aujourdhui).days
+    if delta == 0:
+        return "aujourd'hui"
+    if delta == 1:
+        return "demain"
+    return ANILIST_JOURS[cible.weekday()]
+
+
+@app.route("/api/calendrier")
+def api_calendrier():
+    """Les épisodes de la semaine, pour l'onglet Animés & Mangas."""
+    page = _page_arg()
+    return jsonify(anilist_calendrier(_anilist_kind_arg(), page))
+
+
+@app.route("/calendrier")
+def calendrier():
+    """La page calendrier : tout le rail de l'onglet, filtrable par jour."""
+    return render_template("calendrier.html")
+
+
+def anilist_hero(kind, limit=16):
+    """Le bandeau « à la une » de l'onglet, puisé chez AniList aussi."""
+    payload = anilist_catalogue(kind, "all", "tendances", 1)
+    items = [item for item in payload["items"] if item.get("backdrop")]
+    return items[:limit]
+
+
+ANILIST_SEARCH_QUERY = """
+fragment carte on Media {
+  id
+  type
+  format
+  isAdult
+  seasonYear
+  countryOfOrigin
+  averageScore
+  startDate { year }
+  title { romaji english native userPreferred }
+  coverImage { medium large extraLarge }
+  bannerImage
+}
+query ($search: String, $perPage: Int, $type: MediaType) {
+  Page(page: 1, perPage: $perPage) {
+    pageInfo { total currentPage lastPage hasNextPage perPage }
+    media(search: $search, type: $type, sort: SEARCH_MATCH, isAdult: false) {
+      ...carte
+    }
+  }
+}
+"""
+
+def anilist_search(kind, query, limit=20):
+    """La recherche interne de l'onglet « Animés & Mangas »."""
+    search = str(query or "").strip()
+    if not search:
+        return []
+    cache_key = ("anilist-search", kind, search.lower())
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return cached
+    data = _anilist_post(
+        ANILIST_SEARCH_QUERY,
+        {"search": search[:120], "perPage": limit, "type": kind.upper()},
+    )
+    nodes, _info = _anilist_page_nodes(data)
+    items = [card for card in (_anilist_card(node, kind) for node in nodes) if card]
+    return _cache_set(cache_key, items, ttl=ANILIST_CACHE_TTL)
+
+
+
+# ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
 
@@ -1038,34 +2451,65 @@ def index():
 
     tab = requested_tab if requested_tab in ALL_TABS else "films"
     if query:
-        # Les deux sources partent EN PARALLÈLE : TMDB ne connaît pas les
-        # mangas, AniList ne remplace pas le catalogue de films. Les attendre
-        # l'une après l'autre ajouterait un aller-retour complet au résultat.
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            catalogue = executor.submit(search_by_tab, tab, query)
-            animes = executor.submit(anilist_band, query)
+        if tab == "animes":
+            # Onglet « Animés & Mangas » : la grille EST le résultat AniList
+            # (animes puis mangas). La bande du bas ferait doublon.
             try:
-                results = catalogue.result()
+                results = search_by_tab(tab, query)
+                search_error = ""
+            except UpstreamServiceError as error:
+                app.logger.warning("Recherche AniList impossible", exc_info=True)
+                results = []
+                search_error = str(error)
+            return render_template(
+                "index.html",
+                tab=tab,
+                items=results,
+                query=query,
+                anilist=[],
+                anilist_error=search_error,
+                catalogue_error="",
+                show_band=False,
+            )
+        # Recherche globale groupée par type : une seule barre, cinq rayons.
+        # Les trois sources partent EN PARALLÈLE : TMDB ne connaît pas les
+        # mangas, AniList ne remplace pas le catalogue de films. Les attendre
+        # l'une après l'autre ajouterait des allers-retours complets.
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            groupes_tmdb = executor.submit(_recherche_tmdb_groupes, query)
+            bande = executor.submit(anilist_band, query)
+            pistes = executor.submit(_recherche_musique, query)
+            try:
+                films, series = groupes_tmdb.result()
                 catalogue_error = ""
             except UpstreamServiceError:
                 # TMDB en panne ne doit pas emporter la bande AniList : elle
                 # vient d'un autre catalogue et peut très bien avoir répondu.
                 # Un 503 cacherait le seul résultat disponible.
                 app.logger.warning("Recherche TMDB impossible", exc_info=True)
-                results = []
+                films, series = [], []
                 catalogue_error = (
                     "Le catalogue de films et séries ne répond pas : seuls les "
                     "animes et mangas ci-dessous sont à jour."
                 )
-            band = animes.result()
+            band = bande.result()
+            musiques = pistes.result()
+        animes_band = [i for i in band["items"] if i.get("kind") == "anime"]
+        mangas_band = [i for i in band["items"] if i.get("kind") == "manga"]
         return render_template(
             "index.html",
             tab=tab,
-            items=results,
+            items=None,
             query=query,
-            anilist=band["items"],
+            films=films,
+            series=series,
+            animes_band=animes_band,
+            mangas_band=mangas_band,
+            musiques=musiques,
+            anilist=[],
             anilist_error=band["error"],
             catalogue_error=catalogue_error,
+            show_band=False,
         )
     return render_template(
         "index.html",
@@ -1075,6 +2519,7 @@ def index():
         anilist=[],
         anilist_error="",
         catalogue_error="",
+        show_band=True,
     )
 
 
@@ -1108,11 +2553,21 @@ def _extract_trailer_key(videos):
 
 @app.route("/details/<media_type>/<int:item_id>")
 def details(media_type, item_id):
-    if media_type not in {"movie", "tv"} or item_id <= 0:
+    if item_id <= 0 or media_type not in {"movie", "tv"} | ANILIST_MEDIA_TYPES:
         abort(404)
 
     requested_origin = _limited_arg("tab", "films", 40)
     origin_tab = requested_origin if requested_origin in ALL_TABS else "films"
+
+    if media_type in ANILIST_MEDIA_TYPES:
+        # Animes et mangas : la fiche vient d'AniList, mais elle s'affiche dans
+        # le même panneau que les films — jamais sur le site d'AniList.
+        return render_template(
+            "detail.html",
+            item=anilist_detail(item_id, media_type),
+            tab=origin_tab,
+        )
+
     data = tmdb_get(
         f"/{media_type}/{item_id}",
         {"append_to_response": "credits,videos", "language": "fr-FR"},
@@ -1168,6 +2623,10 @@ def details(media_type, item_id):
         except UpstreamServiceError:
             trailer_key = ""
 
+    # « Dans le même univers » pour les films et séries, comme c'était déjà
+    # le cas pour les animes et mangas : suites, sagas, titres proches.
+    relations = _tmdb_relations(media_type, item_id, origin_tab)
+
     item = {
         "id": item_id,
         "media_type": media_type,
@@ -1183,6 +2642,20 @@ def details(media_type, item_id):
         "original_language": data.get("original_language"),
         "origin_country": origin_country,
         "trailer_key": trailer_key,
+        "relations": relations,
+        "extra_tags": [],
+        "synonyms": [],
+        # Le lecteur de scan reste réservé aux œuvres japonaises : c'est le seul
+        # cas où MangaDex a réellement le titre.
+        "scan_href": (
+            f"/lecteur-scan?titre={quote(str(title))}"
+            if str(data.get("original_language") or "").lower() == "ja"
+            or "JP" in origin_country
+            else ""
+        ),
+        "scan_label": "LIRE LE SCAN (VF)",
+        "source_name": "TMDB",
+        "source_url": "",
     }
     return render_template("detail.html", item=item, tab=origin_tab)
 
@@ -1192,14 +2665,68 @@ def details(media_type, item_id):
 # ---------------------------------------------------------------------------
 
 
+@app.route("/api/univers")
+def api_univers():
+    """Les œuvres liées au dernier titre consulté, pour la rangée d'accueil.
+
+    L'accueil n'invente rien : il relit les mêmes relations que la fiche
+    (suite, préquelle, titres proches) pour le titre que celle-ci a mémorisé.
+    Une source muette rend une rangée vide, pas une erreur.
+    """
+    media_type = _limited_arg("media_type", "", 12)
+    if media_type not in {"movie", "tv"} | ANILIST_MEDIA_TYPES:
+        return jsonify({"liens": []})
+    try:
+        item_id = int(_limited_arg("id", "0", 12))
+    except ValueError:
+        return jsonify({"liens": []})
+    if item_id <= 0:
+        return jsonify({"liens": []})
+
+    cache_key = ("univers", media_type, item_id)
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return jsonify({"liens": cached})
+
+    if media_type in ANILIST_MEDIA_TYPES:
+        try:
+            fiche = anilist_detail(item_id, media_type)
+        except (UpstreamServiceError, HTTPException):
+            return jsonify({"liens": []})
+        liens = fiche.get("relations") or []
+    else:
+        liens = _tmdb_relations(media_type, item_id)
+    return jsonify(
+        {"liens": _cache_set(cache_key, liens, ttl=ANILIST_CATALOGUE_TTL)}
+    )
+
+
 @app.route("/api/genres")
 def api_genres():
     tab = _catalog_tab_arg()
     pills = [{"id": "all", "label": "Tout"}]
 
     if tab == "animes":
+        # Onglet 100 % AniList : les sous-genres sont ceux d'AniList, et ils
+        # changent selon que l'on regarde les animes ou les mangas.
+        kind = _anilist_kind_arg()
+        known_tags = anilist_known_tags()
+        pills.extend({"id": p["id"], "label": p["label"]} for p in ANILIST_GENRES)
         pills.extend(
-            {"id": pill["id"], "label": pill["label"]} for pill in ANIME_SUBGENRES
+            {"id": p["id"], "label": p["label"]}
+            for p in anilist_themes(kind)
+            # Si AniList nous a donné sa liste d'étiquettes, on ne propose que
+            # celles qui existent : un bouton qui renvoie toujours « vide »
+            # serait un mensonge.
+            if known_tags is None or p["tag"] in known_tags
+        )
+        return jsonify(
+            {
+                "pills": pills,
+                "sorts": ANILIST_SORTS,
+                "media": kind,
+                "source": "anilist",
+            }
         )
     else:
         media_type, _ = base_discover_params(tab)
@@ -1219,6 +2746,9 @@ def api_genres():
 @app.route("/api/hero")
 def api_hero():
     tab = _catalog_tab_arg()
+    if tab == "animes":
+        # Le bandeau de l'onglet vient d'AniList comme le reste de l'onglet.
+        return jsonify({"items": anilist_hero(_anilist_kind_arg())})
     media_type, base_params = base_discover_params(tab)
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
 
@@ -1274,34 +2804,52 @@ def api_hero():
             seen.add(item_id)
             candidates.append(normalize_card(item, media_type))
 
-    anchors = candidates[:2]
-    pool = candidates[2:]
-    random.Random(  # nosec B311
-        f"{int(time.time() // 900)}-{tab}"
-    ).shuffle(pool)
-    return jsonify({"items": (anchors + pool)[:16]})
+    # Le bandeau tournait sur une horloge de quinze minutes : identique pour
+    # tous les visiteurs, et sans égard pour la notoriété. Il suit désormais la
+    # graine de visite et le même tirage pondéré que la grille.
+    seed = _limited_arg("seed", "0", 80)
+    return jsonify(
+        {
+            "items": rotation_order(
+                candidates, f"hero-{tab}-{seed}", _rotation_preset_arg()
+            )[:16]
+        }
+    )
 
 
 @app.route("/api/list")
 def api_list():
     tab = _catalog_tab_arg()
     genre = _limited_arg("genre", "all", 40)
-    page = _page_arg()
+    # L'onglet AniList a un catalogue bien plus profond que celui de TMDB :
+    # lui appliquer MAX_PAGES coupait le défilement infini à 500 titres.
+    page = _page_arg(ANILIST_MAX_PAGES if tab == "animes" else None)
     seed = _limited_arg("seed", "0", 80)
 
-    media_type, params = base_discover_params(tab)
-    params = {**params, "page": page, "include_adult": "true"}
+    duree = _duree_arg()
+    if tab == "animes":
+        # Aucune carte TMDB ici : l'onglet « Animés & Mangas » ne puise que
+        # dans AniList, et chaque carte ouvre notre propre fiche.
+        return jsonify(
+            anilist_catalogue(
+                _anilist_kind_arg(),
+                genre,
+                _anilist_sort_arg(),
+                page,
+                seed,
+                _rotation_preset_arg(),
+                duree,
+            )
+        )
 
-    anime_pill = next((pill for pill in ANIME_SUBGENRES if pill["id"] == genre), None)
+    media_type, params = base_discover_params(tab)
+    # Pas de « page » ici : c'est rotated_tmdb_page qui choisit les pages
+    # source de la bande, en fonction de la page demandée.
+    params = {**params, "include_adult": "true"}
+
     film_bonus = next((pill for pill in FILM_BONUS_PILLS if pill["id"] == genre), None)
     if genre != "all":
-        if tab == "animes":
-            if not anime_pill:
-                abort(400, description="Sous-genre d'anime invalide.")
-            keyword_id = get_keyword_id(anime_pill["keyword"])
-            if keyword_id:
-                params["with_keywords"] = keyword_id
-        elif tab == "films" and film_bonus:
+        if tab == "films" and film_bonus:
             if "keywords" in film_bonus:
                 keyword_ids = []
                 for keyword in film_bonus["keywords"]:
@@ -1322,28 +2870,44 @@ def api_list():
         else:
             abort(400, description="Genre invalide.")
 
-    data = tmdb_get(f"/discover/{media_type}", params)
-    raw_items = _result_items(data)
-    items = [
-        normalize_card(item, media_type)
-        for item in raw_items
-        if isinstance(item, dict) and item.get("poster_path")
-    ]
-    items = seeded_block_shuffle(items, f"list-{tab}-{genre}-{page}-{seed}")
-    return jsonify(
-        {
-            "items": items,
-            "page": page,
-            "has_more": page < _total_pages(data),
-        }
+    # « Ce soir j'ai 1 h 30 » : TMDB filtre lui-même sur la durée, les pages
+    # reçues sont déjà dans la plage — la rotation ne mélange rien d'autre.
+    # Les séries gardent toutes leurs durées : c'est l'épisode qui compte,
+    # pas la séance.
+    if tab == "films" and duree:
+        mini, maxi = DUREES[duree]
+        if mini is not None:
+            params["with_runtime.gte"] = str(mini)
+        if maxi is not None:
+            params["with_runtime.lte"] = str(maxi)
+
+    items, has_more = rotated_tmdb_page(
+        media_type,
+        params,
+        page,
+        f"list-{tab}-{genre}-{duree or 'toutes'}-{seed}",
+        _rotation_preset_arg(),
     )
+    return jsonify({"items": items, "page": page, "has_more": has_more})
 
 
-def _append_cards(items, data, media_type):
+# Genre TMDB « Animation ». Les onglets Films et Séries n'ont pas à mélanger
+# de l'animation dans leur vue « Tous » : les animes et mangas vivent dans
+# leur propre onglet, puisé chez AniList.
+TMDB_ANIMATION_GENRE = 16
+
+
+def _is_animation(item):
+    return TMDB_ANIMATION_GENRE in (item.get("genre_ids") or [])
+
+
+def _append_cards(items, data, media_type, skip_animation=False):
     items.extend(
         normalize_card(item, media_type)
         for item in _result_items(data)
-        if isinstance(item, dict) and item.get("poster_path")
+        if isinstance(item, dict)
+        and item.get("poster_path")
+        and not (skip_animation and _is_animation(item))
     )
 
 
@@ -1356,6 +2920,8 @@ def api_upcoming():
 
     items = []
     total_pages = []
+    # En vue « Tous », l'animation est écartée : elle a son onglet dédié.
+    sans_animation = media_filter == "all"
     if media_filter in {"all", "movie"}:
         data = tmdb_get(
             "/discover/movie",
@@ -1365,7 +2931,7 @@ def api_upcoming():
                 "page": page,
             },
         )
-        _append_cards(items, data, "movie")
+        _append_cards(items, data, "movie", skip_animation=sans_animation)
         total_pages.append(_total_pages(data))
 
     if media_filter in {"all", "tv"}:
@@ -1377,7 +2943,7 @@ def api_upcoming():
                 "page": page,
             },
         )
-        _append_cards(items, data, "tv")
+        _append_cards(items, data, "tv", skip_animation=sans_animation)
         total_pages.append(_total_pages(data))
 
     if media_filter == "anime":
@@ -1409,7 +2975,7 @@ LEGENDS_RATING_MIN = 8.5
 LEGENDS_VOTE_COUNT_MIN = 20
 
 
-def fetch_best_rated(media_type, extra_params, page):
+def fetch_best_rated(media_type, extra_params, page, skip_animation=False):
     data = tmdb_get(
         f"/discover/{media_type}",
         {
@@ -1426,6 +2992,7 @@ def fetch_best_rated(media_type, extra_params, page):
         if isinstance(item, dict)
         and item.get("poster_path")
         and _rating(item.get("vote_average")) >= LEGENDS_RATING_MIN
+        and not (skip_animation and _is_animation(item))
     ]
     return results, _total_pages(data)
 
@@ -1438,13 +3005,16 @@ def api_legends():
 
     items = []
     total_pages = []
+    sans_animation = media_filter == "all"
     if media_filter in {"all", "movie"}:
-        results, pages = fetch_best_rated("movie", {}, page)
+        results, pages = fetch_best_rated(
+            "movie", {}, page, skip_animation=sans_animation
+        )
         total_pages.append(pages)
         items.extend(normalize_card(item, "movie") for item in results)
 
     if media_filter in {"all", "tv"}:
-        results, pages = fetch_best_rated("tv", {}, page)
+        results, pages = fetch_best_rated("tv", {}, page, skip_animation=sans_animation)
         total_pages.append(pages)
         items.extend(normalize_card(item, "tv") for item in results)
 
@@ -1455,8 +3025,12 @@ def api_legends():
         total_pages.append(pages)
         items.extend(normalize_card(item, "tv") for item in results)
 
+    # Le rang de départ vient de la note : c'est lui qui devient le poids du
+    # tirage. Les chefs-d'œuvre restent en haut, mais plus dans un ordre figé.
     items.sort(key=lambda item: -item["rating"])
-    items = seeded_block_shuffle(items, f"legends-{media_filter}-{page}-{seed}")
+    items = rotation_order(
+        items, f"legends-{media_filter}-{page}-{seed}", _rotation_preset_arg()
+    )
     return jsonify(
         {
             "items": items,
@@ -1613,7 +3187,16 @@ def chat():
 @app.route("/lecteur-scan")
 def lecteur_scan():
     title = _limited_arg("titre", "Manga inconnu", 200) or "Manga inconnu"
-    return render_template("lecteur.html", titre=title)
+    # Les orthographes de secours, séparées par « | ». Elles viennent de notre
+    # propre fiche : aucune saisie libre n'arrive ici, et la longueur reste
+    # bornée quoi qu'il arrive dans l'URL.
+    alt = _limited_arg("alt", "", 260)
+    alt = "|".join(
+        morceau.strip()[:80]
+        for morceau in alt.split("|")
+        if morceau.strip()
+    )[:260]
+    return render_template("lecteur.html", titre=title, alt=alt)
 
 
 def _valid_mangadex_endpoint(endpoint):
@@ -1636,10 +3219,59 @@ MANGADEX_ORDER_KEYS = {
     "/manga": {"title", "year", "createdAt", "updatedAt", "followedCount", "relevance"},
     "feed": {"chapter", "volume"},
 }
+# Plafonds documentés par MangaDex. Annoncer 500 sur /manga faisait répondre
+# l'API par une erreur 400 que le lecteur traduisait en « MangaDex ne répond
+# pas » : mieux vaut refuser ici, avec un message qui dit quoi.
+MANGADEX_MAX_LIMIT = {"/manga": 100, "feed": 500}
+# MangaDex limite à ~5 requêtes/s. Le lecteur enchaîne recherche, chapitres et
+# planches : un 429 isolé ne doit plus couper la lecture.
+MANGADEX_RETRIES = 2
+MANGADEX_RETRY_WAIT = 1.2
+MANGADEX_HEADERS = {
+    "Accept": "application/json",
+    # Un User-Agent nommé avec un contact : MangaDex est derrière Cloudflare
+    # et écarte plus volontiers les clients qui ne se présentent pas.
+    "User-Agent": "OmniStream/1.0 (lecteur de scans ; contact via le site)",
+    "Accept-Language": "fr,fr-FR;q=0.9,en;q=0.6",
+}
 # MangaDex accepte n'importe quelle langue (fr, en, ja, ko, zh-hans, pt-br…) :
 # la forme est bornée, la liste des langues ne l'est pas. Restreindre à « fr »
 # et « en » masquait des séries entières traduites ailleurs.
 MANGADEX_LANG_RE = re.compile(r"\A[a-z]{2,3}(?:-[a-z0-9]{2,10})?\Z")
+
+
+# MangaDex répond `{"errors": [{"status", "title", "detail"}]}`. Recopier ce
+# détail à l'écran est la seule façon de savoir POURQUOI ça ne marche pas :
+# « Erreur de communication » ne permettait de diagnostiquer ni un 403 de
+# Cloudflare, ni un 429, ni un identifiant inconnu.
+MANGADEX_STATUS_MESSAGES = {
+    400: "La requête envoyée à MangaDex est invalide.",
+    403: "MangaDex refuse l'accès (contrôle anti-robot). Réessayez plus tard.",
+    404: "MangaDex ne connaît pas cette série ou ce chapitre.",
+    429: "MangaDex reçoit trop de requêtes. Attendez quelques secondes.",
+    500: "MangaDex rencontre une erreur interne.",
+    503: "MangaDex est en maintenance.",
+}
+
+
+def _mangadex_error_message(data, status_code):
+    """Le message MangaDex le plus précis possible, en clair."""
+    detail = ""
+    if isinstance(data, dict):
+        errors = data.get("errors")
+        if isinstance(errors, list):
+            for error in errors:
+                if not isinstance(error, dict):
+                    continue
+                for key in ("detail", "title"):
+                    value = str(error.get(key) or "").strip()
+                    if value:
+                        detail = value[:200]
+                        break
+                if detail:
+                    break
+    base = MANGADEX_STATUS_MESSAGES.get(status_code, "MangaDex a refusé la demande.")
+    return f"{base} ({detail})" if detail else base
 
 
 @app.route("/api/mangadex_proxy")
@@ -1678,7 +3310,10 @@ def mangadex_proxy():
                 number = int(value)
                 valid_value = valid_value and number >= 0
                 if key == "limit":
-                    valid_value = valid_value and 1 <= number <= 500
+                    plafond = MANGADEX_MAX_LIMIT.get(
+                        "feed" if endpoint.endswith("/feed") else "/manga", 100
+                    )
+                    valid_value = valid_value and 1 <= number <= plafond
                 else:
                     valid_value = valid_value and number <= 10_000
             except ValueError:
@@ -1695,24 +3330,245 @@ def mangadex_proxy():
     if len(params) > 20:
         abort(400, description="Trop de paramètres MangaDex.")
 
-    try:
-        response = requests.get(
-            f"https://api.mangadex.org{endpoint}",
-            params=params,
-            headers={"Accept": "application/json", "User-Agent": "OmniStream/1.0"},
-            timeout=12,
-        )
-        data = response.json()
-    except requests.Timeout:
-        return jsonify({"error": "MangaDex met trop de temps à répondre."}), 504
-    except (requests.RequestException, ValueError):
-        app.logger.warning("Appel MangaDex impossible", exc_info=True)
-        return jsonify({"error": "MangaDex est temporairement indisponible."}), 502
+    cible = f"https://api.mangadex.org{endpoint}"
+    response = None
+    data = None
+    for tentative in range(MANGADEX_RETRIES + 1):
+        try:
+            response = requests.get(
+                cible, params=params, headers=MANGADEX_HEADERS, timeout=12
+            )
+        except requests.Timeout:
+            return jsonify({"error": "MangaDex met trop de temps à répondre."}), 504
+        except requests.RequestException:
+            app.logger.warning("Appel MangaDex impossible", exc_info=True)
+            return (
+                jsonify({"error": "MangaDex est temporairement indisponible."}),
+                502,
+            )
+        # 429 = trop de requêtes, 5xx = MangaDex tousse. Dans les deux cas un
+        # second essai suffit presque toujours.
+        instable = response.status_code in {429, 500, 502, 503, 504}
+        if instable and tentative < MANGADEX_RETRIES:
+            attente = MANGADEX_RETRY_WAIT * (tentative + 1)
+            retry_after = response.headers.get("Retry-After", "")
+            with contextlib.suppress(ValueError):
+                attente = min(float(retry_after), 5.0) or attente
+            time.sleep(attente)
+            continue
+        break
 
-    status = response.status_code if 400 <= response.status_code < 500 else 200
-    if response.status_code >= 500:
-        status = 502
-    return jsonify(data), status
+    try:
+        data = response.json()
+    except ValueError:
+        # Cloudflare renvoie parfois une page HTML : le dire vaut mieux que
+        # laisser le lecteur annoncer « MangaDex ne répond pas ».
+        app.logger.warning(
+            "MangaDex a renvoyé autre chose que du JSON (status %s)",
+            response.status_code,
+        )
+        return (
+            jsonify(
+                {
+                    "error": (
+                        "MangaDex a refusé la connexion (page de contrôle). "
+                        "Réessayez dans un instant."
+                        if response.status_code in {403, 429, 503}
+                        else "MangaDex a renvoyé une réponse illisible."
+                    )
+                }
+            ),
+            502,
+        )
+
+    if response.status_code >= 400:
+        message = _mangadex_error_message(data, response.status_code)
+        status = 502 if response.status_code >= 500 else response.status_code
+        return jsonify({"error": message}), status
+    return jsonify(data), 200
+
+
+# ---------------------------------------------------------------------------
+# Section adulte (hentai) — MangaDex, derrière un « J'ai 18 ans » explicite
+# ---------------------------------------------------------------------------
+# AniList et TMDB filtrent tous deux ce contenu à la source : la seule donnée
+# réellement disponible vient de MangaDex, qui classe ses œuvres par niveau de
+# contenu. On n'y accède donc pas par le catalogue AniList mais par un rayon à
+# part, dont la page ne rend AUCUNE donnée tant que le visiteur n'a pas
+# confirmé son âge — la grille est remplie par script après le clic.
+ADULTE_RATINGS = ("erotica", "pornographic")
+ADULTE_PER_PAGE = 24
+ADULTE_MAX_PAGES = 40
+ADULTE_TTL = 900
+MANGADEX_COVER_URL = "https://uploads.mangadex.org/covers/{manga_id}/{file}.256.jpg"
+ADULTE_CONFIRM_KEY = "omni-adulte-18"
+
+
+def _mangadex_get(params):
+    """Un appel MangaDex avec les mêmes replis que le proxy du lecteur."""
+    response = None
+    for tentative in range(MANGADEX_RETRIES + 1):
+        try:
+            response = requests.get(
+                "https://api.mangadex.org/manga",
+                params=params,
+                headers=MANGADEX_HEADERS,
+                timeout=12,
+            )
+        except requests.Timeout as exc:
+            raise UpstreamServiceError(
+                "MangaDex met trop de temps à répondre.", 504
+            ) from exc
+        except requests.RequestException as exc:
+            app.logger.warning("Appel MangaDex impossible", exc_info=True)
+            raise UpstreamServiceError(
+                "MangaDex est temporairement indisponible.", 502
+            ) from exc
+        instable = response.status_code in {429, 500, 502, 503, 504}
+        if instable and tentative < MANGADEX_RETRIES:
+            time.sleep(MANGADEX_RETRY_WAIT * (tentative + 1))
+            continue
+        break
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise UpstreamServiceError(
+            "MangaDex a renvoyé une réponse illisible.", 502
+        ) from exc
+    if response.status_code >= 400:
+        message = _mangadex_error_message(data, response.status_code)
+        raise UpstreamServiceError(
+            message, 502 if response.status_code >= 500 else response.status_code
+        )
+    return data
+
+
+def _sous_objet(node, cle, attendu=dict):
+    """Un sous-objet MangaDex vérifié, ou la valeur vide du type attendu."""
+    valeur = node.get(cle) if isinstance(node, dict) else None
+    return valeur if isinstance(valeur, attendu) else attendu()
+
+
+def _mangadex_title(node):
+    """Le titre le plus lisible : anglais, puis japonais romanisé, puis le reste."""
+    attributes = _sous_objet(node, "attributes")
+    titres = _sous_objet(attributes, "title")
+    for cle in ("en", "ja-ro", "ja", "fr"):
+        valeur = str(titres.get(cle) or "").strip()
+        if valeur:
+            return valeur[:160]
+    for valeur in titres.values():
+        if str(valeur or "").strip():
+            return str(valeur).strip()[:160]
+    return ""
+
+
+def _mangadex_cover(node, manga_id):
+    relations = _sous_objet(node, "relationships", list)
+    for relation in relations:
+        if not isinstance(relation, dict) or relation.get("type") != "cover_art":
+            continue
+        nom = str(_sous_objet(relation, "attributes").get("fileName") or "").strip()
+        if not re.fullmatch(
+            r"[0-9a-f-]{1,80}\.(?:png|jpe?g|webp|gif)", nom, re.IGNORECASE
+        ):
+            continue
+        return _image_proxy_url(
+            MANGADEX_COVER_URL.format(manga_id=manga_id, file=nom)
+        )
+    return ""
+
+
+def _mangadex_card(node):
+    """Une carte au format de nos autres grilles, ou None si inutilisable."""
+    if not isinstance(node, dict) or node.get("type") != "manga":
+        return None
+    manga_id = str(node.get("id") or "")
+    if not MANGADEX_UUID_RE.fullmatch(manga_id):
+        return None
+    attributes = _sous_objet(node, "attributes")
+    titre = _mangadex_title(node)
+    poster = _mangadex_cover(node, manga_id)
+    if not titre or not poster:
+        return None
+    annee = attributes.get("year")
+    return {
+        "id": manga_id,
+        "media_type": "manga",
+        "title": titre,
+        "year": str(annee) if isinstance(annee, int) and 1900 < annee < 2100 else "",
+        "rating": 0.0,
+        "poster": poster,
+        "poster_small": poster,
+        "backdrop": poster,
+        "overview": "",
+        "content_rating": str(attributes.get("contentRating") or "")[:20],
+        "demographic": str(attributes.get("publicationDemographic") or "")[:20],
+        "reader": f"/lecteur-scan?titre={quote(titre)}",
+    }
+
+
+@app.route("/adulte")
+def adulte():
+    return render_template("adulte.html", cle_confirmation=ADULTE_CONFIRM_KEY)
+
+
+@app.route("/api/adulte")
+def api_adulte():
+    """Le rayon adulte. Aucun paramètre libre : la requête MangaDex est figée."""
+    page = min(max(_page_arg(), 1), ADULTE_MAX_PAGES)
+    # Seuls filtres acceptés, et chacun est borné : le niveau de contenu vient
+    # d'une liste close, la recherche est un texte court. Le reste de la
+    # requête MangaDex demeure figé côté serveur.
+    rating = _limited_arg("rating", "", 20)
+    if rating and rating not in ADULTE_RATINGS:
+        abort(400, description="Filtre de contenu invalide.")
+    recherche = _limited_arg("q", "", 80).strip()
+    cache_key = ("mangadex-adulte", page, rating, recherche.casefold())
+    cached = _cache_get(cache_key)
+    if cached is not _CACHE_MISSING:
+        return jsonify(cached)
+
+    params = [
+        ("limit", str(ADULTE_PER_PAGE)),
+        ("offset", str((page - 1) * ADULTE_PER_PAGE)),
+        # Uniquement ce qui se lit : une fiche sans chapitre ne sert à rien ici.
+        ("hasAvailableChapters", "true"),
+        # Sans recherche, les plus suivis d'abord. Avec une recherche, on laisse
+        # MangaDex classer par pertinence : imposer `followedCount` ferait
+        # remonter les séries les plus populaires, pas les plus proches.
+        *(
+            (("title", recherche),)
+            if recherche
+            else (("order[followedCount]", "desc"),)
+        ),
+        *[
+            ("contentRating[]", valeur)
+            for valeur in ((rating,) if rating else ADULTE_RATINGS)
+        ],
+    ]
+    data = _mangadex_get(params)
+
+    nodes = data.get("data") if isinstance(data.get("data"), list) else []
+    items = [carte for carte in (_mangadex_card(node) for node in nodes) if carte]
+    total = data.get("total") if isinstance(data.get("total"), int) else 0
+    payload = {
+        "items": items,
+        "page": page,
+        "has_more": bool(total)
+        and page * ADULTE_PER_PAGE < min(total, ADULTE_MAX_PAGES * ADULTE_PER_PAGE),
+        "total": total,
+        "source": "mangadex",
+    }
+    return jsonify(_cache_set(cache_key, payload, ttl=ADULTE_TTL))
+
+
+@app.route("/api/anime-hasard")
+def api_anime_hasard():
+    """Une pioche au hasard dans l'onglet Animés & Mangas."""
+    kind = _anilist_kind_arg()
+    return jsonify(anilist_hasard(kind))
 
 
 @app.route("/api/manga_image")

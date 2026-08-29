@@ -1,8 +1,207 @@
 # OmniStream
 
 Application Flask de découverte de films, séries, animés, mangas et musique.
-Le catalogue et les fiches viennent de TMDB, le chat utilise Gemini, les scans
-sont recherchés sur MangaDex et la rubrique musique utilise YouTube.
+Le catalogue et les fiches de films et séries viennent de TMDB, les animes et
+les mangas viennent d'AniList, le chat utilise Gemini, les scans sont
+recherchés sur MangaDex et la rubrique musique utilise YouTube.
+
+AniList est une **source de données**, jamais une destination : les fiches
+d'animes et de mangas sont lues chez AniList puis affichées dans le panneau
+habituel d'OmniStream (synopsis, bande-annonce, Ma liste, hors ligne, partage,
+assistant Gemini, lecteur de scan). Aucun clic ne renvoie le visiteur vers
+`anilist.co` ; seul un crédit discret en bas de fiche pointe vers le catalogue
+d'origine.
+
+### La grille se redessine à chaque ouverture
+
+Avec un simple `popularity.desc`, les vingt mêmes titres restaient en haut pour
+toujours. À l'inverse, un tirage uniforme noierait les œuvres marquantes au
+milieu du reste.
+
+Le classement est donc un **tirage aléatoire pondéré** (Efraimidis-Spirakis) :
+la clé d'un titre est `u**(1/poids)`, avec `u` tiré dans `]0,1[`. Plus le poids
+est grand, plus le titre remonte **en moyenne** — sans qu'aucune place ne soit
+jamais garantie d'une visite à l'autre. Le poids combine le rang dans le
+catalogue source, la note et la fraîcheur de la sortie.
+
+Un tirage sur vingt titres ne ferait que réordonner les mêmes vingt. La grille
+est donc découpée en **bandes de cent titres**, lues d'un coup, réordonnées,
+puis servies cinq pages par cinq :
+
+| onglet | source de la bande | appels par bande |
+| --- | --- | --- |
+| Films, Séries, Animation | 5 pages TMDB × 20 | 5 (cachées 15 min) |
+| Animés & Mangas | 2 pages AniList × 50 | 2 (cachées 10 min) |
+| Films ≥ 8,5 | le pool déjà trié par note | — |
+
+La **graine** de visite décide de l'ordre. Elle vit dans `sessionStorage` :
+stable le temps de la visite — indispensable, sinon le défilement infini se
+répéterait entre deux pages — et neuve à chaque nouvel onglet.
+
+La courbe a été **calibrée par simulation** sur une bande de 100 titres : à
+puissance 6, environ 14 des 20 affichés viennent du vrai top 20 du catalogue,
+et le premier titre change malgré tout à (presque) chaque visite. Plus bas, la
+grille devenait un bruit ; plus haut, elle se figeait de nouveau. Un test
+rejoue 300 visites et encadre cette moyenne entre 11 et 19.
+
+L'onglet **Nouveautés** reste chronologique : c'est un calendrier de sorties,
+le mélanger lui ferait perdre son sens.
+
+#### Le dosage se règle
+
+Tout le monde ne veut pas le même degré de surprise. Trois crans sont exposés
+sous la grille — **Stable**, **Équilibré**, **Surprenant** — et mémorisés sur
+l'appareil (`localStorage`, clé `omni-fraicheur`). Ils pilotent la puissance du
+tirage : 10, 6 et 3. Une valeur inconnue retombe sur le cran du milieu plutôt
+que de renvoyer un 400 — c'est un réglage d'affichage, pas un contrat de
+données.
+
+#### « Pas intéressé »
+
+Un troisième bouton de coin sur chaque carte écarte le titre pour de bon, dans
+`localStorage` (borné à 400 entrées). C'est le mécanisme qui fait qu'un fil ne
+vous remontre pas ce que vous avez déjà refusé. Le clic empêche l'ouverture de
+la fiche ; sur tactile, où il n'y a pas de survol, le bouton reste visible.
+
+#### Le bandeau aussi
+
+`api_hero` tournait sur une horloge de quinze minutes : le même bandeau pour
+tout le monde, sans égard pour la notoriété. Il suit désormais la graine de
+visite et le même tirage pondéré que la grille — et le client ne le remélange
+plus à l'arrivée, ce qui aurait annulé le travail du serveur.
+
+#### « Ce soir j'ai 1 h 30 » : le filtre durée
+
+Un second cran sous la grille, **Durée** (Toutes / ≤ 1 h 30 / 1 h 30 – 2 h /
++ 2 h), mémorisé comme la fraîcheur (`localStorage`, clé `omni-duree`). Les
+plages sont fermées et sans chevauchement : un filtre ne repêche jamais les
+titres d'un autre. Il n'apparaît que là où la durée a un sens — les films
+(TMDB borne `with_runtime`) et les animes (AniList borne `duration`) — et se
+cache pour les séries et les mangas.
+
+#### Recherche globale groupée
+
+Une seule barre, cinq rayons : **Films**, **Séries**, **Animes**, **Mangas**
+et, si une clé YouTube est configurée, **Musiques**. Chaque type a sa section ;
+jamais un manga au milieu des films ni un film au milieu des animes. Les
+cartes AniList restent dans le site (fiche OmniStream, couvertures par notre
+proxy) et les pistes musicales se lancent dans le lecteur global.
+
+#### « Dans le même univers » sur l'accueil
+
+La fiche mémorise le dernier titre consulté (`omni-dernier-titre`) ; l'accueil
+va chercher ses œuvres liées via `/api/univers` et les pose en rangée
+horizontale. Les fiches TMDB gagnent aussi des relations (recommandations),
+affichées comme pour les animes et mangas — chaque carte ouvre notre fiche.
+
+#### Ce qui existait déjà, protégé
+
+Le bouton **Partager** de la fiche (partage natif ou « Lien copié ») et la
+**reprise au chapitre** du lecteur de scan (« Reprendre au chapitre N » dans
+la Bibliothèque) étaient déjà là ; des tests les verrouillent.
+
+### L'onglet « Animés & Mangas »
+
+Cet onglet ne puise **que** dans AniList — TMDB ignore les mangas et classe mal
+une partie des animes, les mélanger faisait apparaître des films d'animation là
+où le visiteur attendait un anime.
+
+- une bascule **Animes / Mangas** : chaque moitié a ses propres sous-genres ;
+- des sous-genres AniList : genres (Action, Romance, Comédie, Horreur…) et
+  thèmes (Zombie, Isekai / Réincarnation, Harem, Shōnen, Shōjo, Seinen, Josei…) ;
+- cinq tris, un seul actif à la fois : Tendances, Les plus vus, **Dernière
+  génération** (les plus récents, bornés aux trois dernières années), **Ajouts
+  récents**, **Note ≥ 8,5** ;
+- la liste des étiquettes est relue chez AniList une fois par jour : un bouton
+  dont l'étiquette n'existerait plus disparaît au lieu de renvoyer « vide » ;
+- **122 sous-genres côté animes, 144 côté mangas** (Shōnen, Shōjo, Seinen,
+  Josei, Réincarnation, Isekai, Villainesse, Gourmet, Wuxia, Iyashikei,
+  E-sport, Miko…). Comme ils ne tiennent pas dans une bande horizontale,
+  un champ **« Filtrer »** et un bouton **« Tout afficher »** (dépliage en
+  grille) sont proposés dès qu'il y en a plus de douze ;
+- **le défilement infini parcourt tout le catalogue** : le plafond de pages de
+  cet onglet est passé de 25 à **250 pages × 20 cartes** (5 000 fiches). Deux
+  freins ont sauté — `_page_arg()` écrêtait la page à 25 avant même que le
+  catalogue AniList la voie, et `IntersectionObserver` ne rappelle sa fonction
+  que sur un *changement* d'intersection, donc une page trop courte pour
+  remplir l'écran arrêtait la grille pour de bon ;
+- un bouton **« Au hasard »** pioche une page au sort dans la partie profonde
+  du catalogue ;
+- **survoler un sous-genre précharge sa première page** (appui maintenu de
+  260 ms sur tactile). Le serveur garde ces pages dix minutes : le clic qui
+  suit arrive sur une réponse déjà prête ;
+- la fiche affiche **« Dans le même univers »** : suite, préquelle, manga
+  d'origine, spin-off… Ces liens ouvrent **notre** fiche, jamais AniList ;
+- un bandeau **« Cette semaine »** liste les épisodes diffusés dans les 7 jours
+  (`airingSchedules`), avec le numéro d'épisode et le jour en français —
+  « aujourd'hui », « demain », sinon le jour de la semaine. Il suit la bascule
+  Animes / Mangas et reste caché quand AniList ne répond pas ;
+- une page **`/calendrier`** reprend ce rail en liste verticale, filtrable par
+  jour. Les épisodes sont chargés une fois puis filtrés en mémoire : changer de
+  jour ne repart pas vers AniList ;
+- des **alertes d'épisodes** pour les séries de « Ma Liste ». L'autorisation du
+  navigateur n'est demandée que sur un clic explicite, jamais d'office, et un
+  épisode n'est annoncé qu'une fois.
+
+Par symétrie, les onglets **Nouveautés** et **Films ≥ 8.5** (TMDB) écartent
+l'animation de leur vue « Tous » : l'animation a son onglet, ses filtres et sa
+source.
+
+### Le lecteur de scan (MangaDex)
+
+Le lecteur partait chercher le titre **guillemets compris** : le gabarit
+écrivait `data-title="{{ titre | tojson }}"`, et `tojson` ajoute ses propres
+guillemets JSON dans un attribut déjà guillemeté — d'où `data-title=""One
+Piece""`. MangaDex recevait donc `"One Piece"`. L'attribut utilise maintenant
+l'auto-échappement HTML simple.
+
+Trois autres causes d'échec ont été traitées :
+
+- **les erreurs étaient toutes fondues en « Erreur de communication avec
+  MangaDex »**. Le proxy recopie désormais la raison exacte renvoyée par
+  MangaDex (`errors[].detail`) et distingue un 403 de Cloudflare, un 429, un
+  404 et une réponse non-JSON ;
+- **`order[year]=asc` côté recherche** faisait renvoyer à MangaDex les vingt
+  correspondances *les plus anciennes*, ce qui faisait sortir la vraie série
+  de la page dès que le titre comptait beaucoup d'homonymes. Le classement par
+  pertinence de MangaDex est laissé intact, et le départage par ancienneté
+  reste dans `choisirSerie` ;
+- **un 429 isolé coupait la lecture** : deux essais supplémentaires, en
+  respectant `Retry-After`.
+
+Trois ajouts au lecteur :
+
+- **l'historique de lecture** : le dernier chapitre ouvert est retenu par
+  série, dans `localStorage` uniquement (borné à 40 séries, aucune donnée ne
+  quitte l'appareil — le site n'a pas de compte où l'accrocher). À la
+  réouverture, la lecture reprend où elle s'était arrêtée ;
+- **la lecture continue** (mode webtoon) : les planches se touchent, comme se
+  lisent les webtoons et la plupart des manhwas. Le choix est mémorisé ;
+- **la langue réellement trouvée** est nommée : « chapitres en coréen, pas en
+  français » au lieu d'un « toutes langues » qui ne renseignait personne ;
+- la **Bibliothèque** affiche une rangée **« Continuer à lire »** qui relit cet
+  historique — elle ne le duplique pas, elle ne fait que l'afficher.
+
+La recherche essaie aussi plusieurs orthographes (rōmaji, anglais, synonymes
+transmis par la fiche, suffixe de film/saison retiré), et les chapitres sont
+paginés au-delà de 500 — MangaDex ne renvoie jamais plus de 500 lignes d'un
+coup, un manga à 900 chapitres perdait donc silencieusement sa fin.
+
+### Le rayon adulte (18+)
+
+Accessible depuis le menu (jamais depuis la barre d'onglets), sur `/adulte`.
+La page s'ouvre sur un portail **« J'ai 18 ans »** : la grille est vide dans le
+HTML et l'appel à `/api/adulte` n'est lancé qu'après le clic. La réponse est
+conservée dans `localStorage` sur cet appareil uniquement, et un bouton
+**« Re-verrouiller »** remet le portail en place.
+
+Le contenu vient de MangaDex (`contentRating[] = erotica | pornographic`,
+`hasAvailableChapters=true`, les plus suivis d'abord). AniList et TMDB
+filtrent ce contenu à la source : il n'apparaît donc dans aucun autre onglet.
+La requête est figée côté serveur ; les deux seuls paramètres acceptés sont
+`rating` (liste close) et `q` (recherche, 80 caractères au plus) — tout le
+reste renvoie un 400. Avec une recherche, MangaDex classe par pertinence ;
+sans, les séries les plus suivies passent d'abord.
 
 Le site est entièrement public : aucune inscription, aucun compte, aucun mot
 de passe. Seul un compteur anonyme de visiteurs uniques est conservé.
@@ -282,7 +481,11 @@ qui ne charge jamais la surface vidéo (lecteur réduit à 2 px).
 - Le compteur de visiteurs uniques utilise un simple marqueur de session
   (`_counted_visit`) : une session n'est comptée qu'une seule fois.
 - Le proxy MangaDex n'accepte qu'une liste limitée d'endpoints et le proxy
-  d'images refuse toute URL extérieure à `uploads.mangadex.org`.
+  d'images refuse toute URL extérieure à sa liste d'hôtes autorisés
+  (`uploads.mangadex.org` et le CDN d'AniList).
+- Le synopsis renvoyé par AniList arrive en HTML : toutes les balises sont
+  retirées et les entités décodées avant l'affichage, rien de tiers n'est
+  injecté dans la page. Les fiches au contenu adulte sont refusées (404).
 - Aucun script publicitaire de notification n'est chargé. L'ancien service
   worker push est désabonné et supprimé lors de la prochaine visite.
 - Le Smartlink sponsorisé ne s'ouvre qu'après un clic volontaire sur le petit

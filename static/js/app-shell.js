@@ -808,5 +808,39 @@
     }
   });
 
+  /* =========================================================
+     5bis. ANIMATIONS HORS ÉCRAN — arrêtées, pas seulement ralenties
+     =========================================================
+     La fresque d'affiches de l'accueil tourne en boucle pour toujours. Une fois
+     le visiteur descendu plus bas, elle continuait d'occuper le GPU alors que
+     plus un seul de ses pixels n'était visible — et c'est précisément pendant
+     le défilement du reste de la page. Tout élément marqué `data-anim-idle`
+     est mis en pause dès qu'il sort de l'écran (marge de 200 px pour que la
+     reprise soit invisible), et relancé à son retour. */
+  window.OmniIdle = {
+    scan() {
+      const targets = document.querySelectorAll("[data-anim-idle]:not([data-anim-watched])");
+      if (!targets.length) return;
+      targets.forEach((el) => el.setAttribute("data-anim-watched", "1"));
+      if (!("IntersectionObserver" in window)) return;
+      const io = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            entry.target.classList.toggle("is-offscreen", !entry.isIntersecting);
+          });
+        },
+        { rootMargin: "200px 0px" }
+      );
+      targets.forEach((el) => io.observe(el));
+    },
+  };
+
+  document.addEventListener("omni:page-loaded", () => window.OmniIdle.scan());
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => window.OmniIdle.scan(), { once: true });
+  } else {
+    window.OmniIdle.scan();
+  }
+
   updateBottomNavActive();
 })();

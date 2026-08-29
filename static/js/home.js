@@ -12,6 +12,60 @@
   const heroSection = document.getElementById("hero");
   const heroTrack = document.getElementById("hero-track");
   const heroDots = document.getElementById("hero-dots");
+  const mediaSwitch = document.getElementById("media-switch");
+  const sortPillsEl = document.getElementById("sort-pills");
+  const pillsToolbar = document.getElementById("pills-toolbar");
+  const pillSearch = document.getElementById("pill-search");
+  const pillExpand = document.getElementById("pill-expand");
+  const pillExpandLabel = document.getElementById("pill-expand-label");
+  const hasardBtn = document.getElementById("anime-hasard");
+  const animeExtra = document.getElementById("anime-extra");
+  const calendrierEl = document.getElementById("calendrier");
+  const calendrierRail = document.getElementById("calendrier-rail");
+  const fraicheurEl = document.getElementById("fraicheur");
+  const dureeEl = document.getElementById("duree");
+  const universRow = document.getElementById("univers-row");
+  const universList = document.getElementById("univers-list");
+  const notifBtn = document.getElementById("anime-notif");
+
+  // L'onglet « Animés & Mangas » a deux moitiés qui ne se mélangent jamais :
+  // les sous-genres et la grille dépendent de celle qui est affichée.
+  const isAnimeTab = tab === "animes";
+  let activeMedia = "anime";
+  let activeSort = "tendances";
+
+  /* Le dosage de la rotation. « stable » garde les repères, « frais » surprend
+     davantage. Mémorisé sur l'appareil : c'est une préférence, pas une
+     décision de visite. */
+  const FRAICHEUR_CLE = "omni-fraicheur";
+  const FRAICHEURS = ["stable", "normal", "frais"];
+
+  function lireFraicheur() {
+    try {
+      const valeur = window.localStorage.getItem(FRAICHEUR_CLE) || "";
+      return FRAICHEURS.includes(valeur) ? valeur : "";
+    } catch (erreur) {
+      return "";
+    }
+  }
+
+  let fraicheur = lireFraicheur();
+
+  /* Le filtre « ce soir j'ai 1 h 30 ». Vide = toutes durées. Mémorisé comme
+     la fraîcheur : une préférence d'appareil, pas une décision de visite. */
+  const DUREE_CLE = "omni-duree";
+  const DUREES = ["court", "moyen", "long"];
+
+  function lireDuree() {
+    try {
+      const valeur = window.localStorage.getItem(DUREE_CLE) || "";
+      return DUREES.includes(valeur) ? valeur : "";
+    } catch (erreur) {
+      return "";
+    }
+  }
+
+  let duree = lireDuree();
 
   let page = 1;
   let hasMore = true;
@@ -23,8 +77,36 @@
   let heroTimer = null;
   let totalCardsRendered = 0;
 
-  const sessionSeed =
-    Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  /* La graine de visite. Elle décide de l'ordre de la grille : même graine,
+     même ordre. Deux exigences contradictoires en apparence —
+       · une NOUVELLE ouverture du site doit redessiner la grille (sinon les
+         mêmes titres restent en haut pour toujours) ;
+       · une même session doit garder le même ordre, sans quoi le défilement
+         infini se répéterait ou sauterait des titres entre deux pages.
+     sessionStorage fait exactement ça : il meurt avec l'onglet. */
+  const GRAINE_CLE = "omni-graine-visite";
+
+  function nouvelleGraine() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function graineDeVisite() {
+    let graine = "";
+    try {
+      graine = window.sessionStorage.getItem(GRAINE_CLE) || "";
+      if (!graine) {
+        graine = nouvelleGraine();
+        window.sessionStorage.setItem(GRAINE_CLE, graine);
+      }
+    } catch (erreur) {
+      // Navigation privée ou stockage coupé : une graine jetable par page,
+      // la rotation marche quand même, seule la stabilité inter-pages saute.
+      graine = nouvelleGraine();
+    }
+    return graine;
+  }
+
+  const sessionSeed = graineDeVisite();
 
   function seededRandom(seedString) {
     let hash = 1779033703 ^ seedString.length;
@@ -56,20 +138,36 @@
       page: String(requestedPage),
       seed: sessionSeed,
     });
+    if (fraicheur) params.set("fraicheur", fraicheur);
+    // La durée n'est envoyée que là où elle a un sens : le serveur l'ignore
+    // ailleurs, mais autant ne pas promener un paramètre fantôme.
+    if (duree && dureeActive()) params.set("duree", duree);
     if (tab === "nouveautes") return `/api/upcoming?${params}`;
     if (tab === "legendes") return `/api/legends?${params}`;
     params.delete("type");
     params.set("tab", tab);
     params.set("genre", activeGenre);
+    if (isAnimeTab) {
+      // Source AniList : le type et le tri font partie de la requête.
+      params.set("media", activeMedia);
+      params.set("sort", activeSort);
+    }
     return `/api/list?${params}`;
   }
 
   function heroUrl() {
+    const graine = `&seed=${encodeURIComponent(sessionSeed)}`;
+    if (isAnimeTab) {
+      // Le bandeau suit le type affiché : pas d'anime au milieu des mangas.
+      return (
+        `/api/hero?tab=${encodeURIComponent(tab)}&media=${activeMedia}${graine}`
+      );
+    }
     if (
       activeGenre === "all" &&
-      ["films", "series", "animes", "animation_occidentale"].includes(tab)
+      ["films", "series", "animation_occidentale"].includes(tab)
     ) {
-      return `/api/hero?tab=${encodeURIComponent(tab)}`;
+      return `/api/hero?tab=${encodeURIComponent(tab)}${graine}`;
     }
     return listUrl(1);
   }
@@ -114,7 +212,9 @@
     if (!item || typeof item !== "object") return null;
     const mediaType = item.media_type;
     const itemId = Number(item.id);
-    if (!["movie", "tv"].includes(mediaType) || !Number.isInteger(itemId) || itemId <= 0) {
+    // « anime » et « manga » sont des fiches servies par OmniStream (source
+    // AniList) : elles s'ouvrent ici, exactement comme un film TMDB.
+    if (!["movie", "tv", "anime", "manga"].includes(mediaType) || !Number.isInteger(itemId) || itemId <= 0) {
       return null;
     }
     const params = new URLSearchParams({ tab });
@@ -217,6 +317,8 @@
       '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"></polyline><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"></line></svg>',
     pinOff:
       '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+    skip:
+      '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><line x1="6.3" y1="6.3" x2="17.7" y2="17.7"></line></svg>',
   }
 
   function createFavButton(item) {
@@ -277,6 +379,7 @@
   function createCard(item, index) {
     const href = detailUrl(item);
     if (!href) return null;
+    if (estEcarte(item)) return null;
 
     const card = document.createElement("a");
     card.className = "card moviebox-card";
@@ -295,6 +398,7 @@
     poster.appendChild(createRatingBadge(item.rating));
     poster.appendChild(createFavButton(item));
     poster.appendChild(createPinButton(item));
+    poster.appendChild(createSkipButton(item, card));
 
     const info = document.createElement("div");
     info.className = "card-info";
@@ -306,9 +410,14 @@
     metaLine.className = "card-meta-line";
 
     const yearText = item.year || (item.date ? String(item.date).slice(0, 4) : "");
-    const mediaTypeLabel = tab === "animes" ? "Anime" : (item.media_type === "tv" ? "Série" : "Film");
+    const mediaTypeLabel = isAnimeTab
+      ? (item.media_type === "manga" ? "Manga" : "Anime")
+      : (item.media_type === "tv" ? "Série" : "Film");
 
-    metaLine.innerHTML = `<span class="card-year">${yearText || "2024"}</span><span class="card-dot">•</span><span class="card-type-tag">${mediaTypeLabel}</span>`;
+    const yearCell = yearText
+      ? `<span class="card-year">${yearText}</span><span class="card-dot">•</span>`
+      : "";
+    metaLine.innerHTML = `${yearCell}<span class="card-type-tag">${mediaTypeLabel}</span>`;
 
     info.append(title, metaLine);
 
@@ -352,10 +461,10 @@
         seenIds.add(key);
         uniqueItems.push(item);
       }
-      const items = seededShuffle(
-        uniqueItems,
-        `hero-${tab}-${activeGenre}-${sessionSeed}`,
-      ).slice(0, 12);
+      // Pas de remélange ici : c'est le serveur qui a tiré le bandeau au sort,
+      // pondéré par la notoriété. Le brasser de nouveau à l'arrivée remettrait
+      // un film obscur en tête et annulerait tout le travail d'`api_hero`.
+      const items = uniqueItems.slice(0, 12);
       if (items.length === 0) {
         hideHero();
         return;
@@ -421,7 +530,31 @@
       }
       dots.forEach((dot, index) => dot.addEventListener("click", () => show(index)));
       if (slides.length > 1) {
-        heroTimer = window.setInterval(() => show(current + 1), 6000);
+        // Le bandeau ne défile que pendant qu'on le regarde : une rotation
+        // invisible coûte un réagencement toutes les 6 secondes pour rien, et
+        // c'est autant de retard pris sur le défilement de la grille.
+        const startRotation = () => {
+          if (heroTimer || currentGeneration !== generation) return;
+          heroTimer = window.setInterval(() => show(current + 1), 6000);
+        };
+        const stopRotation = () => {
+          if (!heroTimer) return;
+          window.clearInterval(heroTimer);
+          heroTimer = null;
+        };
+        if ("IntersectionObserver" in window) {
+          const heroObserver = new IntersectionObserver(
+            (entries) => {
+              if (currentGeneration !== generation) return;
+              if (entries[0]?.isIntersecting) startRotation();
+              else stopRotation();
+            },
+            { rootMargin: "100px" }
+          );
+          heroObserver.observe(heroSection);
+        } else {
+          startRotation();
+        }
       }
     } catch (error) {
       if (error.name !== "AbortError") {
@@ -431,44 +564,544 @@
     }
   }
 
+  // Nouveautés et Légendes sont des onglets TMDB (films et séries). Les
+  // animes et mangas ont leur propre onglet, puisé chez AniList, avec leurs
+  // propres filtres « ajouts récents » et « note ≥ 8,5 » : on ne les mélange
+  // pas ici.
   function specialPills() {
     return [
-      { id: "all", label: "Tous les genres" },
+      { id: "all", label: "Films & Séries" },
       { id: "movie", label: "Films" },
       { id: "tv", label: "Séries TV" },
-      { id: "anime", label: "Animés JP" },
     ];
+  }
+
+  function makePill(pill, current, onPick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `pill${String(pill.id) === current ? " active" : ""}`;
+    button.dataset.id = String(pill.id);
+    button.textContent = String(pill.label);
+    button.addEventListener("click", () => {
+      if (button.dataset.id === current) return;
+      onPick(button.dataset.id, button);
+    });
+    return button;
+  }
+
+  /* Une centaine de sous-genres par moitié de catalogue : la bande
+     horizontale seule les rendait introuvables. Deux aides, posées une seule
+     fois : un filtre texte et un dépliage en grille. */
+  function normaliser(valeur) {
+    return String(valeur || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function installerOutilsPills(nombres) {
+    if (!pillsToolbar || !pillsEl) return;
+    if (nombres < 12) {
+      pillsToolbar.hidden = true;
+      return;
+    }
+    pillsToolbar.hidden = false;
+    if (pillSearch && !pillSearch.dataset.wired) {
+      pillSearch.dataset.wired = "1";
+      pillSearch.addEventListener("input", () => {
+        const aiguille = normaliser(pillSearch.value).trim();
+        pillsEl.querySelectorAll(".pill").forEach((item) => {
+          item.hidden =
+            Boolean(aiguille) &&
+            !normaliser(item.textContent).includes(aiguille);
+        });
+      });
+    }
+    if (pillExpand && !pillExpand.dataset.wired) {
+      pillExpand.dataset.wired = "1";
+      pillExpand.addEventListener("click", () => {
+        const ouvert = pillsEl.classList.toggle("is-wrapped");
+        pillExpand.setAttribute("aria-expanded", ouvert ? "true" : "false");
+        if (pillExpandLabel) {
+          pillExpandLabel.textContent = ouvert ? "Replier" : "Tout afficher";
+        }
+      });
+    }
+  }
+
+  /* Le préchargement : survoler un sous-genre lance déjà sa première page.
+     Le serveur garde ces pages 10 minutes, donc le clic qui suit arrive sur
+     une réponse toute prête au lieu d'attendre AniList. */
+  const prefetchVus = new Set();
+  let prefetchTimer = null;
+
+  function prefetchUrl(pillId) {
+    const query = isAnimeTab ? `&media=${activeMedia}` : "";
+    return (
+      `/api/list?tab=${encodeURIComponent(tab)}` +
+      `${query}&genre=${encodeURIComponent(pillId || "all")}` +
+      `&sort=${encodeURIComponent(activeSort)}&page=1`
+    );
+  }
+
+  function precharger(pillId) {
+    if (!isAnimeTab || !pillId || prefetchVus.has(pillId)) return;
+    prefetchVus.add(pillId);
+    // Le résultat n'est pas relu côté client : c'est le cache du serveur
+    // qu'on remplit. Un échec ne doit donc rien afficher.
+    fetch(prefetchUrl(pillId), { credentials: "same-origin" }).catch(() => {});
+  }
+
+  /* Le calendrier des épisodes de la semaine. Il vit à part de la grille :
+     un échec d'AniList ne doit pas vider le catalogue, et inversement. */
+  let calendrierCharge = "";
+
+  function carteCalendrier(item) {
+    const lien = document.createElement("a");
+    lien.className = "calendrier-carte";
+    lien.href = detailUrl(item) || "#";
+    lien.dataset.trackId = `${item.media_type}-${item.id}`;
+
+    const image = document.createElement("img");
+    image.className = "calendrier-affiche";
+    image.src = item.poster_small || item.poster || "";
+    image.alt = String(item.title || "Sans titre");
+    image.loading = "lazy";
+    image.decoding = "async";
+
+    const corps = document.createElement("div");
+    corps.className = "calendrier-corps";
+    const titre = document.createElement("div");
+    titre.className = "calendrier-nom";
+    titre.textContent = String(item.title || "Sans titre");
+    const episode = document.createElement("div");
+    episode.className = "calendrier-episode";
+    episode.textContent = item.episode
+      ? `Épisode ${item.episode}`
+      : "Épisode à venir";
+    const quand = document.createElement("div");
+    quand.className = "calendrier-quand";
+    quand.textContent = [item.jour, item.heure].filter(Boolean).join(" · ");
+    corps.append(titre, episode, quand);
+
+    lien.append(image, corps);
+    return lien;
+  }
+
+  /* Prévenir des nouveaux épisodes. Deux garde-fous : l'autorisation n'est
+     demandée que sur un clic explicite, et on n'annonce que les séries déjà
+     dans « Ma Liste » — prévenir de tout le calendrier serait du spam. */
+  const NOTIF_CLE = "omni-notif-episodes";
+  const NOTIF_VUS_CLE = "omni-notif-episodes-vus";
+
+  function lireNotifVus() {
+    try {
+      const brut = window.localStorage.getItem(NOTIF_VUS_CLE);
+      const liste = brut ? JSON.parse(brut) : [];
+      return new Set(Array.isArray(liste) ? liste.map(String) : []);
+    } catch (erreur) {
+      return new Set();
+    }
+  }
+
+  function notificationsActives() {
+    try {
+      return window.localStorage.getItem(NOTIF_CLE) === "oui";
+    } catch (erreur) {
+      return false;
+    }
+  }
+
+  function maCle(item) {
+    return `${item.media_type || "x"}:${item.id}:${item.episode || 0}`;
+  }
+
+  function annoncerEpisodes(items) {
+    if (!notificationsActives() || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    const suivis = new Set();
+    if (window.OmniLibrary && window.OmniLibrary.getFavorites) {
+      window.OmniLibrary.getFavorites().forEach((fiche) => {
+        suivis.add(`${fiche.media_type || fiche.type || "x"}:${fiche.id}`);
+      });
+    }
+    if (!suivis.size) return;
+    const vus = lireNotifVus();
+    const nouveaux = items.filter(
+      (item) =>
+        suivis.has(`${item.media_type}:${item.id}`) && !vus.has(maCle(item))
+    );
+    if (!nouveaux.length) return;
+    nouveaux.slice(0, 3).forEach((item) => {
+      try {
+        new window.Notification("Nouvel épisode sur OmniStream", {
+          body: `${item.title} — épisode ${item.episode || "à venir"}`,
+          tag: maCle(item),
+        });
+      } catch (erreur) { /* notification refusée par le système */ }
+    });
+    // Marquées comme vues : sans ça, chaque visite rejouerait l'annonce.
+    nouveaux.forEach((item) => vus.add(maCle(item)));
+    try {
+      window.localStorage.setItem(
+        NOTIF_VUS_CLE,
+        JSON.stringify([...vus].slice(-300))
+      );
+    } catch (erreur) { /* stockage indisponible */ }
+  }
+
+  async function chargerCalendrier() {
+    if (!isAnimeTab || !calendrierEl || !calendrierRail) return;
+    if (calendrierCharge === activeMedia) return;
+    calendrierCharge = activeMedia;
+    try {
+      const data = await requestJson(
+        `/api/calendrier?media=${encodeURIComponent(activeMedia)}`
+      );
+      const items = Array.isArray(data.items) ? data.items : [];
+      calendrierRail.replaceChildren(...items.map(carteCalendrier));
+      annoncerEpisodes(items);
+      // Rien à annoncer : le bandeau reste caché plutôt que d'afficher un
+      // « aucun épisode » qui n'apporte rien.
+      calendrierEl.hidden = items.length === 0;
+    } catch (error) {
+      calendrierEl.hidden = true;
+    }
+  }
+
+  /* « Pas intéressé ». Le vrai mécanisme qui fait qu'un fil ne vous remontre
+     pas la même chose : on écarte le titre, et il ne revient plus. Tout reste
+     dans localStorage — le site n'a pas de compte où l'écrire. */
+  const ECARTES_CLE = "omni-titres-ecartes";
+  const ECARTES_MAX = 400;
+  let ecartes = new Set();
+
+  function lireEcartes() {
+    try {
+      const brut = window.localStorage.getItem(ECARTES_CLE);
+      const liste = brut ? JSON.parse(brut) : [];
+      return new Set(Array.isArray(liste) ? liste.map(String) : []);
+    } catch (erreur) {
+      return new Set();
+    }
+  }
+
+  function ecrireEcartes() {
+    try {
+      // Borné : sans limite, la clé grossirait pour toujours.
+      window.localStorage.setItem(
+        ECARTES_CLE,
+        JSON.stringify([...ecartes].slice(-ECARTES_MAX))
+      );
+    } catch (erreur) { /* stockage indisponible : la session suffit */ }
+  }
+
+  function cleTitre(item) {
+    return `${item.media_type || "x"}:${item.id}`;
+  }
+
+  function estEcarte(item) {
+    return ecartes.has(cleTitre(item));
+  }
+
+  function ecarterTitre(item) {
+    ecartes.add(cleTitre(item));
+    ecrireEcartes();
+  }
+
+  ecartes = lireEcartes();
+
+  function createSkipButton(item, carte) {
+    const btn = makeCornerButton("card-skip-btn", "Pas intéressé");
+    btn.innerHTML = ICONS.skip;
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      ecarterTitre(item);
+      // La carte part tout de suite : laisser un bouton « annuler » supposerait
+      // un état réversible qu'on ne tient pas d'une visite à l'autre.
+      carte.remove();
+      if (window.OmniUI) {
+        window.OmniUI.toast(`« ${item.title || "Ce titre"} » ne reviendra plus.`, "ok");
+      }
+    });
+    return btn;
+  }
+
+  /* Le cran de fraîcheur. Un clic recharge la grille : le changement d'ordre
+     doit se voir tout de suite, pas à la prochaine visite. */
+  function marquerFraicheur() {
+    if (!fraicheurEl) return;
+    fraicheurEl.querySelectorAll(".fraicheur-btn").forEach((bouton) => {
+      bouton.classList.toggle(
+        "active",
+        bouton.dataset.fraicheur === (fraicheur || "normal")
+      );
+    });
+  }
+
+  // La durée n'a de sens que pour les films et les animes : une série se
+  // regarde sur plusieurs soirées, un manga n'a pas de minutes.
+  function dureeActive() {
+    return tab === "films" || (isAnimeTab && activeMedia === "anime");
+  }
+
+  function majVisibiliteDuree() {
+    if (dureeEl) dureeEl.hidden = !dureeActive();
+  }
+
+  function installerDuree() {
+    if (!dureeEl || dureeEl.dataset.wired) return;
+    dureeEl.dataset.wired = "1";
+    marquerDuree();
+    dureeEl.addEventListener("click", (event) => {
+      const bouton = event.target.closest(".fraicheur-btn");
+      if (!bouton) return;
+      const choix = bouton.dataset.duree || "";
+      duree = DUREES.includes(choix) ? choix : "";
+      try {
+        if (duree) window.localStorage.setItem(DUREE_CLE, duree);
+        else window.localStorage.removeItem(DUREE_CLE);
+      } catch (erreur) { /* préférence non mémorisée, sans gravité */ }
+      marquerDuree();
+      reloadEverything();
+    });
+  }
+
+  function marquerDuree() {
+    if (!dureeEl) return;
+    dureeEl.querySelectorAll(".fraicheur-btn").forEach((bouton) => {
+      const actif = (bouton.dataset.duree || "") === duree;
+      bouton.classList.toggle("active", actif);
+      bouton.setAttribute("aria-pressed", String(actif));
+    });
+  }
+
+  /* « Dans le même univers » : la fiche mémore le dernier titre consulté,
+     l'accueil va chercher ses œuvres liées (suites, préquelles, proches). */
+  const DERNIER_TITRE_CLE = "omni-dernier-titre";
+
+  async function chargerUnivers() {
+    if (!universRow || !universList) return;
+    let memoire = null;
+    try {
+      memoire = JSON.parse(
+        window.localStorage.getItem(DERNIER_TITRE_CLE) || "null",
+      );
+    } catch (erreur) {
+      return;
+    }
+    if (!memoire || !memoire.media_type || !memoire.id) return;
+    try {
+      const reponse = await fetch(
+        "/api/univers?media_type=" +
+          encodeURIComponent(memoire.media_type) +
+          "&id=" +
+          encodeURIComponent(memoire.id),
+        { headers: { Accept: "application/json" } },
+      );
+      if (!reponse.ok) return;
+      const data = await reponse.json();
+      const liens = Array.isArray(data.liens) ? data.liens : [];
+      if (!liens.length) return;
+      universList.replaceChildren(
+        ...liens.map((lien) => {
+          const a = document.createElement("a");
+          a.className = "univers-carte";
+          a.href = lien.href || "#";
+          const kind = document.createElement("span");
+          kind.className = "univers-carte-kind";
+          kind.textContent = lien.relation || "";
+          const name = document.createElement("span");
+          name.className = "univers-carte-name";
+          name.textContent = lien.title || "";
+          a.append(kind, name);
+          return a;
+        }),
+      );
+      universRow.hidden = false;
+    } catch (erreur) {
+      /* source muette : la rangée reste cachée, sans erreur visible */
+    }
+  }
+
+  function installerFraicheur() {
+    if (!fraicheurEl || fraicheurEl.dataset.wired) return;
+    fraicheurEl.dataset.wired = "1";
+    marquerFraicheur();
+    fraicheurEl.addEventListener("click", (event) => {
+      const bouton = event.target.closest(".fraicheur-btn");
+      if (!bouton) return;
+      const choix = bouton.dataset.fraicheur || "";
+      fraicheur = FRAICHEURS.includes(choix) ? choix : "";
+      try {
+        if (fraicheur) window.localStorage.setItem(FRAICHEUR_CLE, fraicheur);
+        else window.localStorage.removeItem(FRAICHEUR_CLE);
+      } catch (erreur) { /* préférence non mémorisée, sans gravité */ }
+      marquerFraicheur();
+      reloadEverything();
+    });
+  }
+
+  function installerNotifications() {
+    if (!notifBtn || notifBtn.dataset.wired) return;
+    notifBtn.dataset.wired = "1";
+    if (!("Notification" in window)) return;
+    notifBtn.hidden = false;
+    const label = document.getElementById("anime-notif-label");
+    const peindre = () => {
+      const actif = notificationsActives();
+      notifBtn.classList.toggle("is-on", actif);
+      notifBtn.setAttribute("aria-pressed", actif ? "true" : "false");
+      if (label) {
+        label.textContent = actif
+          ? "Alertes épisodes : activées"
+          : "Prévenir des nouveaux épisodes";
+      }
+    };
+    peindre();
+    notifBtn.addEventListener("click", async () => {
+      const actif = notificationsActives();
+      if (actif) {
+        try {
+          window.localStorage.removeItem(NOTIF_CLE);
+        } catch (erreur) { /* stockage indisponible */ }
+        peindre();
+        if (window.OmniUI) window.OmniUI.toast("Alertes épisodes coupées.", "ok");
+        return;
+      }
+      let accord = Notification.permission;
+      if (accord === "default") accord = await Notification.requestPermission();
+      if (accord !== "granted") {
+        if (window.OmniUI) {
+          window.OmniUI.toast("Le navigateur a refusé les notifications.", "info");
+        }
+        return;
+      }
+      try {
+        window.localStorage.setItem(NOTIF_CLE, "oui");
+      } catch (erreur) { /* stockage indisponible */ }
+      peindre();
+      if (window.OmniUI) {
+        window.OmniUI.toast("Vous serez prévenu des épisodes de Ma Liste.", "ok");
+      }
+    });
+  }
+
+  function installerPrefetch() {
+    if (!pillsEl || pillsEl.dataset.prefetch) return;
+    pillsEl.dataset.prefetch = "1";
+    pillsEl.addEventListener("pointerover", (event) => {
+      const pill = event.target.closest(".pill");
+      if (pill) precharger(pill.dataset.id);
+    });
+    // Sur tactile il n'y a pas de survol : un appui maintenu joue ce rôle,
+    // sans jamais voler le clic.
+    pillsEl.addEventListener("pointerdown", (event) => {
+      const pill = event.target.closest(".pill");
+      if (!pill) return;
+      clearTimeout(prefetchTimer);
+      prefetchTimer = setTimeout(() => precharger(pill.dataset.id), 260);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((evenement) => {
+      pillsEl.addEventListener(evenement, () => clearTimeout(prefetchTimer));
+    });
+  }
+
+  function selectPill(container, chosen) {
+    container.querySelectorAll(".pill").forEach((item) => {
+      item.classList.toggle("active", item.dataset.id === chosen);
+    });
+  }
+
+  function reloadEverything() {
+    generation += 1;
+    resetGrid();
+    loadHero();
+    loadMore();
+    // La bascule Animes / Mangas change aussi les épisodes annoncés.
+    chargerCalendrier();
+  }
+
+  function renderSortPills(sorts) {
+    if (!sortPillsEl) return;
+    if (!Array.isArray(sorts) || !sorts.length) {
+      sortPillsEl.hidden = true;
+      sortPillsEl.replaceChildren();
+      return;
+    }
+    sortPillsEl.replaceChildren(
+      ...sorts.map((sort) =>
+        makePill(sort, activeSort, (id) => {
+          activeSort = id;
+          selectPill(sortPillsEl, id);
+          reloadEverything();
+        })
+      )
+    );
+    sortPillsEl.hidden = false;
   }
 
   async function loadPills() {
     try {
-      const pills = ["nouveautes", "legendes"].includes(tab)
-        ? specialPills()
-        : (await requestJson(`/api/genres?tab=${encodeURIComponent(tab)}`)).pills || [];
-      const buttons = pills.map((pill) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = `pill${pill.id === activeGenre ? " active" : ""}`;
-        button.dataset.id = String(pill.id);
-        button.textContent = String(pill.label);
-        button.addEventListener("click", () => {
-          if (button.dataset.id === activeGenre) return;
-          activeGenre = button.dataset.id;
-          pillsEl.querySelectorAll(".pill").forEach((item) => {
-            item.classList.toggle("active", item === button);
-          });
-          generation += 1;
-          resetGrid();
-          loadHero();
-          loadMore();
-        });
-        return button;
-      });
-      pillsEl.replaceChildren(...buttons);
+      if (["nouveautes", "legendes"].includes(tab)) {
+        pillsEl.replaceChildren(
+          ...specialPills().map((pill) =>
+            makePill(pill, activeGenre, (id) => {
+              activeGenre = id;
+              selectPill(pillsEl, id);
+              reloadEverything();
+            })
+          )
+        );
+        if (sortPillsEl) sortPillsEl.hidden = true;
+        return;
+      }
+      const query = isAnimeTab ? `&media=${activeMedia}` : "";
+      const data = await requestJson(
+        `/api/genres?tab=${encodeURIComponent(tab)}${query}`
+      );
+      const pills = data.pills || [];
+      pillsEl.replaceChildren(
+        ...pills.map((pill) =>
+          makePill(pill, activeGenre, (id) => {
+            activeGenre = id;
+            selectPill(pillsEl, id);
+            reloadEverything();
+          })
+        )
+      );
+      renderSortPills(data.sorts);
+      installerOutilsPills(pills.length);
+      installerPrefetch();
+      installerNotifications();
+      if (animeExtra) animeExtra.hidden = !isAnimeTab;
+      majVisibiliteDuree();
+      chargerUnivers();
+      chargerCalendrier();
     } catch (error) {
       console.error("Erreur de chargement des genres :", error);
       pillsEl.replaceChildren();
     }
+  }
+
+  // Bascule Animes / Mangas : elle change les sous-genres ET la grille, et
+  // remet le filtre à « Tout » — un Shōnen n'a rien à faire parmi les animes.
+  if (isAnimeTab && mediaSwitch) {
+    mediaSwitch.querySelectorAll(".media-switch-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        const next = button.dataset.media;
+        if (!next || next === activeMedia) return;
+        activeMedia = next;
+        activeGenre = "all";
+        activeSort = "tendances";
+        mediaSwitch.querySelectorAll(".media-switch-btn").forEach((item) => {
+          item.classList.toggle("active", item === button);
+        });
+        loadPills();
+        reloadEverything();
+      });
+    });
   }
 
   function resetGrid() {
@@ -509,6 +1142,48 @@
     } finally {
       if (currentGeneration === generation) loading = false;
     }
+    // IntersectionObserver ne rappelle sa fonction QUE sur un changement
+    // d'intersection. Si la page chargée ne remplit pas l'écran, la sentinelle
+    // reste visible sans jamais « ressortir » : la grille s'arrêtait là, bien
+    // avant la fin de la liste. On relance donc tant qu'elle est en vue.
+    if (
+      currentGeneration === generation &&
+      hasMore &&
+      sentinel &&
+      sentinel.getBoundingClientRect().top < window.innerHeight + 600
+    ) {
+      window.requestAnimationFrame(() => loadMore());
+    }
+  }
+
+  if (hasardBtn) {
+    hasardBtn.addEventListener("click", async () => {
+      hasardBtn.disabled = true;
+      resetGrid();
+      // Couper le défilement AVANT d'attendre : sinon l'observateur pourrait
+      // empiler une page de catalogue pendant que la pioche arrive.
+      hasMore = false;
+      generation += 1;
+      try {
+        const data = await requestJson(
+          `/api/anime-hasard?media=${encodeURIComponent(activeMedia)}`
+        );
+        const items = Array.isArray(data.items) ? data.items : [];
+        const cards = items.map((item, idx) => createCard(item, idx)).filter(Boolean);
+        gridEl.append(...cards);
+        // Une pioche est une fin en soi : on ne continue pas à empiler les
+        // pages derrière, ce serait recoller un catalogue à une sélection.
+        hasMore = false;
+        if (!cards.length && emptyMsg) {
+          emptyMsg.hidden = false;
+          emptyMsg.textContent = "AniList n'a rien renvoyé. Réessayez.";
+        }
+      } catch (error) {
+        if (emptyMsg) emptyMsg.hidden = false;
+      } finally {
+        hasardBtn.disabled = false;
+      }
+    });
   }
 
   if ("IntersectionObserver" in window && sentinel) {
@@ -527,71 +1202,34 @@
     });
   }
 
-  function renderResumeRow() {
-    const row = document.getElementById("resume-row");
-    const scroller = document.getElementById("resume-scroller");
-    if (!row || !scroller || !window.OmniLibrary) return;
-    const items = window.OmniLibrary.getContinue().slice(0, 15);
-    if (!items.length) {
-      row.hidden = true;
-      return;
-    }
-    const cards = items.map((item) => {
-      const card = document.createElement("div");
-      card.className = "resume-card";
-      const img = safeImageUrl(item.poster || item.thumbnail);
-      const isMusic = item.type === "music";
-      const href = isMusic
-        ? null
-        : (["movie", "tv"].includes(item.media_type) && item.id
-            ? `/details/${item.media_type}/${item.id}?tab=${encodeURIComponent(item.tab || tab)}`
-            : null);
-
-      const media = document.createElement(href ? "a" : "button");
-      media.className = "resume-poster";
-      if (href) media.href = href;
-      else media.type = "button";
-      if (img) {
-        media.innerHTML = `<img src="${img}" alt="" loading="lazy" decoding="async">`;
-      } else {
-        media.classList.add("poster-placeholder");
-      }
-      const play = document.createElement("span");
-      play.className = "resume-play";
-      play.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
-      media.appendChild(play);
-      if (isMusic) {
-        media.addEventListener("click", () => {
-          if (window.OmniPlayer) window.OmniPlayer.play(item, "audio");
-        });
-        const tag = document.createElement("span");
-        tag.className = "resume-tag";
-        tag.textContent = "MP3";
-        media.appendChild(tag);
-      }
-
-      const t = document.createElement("div");
-      t.className = "resume-title";
-      t.textContent = item.title || "Sans titre";
-      card.append(media, t);
-      return card;
-    });
-    scroller.replaceChildren(...cards);
-    row.hidden = false;
-  }
-
-  loadHero();
+  installerFraicheur();
+  installerDuree();
+  majVisibiliteDuree();
+  chargerUnivers();
   loadPills();
   loadMore();
-  renderResumeRow();
 
+  // Lecture musique depuis la recherche globale : délégué, car les boutons
+  // n'existent que sur la page de résultats servie par le serveur.
+  document.addEventListener("click", (event) => {
+    const bouton = event.target.closest(".search-music-play");
+    if (!bouton || !window.OmniPlayer) return;
+    window.OmniPlayer.play(
+      {
+        id: bouton.dataset.playId,
+        title: bouton.dataset.title || "Lecture en cours",
+        channel: bouton.dataset.channel || "",
+        thumbnail: bouton.dataset.thumbnail || "",
+      },
+      "audio",
+    );
+  });
   // Un seul AbortController par page visitée : les écouteurs posés sur
   // `document` sautent au départ de la page, au lieu de s'empiler à chaque
   // navigation interne (interface de plus en plus lente au fil de la session).
   if (!window.__omniPageAbort) window.__omniPageAbort = new AbortController();
   const signal = window.__omniPageAbort.signal;
 
-  document.addEventListener("omni:library-change", renderResumeRow, { signal });
   document.addEventListener("omni:player-change", () => {
     const current = window.OmniPlayer && window.OmniPlayer.getCurrent();
     document.querySelectorAll(".card[data-track-id]").forEach((card) => {

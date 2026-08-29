@@ -259,13 +259,22 @@ def test_chat_validates_payload(client, monkeypatch):
 
 
 def test_reader_serializes_title_as_safe_javascript(client):
+    """Le titre ne doit jamais pouvoir fermer un attribut ni ouvrir une balise.
+
+    Il est injecté dans un attribut HTML (`data-title`), lu ensuite par le
+    script via `dataset` : c'est l'auto-échappement HTML qui protège, pas un
+    échappement JSON — lequel ajoutait ses guillemets dans l'attribut et
+    faisait chercher un titre guillemets compris sur MangaDex.
+    """
     response = client.get(
-        "/lecteur-scan", query_string={"titre": "</script><script>alert(1)</script>"}
+        "/lecteur-scan", query_string={"titre": '</script><script>alert(1)</script>'}
     )
 
     assert response.status_code == 200
-    assert b"\\u003c/script\\u003e" in response.data
     assert b"<script>alert(1)</script>" not in response.data
+    assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in response.data
+    # Aucun guillemet nu ne peut refermer l'attribut prématurément.
+    assert b'data-title="</script>' not in response.data
 
 
 def test_mangadex_proxy_rejects_arbitrary_endpoint(client):

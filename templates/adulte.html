@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Rayon adulte — OmniStream{% endblock %}
+{% block content %}
+<div class="adulte-root" id="adulte-root" data-cle="{{ cle_confirmation | tojson }}">
+
+  {# LE PORTAIL. Rien n'est chargé tant qu'il est là : la grille reste vide
+     dans le HTML et l'appel à /api/adulte n'est lancé qu'après le clic sur
+     « J'ai 18 ans ». Fermer, recharger ou désactiver JavaScript laisse donc
+     cette page strictement vide. #}
+  <div class="adulte-gate" id="adulte-gate" role="dialog" aria-modal="true"
+       aria-labelledby="adulte-gate-title">
+    <div class="adulte-gate-box">
+      <div class="section-kicker orange">CONTENU RÉSERVÉ AUX ADULTES</div>
+      <h1 class="adulte-gate-title" id="adulte-gate-title">Rayon adulte</h1>
+      <p class="adulte-gate-text">
+        Ce rayon rassemble des mangas classés <strong>erotica</strong> et
+        <strong>pornographic</strong> par MangaDex, avec du contenu sexuel
+        explicite. Il est réservé aux personnes majeures.
+      </p>
+      <p class="adulte-gate-note">
+        Aucune donnée n'est affichée avant votre confirmation. Votre réponse
+        reste sur cet appareil uniquement — elle n'est envoyée à aucun serveur.
+      </p>
+      <div class="adulte-gate-actions">
+        <button type="button" class="adulte-btn-yes" id="adulte-yes">J'ai 18 ans</button>
+        <a class="adulte-btn-no" href="{{ url_for('index', tab='animes') }}">Retour aux animés</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="adulte-content" id="adulte-content" hidden>
+    <div class="section-head">
+      <div>
+        <div class="section-kicker orange">MANGADX · CONTENU ADULTE</div>
+        <h2 class="section-title">Rayon adulte</h2>
+      </div>
+      <button type="button" class="adulte-btn-lock" id="adulte-lock">
+        Re-verrouiller
+      </button>
+    </div>
+    <p class="adulte-warning">
+      Contenu explicite réservé aux personnes majeures. Les scans viennent de
+      MangaDex, les plus suivis en premier.
+    </p>
+
+    <form class="adulte-recherche" id="adulte-form" role="search">
+      <input
+        type="search"
+        id="adulte-q"
+        class="pill-search"
+        placeholder="Chercher un titre dans le rayon adulte…"
+        aria-label="Chercher un titre"
+        autocomplete="off"
+        maxlength="80"
+      >
+      <button type="submit" class="adulte-btn-lock">Chercher</button>
+    </form>
+
+    <nav class="pills" id="adulte-pills" aria-label="Filtres du rayon adulte">
+      <button type="button" class="pill active" data-rating="">Tout</button>
+      <button type="button" class="pill" data-rating="erotica">Erotica</button>
+      <button type="button" class="pill" data-rating="pornographic">Explicite</button>
+    </nav>
+
+    <div class="grid" id="adulte-grid"></div>
+    <div id="adulte-sentinel" class="sentinel"></div>
+    <div id="adulte-empty" class="empty-state" hidden>
+      MangaDex ne renvoie rien pour l'instant. Réessayez dans un instant.
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const root = document.getElementById("adulte-root");
+  if (!root) return;
+
+  const cle = root.dataset.cle || "omni-adulte-18";
+  const gate = document.getElementById("adulte-gate");
+  const content = document.getElementById("adulte-content");
+  const yesBtn = document.getElementById("adulte-yes");
+  const lockBtn = document.getElementById("adulte-lock");
+  const grid = document.getElementById("adulte-grid");
+  const sentinel = document.getElementById("adulte-sentinel");
+  const emptyMsg = document.getElementById("adulte-empty");
+  const pills = document.getElementById("adulte-pills");
+
+  let page = 1;
+  let hasMore = false;
+  let loading = false;
+  let started = false;
+  let rating = "";
+  let recherche = "";
+
+  function confirme() {
+    try {
+      return window.localStorage.getItem(cle) === "oui";
+    } catch (erreur) {
+      // Navigation privée bloquant localStorage : on redemande à chaque fois.
+      return false;
+    }
+  }
+
+  function memoriser(valeur) {
+    try {
+      if (valeur) window.localStorage.setItem(cle, "oui");
+      else window.localStorage.removeItem(cle);
+    } catch (erreur) { /* stockage indisponible : la session suffit */ }
+  }
+
+  function carte(item) {
+    const lien = document.createElement("a");
+    lien.className = "card moviebox-card";
+    lien.href = item.reader || "#";
+    lien.dataset.trackId = `manga-${item.id}`;
+
+    const poster = document.createElement("div");
+    poster.className = "card-poster";
+    const image = document.createElement("img");
+    image.src = item.poster_small || item.poster || "";
+    image.alt = String(item.title || "Sans titre");
+    image.loading = "lazy";
+    image.decoding = "async";
+    poster.appendChild(image);
+
+    const info = document.createElement("div");
+    info.className = "card-info";
+    const titre = document.createElement("div");
+    titre.className = "card-title";
+    titre.textContent = String(item.title || "Sans titre");
+    const meta = document.createElement("div");
+    meta.className = "card-meta-line";
+    const annee = item.year
+      ? `<span class="card-year">${item.year}</span><span class="card-dot">•</span>`
+      : "";
+    meta.innerHTML = `${annee}<span class="card-type-tag">Manga adulte</span>`;
+    info.append(titre, meta);
+
+    lien.append(poster, info);
+    return lien;
+  }
+
+  async function charger() {
+    if (loading || !hasMore && started) return;
+    loading = true;
+    try {
+      const params = new URLSearchParams({ page: String(page) });
+      if (rating) params.set("rating", rating);
+      if (recherche) params.set("q", recherche);
+      const reponse = await fetch(`/api/adulte?${params}`);
+      if (!reponse.ok) throw new Error(`code ${reponse.status}`);
+      const data = await reponse.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      grid.append(...items.map(carte));
+      hasMore = Boolean(data.has_more);
+      page += 1;
+      started = true;
+      emptyMsg.hidden = grid.children.length > 0;
+    } catch (erreur) {
+      emptyMsg.hidden = false;
+      emptyMsg.textContent = `MangaDex n'a pas répondu (${erreur.message}).`;
+    } finally {
+      loading = false;
+    }
+  }
+
+  function ouvrir() {
+    if (gate) gate.hidden = true;
+    if (content) content.hidden = false;
+    hasMore = true;
+    page = 1;
+    started = false;
+    grid.replaceChildren();
+    charger();
+  }
+
+  function verrouiller() {
+    memoriser(false);
+    if (content) content.hidden = true;
+    if (gate) gate.hidden = false;
+    grid.replaceChildren();
+    page = 1;
+    started = false;
+    hasMore = false;
+    recherche = "";
+    if (champQ) champQ.value = "";
+  }
+
+  if (yesBtn) {
+    yesBtn.addEventListener("click", () => {
+      memoriser(true);
+      ouvrir();
+    });
+  }
+  if (lockBtn) lockBtn.addEventListener("click", verrouiller);
+
+  function repartir() {
+    grid.replaceChildren();
+    page = 1;
+    started = false;
+    hasMore = true;
+    emptyMsg.hidden = true;
+    charger();
+  }
+
+  if (pills) {
+    pills.addEventListener("click", (event) => {
+      const bouton = event.target.closest(".pill");
+      if (!bouton) return;
+      rating = bouton.dataset.rating || "";
+      pills.querySelectorAll(".pill").forEach((item) => {
+        item.classList.toggle("active", item === bouton);
+      });
+      repartir();
+    });
+  }
+
+  const formulaire = document.getElementById("adulte-form");
+  const champQ = document.getElementById("adulte-q");
+  if (formulaire && champQ) {
+    formulaire.addEventListener("submit", (event) => {
+      event.preventDefault();
+      recherche = String(champQ.value || "").trim().slice(0, 80);
+      repartir();
+    });
+  }
+
+  if ("IntersectionObserver" in window && sentinel) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Ne charger que portail levé : sinon le défilement déclencherait
+        // l'appel à MangaDex derrière l'écran de confirmation.
+        if (entries[0]?.isIntersecting && gate && gate.hidden) charger();
+      },
+      { rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+  }
+
+  // Le portail reste affiché par défaut : c'est la confirmation enregistrée
+  // qui le retire, jamais l'inverse.
+  if (confirme()) ouvrir();
+})();
+</script>
+{% endblock %}

@@ -29,7 +29,8 @@
   function detailHref(item) {
     if (item.type === "music") return "/musiques";
     const mediaType = item.media_type;
-    if ((mediaType === "movie" || mediaType === "tv") && item.id) {
+    // Les fiches anime/manga (source AniList) s'ouvrent aussi chez nous.
+    if (["movie", "tv", "anime", "manga"].includes(mediaType) && item.id) {
       return `/details/${mediaType}/${item.id}?tab=${encodeURIComponent(item.tab || "films")}`;
     }
     return null;
@@ -150,14 +151,109 @@
     if (counter) counter.textContent = items.length ? String(items.length) : "";
   }
 
+  /* Les mangas en cours de lecture. L'historique est écrit par le lecteur de
+     scan (clés « omni-scan-historique ») : cette rangée ne fait que le relire,
+     elle n'introduit aucun stockage de son côté. */
+  const SCAN_CLE = "omni-scan-historique";
+
+  function lireScans() {
+    try {
+      const brut = window.localStorage.getItem(SCAN_CLE);
+      const donnees = brut ? JSON.parse(brut) : {};
+      if (!donnees || typeof donnees !== "object") return [];
+      return Object.entries(donnees)
+        .map(([id, entree]) => ({ id, ...(entree || {}) }))
+        .filter((entree) => entree.titre)
+        .sort((a, b) => (b.vu_le || 0) - (a.vu_le || 0));
+    } catch (erreur) {
+      return [];
+    }
+  }
+
+  function carteScan(entree, onRemove) {
+    const wrap = document.createElement("div");
+    wrap.className = "lib-card";
+
+    const lien = document.createElement("a");
+    lien.className = "lib-scan-link";
+    lien.href = `/lecteur-scan?titre=${encodeURIComponent(entree.titre)}`;
+
+    const inner = document.createElement("div");
+    inner.className = "lib-scan-tile";
+    inner.textContent = "MANGA";
+
+    const info = document.createElement("div");
+    info.className = "lib-info";
+    const titre = document.createElement("div");
+    titre.className = "lib-title";
+    titre.textContent = String(entree.titre);
+    const suite = document.createElement("div");
+    suite.className = "lib-meta";
+    suite.textContent = entree.numero
+      ? `Reprendre au chapitre ${entree.numero}`
+      : "Reprendre la lecture";
+    info.append(titre, suite);
+
+    lien.append(inner, info);
+
+    const bouton = document.createElement("button");
+    bouton.type = "button";
+    bouton.className = "lib-pin-btn";
+    bouton.textContent = "Oublier";
+    bouton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onRemove(entree.id);
+    });
+
+    wrap.append(lien, bouton);
+    return wrap;
+  }
+
+  function renderScans() {
+    const grid = document.getElementById("scan-grid");
+    const empty = document.getElementById("scan-empty");
+    if (!grid) return;
+    const entrees = lireScans();
+    const retirer = (id) => {
+      try {
+        const brut = window.localStorage.getItem(SCAN_CLE);
+        const donnees = brut ? JSON.parse(brut) : {};
+        delete donnees[id];
+        window.localStorage.setItem(SCAN_CLE, JSON.stringify(donnees));
+      } catch (erreur) { /* stockage indisponible */ }
+      renderScans();
+    };
+    grid.replaceChildren(...entrees.map((entree) => carteScan(entree, retirer)));
+    if (empty) empty.hidden = entrees.length > 0;
+    const counter = document.getElementById("scan-grid-count");
+    if (counter) counter.textContent = entrees.length ? String(entrees.length) : "";
+  }
+
   function render() {
     fill("continue-grid", "continue-empty", lib.getContinue(), (item) => lib.removeContinue(item));
     fill("favorites-grid", "favorites-empty", lib.getFavorites(), (item) => lib.removeFavorite(item));
+    renderScans();
     const total = document.getElementById("library-total");
     if (total) {
       const counts = lib.counts();
       total.textContent = `${counts.favorites} en liste · ${counts.offline} hors ligne`;
     }
+  }
+
+  const scanClear = document.getElementById("scan-clear");
+  if (scanClear) {
+    scanClear.addEventListener("click", () => {
+      if (!lireScans().length) {
+        if (window.OmniUI) window.OmniUI.toast("Aucune lecture en cours.", "info");
+        return;
+      }
+      try {
+        window.localStorage.removeItem(SCAN_CLE);
+      } catch (erreur) { /* stockage indisponible */ }
+      renderScans();
+      if (window.OmniUI) window.OmniUI.toast("Historique de lecture effacé.", "ok");
+    });
   }
 
   document.querySelectorAll("[data-clear]").forEach((btn) => {
