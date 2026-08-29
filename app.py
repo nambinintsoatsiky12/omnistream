@@ -28,7 +28,6 @@ from flask import (
     session,
     stream_with_context,
 )
-from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth_db
@@ -2163,6 +2162,9 @@ def _anilist_catalogue_page(
     # pages du site qui découlent d'une bande ne repaient pas l'appel.
     candidats = []
     info = {}
+    recu = 0
+    echantillon = ""
+    appel_reseau = False
     for decalage in range(ANILIST_POOL_PAGES):
         source = band * ANILIST_POOL_PAGES + decalage + 1
         variables = {
@@ -2182,14 +2184,44 @@ def _anilist_catalogue_page(
         )
         cached = _cache_get(page_key)
         if cached is _CACHE_MISSING:
+            appel_reseau = True
             cached = _cache_set(
                 page_key,
                 _anilist_page_nodes(_anilist_post(ANILIST_LIST_QUERY, variables)),
                 ttl=ANILIST_CATALOGUE_TTL,
             )
         nodes, info = cached
-        candidats.extend(
-            carte for carte in (_anilist_card(node, kind) for node in nodes) if carte
+        for node in nodes:
+            recu += 1
+            carte = _anilist_card(node, kind)
+            if carte:
+                candidats.append(carte)
+            elif not echantillon and isinstance(node, dict):
+                # Carte jetée sans mot : on retient l'adresse de la première
+                # couverture perdue — c'est elle que le journal cite plus bas.
+                cover = node.get("coverImage")
+                cover = cover if isinstance(cover, dict) else {}
+                echantillon = str(cover.get("large") or cover.get("medium") or "")[
+                    :140
+                ]
+
+    if not candidats and appel_reseau:
+        # Une grille vide SANS erreur affichée est précisément le symptôme qui
+        # a gardé l'onglet anime muet en production : AniList répond (d'où
+        # aucun message d'échec), mais les cartes disparaissent en chemin.
+        # On écrit donc dans le journal ce que la source a VRAIMENT renvoyé —
+        # nombre de nœuds, total annoncé, première couverture — au lieu de
+        # relire indéfiniment « Aucun titre disponible » sans cause. Un
+        # résultat vide lu du cache ne relance pas ce journal.
+        app.logger.warning(
+            "Catalogue AniList vide (type=%s, filtre=%s, tri=%s) : %d nœuds reçus, "
+            "total annoncé=%s, première couverture=%s",
+            kind,
+            pill_id,
+            chosen_sort["id"],
+            recu,
+            info.get("total"),
+            echantillon or "aucun nœud",
         )
 
     ordonne = rotation_order(
@@ -2723,42 +2755,6 @@ def details(media_type, item_id):
 # ---------------------------------------------------------------------------
 # JSON API
 # ---------------------------------------------------------------------------
-
-
-@app.route("/api/univers")
-def api_univers():
-    """Les œuvres liées au dernier titre consulté, pour la rangée d'accueil.
-
-    L'accueil n'invente rien : il relit les mêmes relations que la fiche
-    (suite, préquelle, titres proches) pour le titre que celle-ci a mémorisé.
-    Une source muette rend une rangée vide, pas une erreur.
-    """
-    media_type = _limited_arg("media_type", "", 12)
-    if media_type not in {"movie", "tv"} | ANILIST_MEDIA_TYPES:
-        return jsonify({"liens": []})
-    try:
-        item_id = int(_limited_arg("id", "0", 12))
-    except ValueError:
-        return jsonify({"liens": []})
-    if item_id <= 0:
-        return jsonify({"liens": []})
-
-    cache_key = ("univers", media_type, item_id)
-    cached = _cache_get(cache_key)
-    if cached is not _CACHE_MISSING:
-        return jsonify({"liens": cached})
-
-    if media_type in ANILIST_MEDIA_TYPES:
-        try:
-            fiche = anilist_detail(item_id, media_type)
-        except (UpstreamServiceError, HTTPException):
-            return jsonify({"liens": []})
-        liens = fiche.get("relations") or []
-    else:
-        liens = _tmdb_relations(media_type, item_id)
-    return jsonify(
-        {"liens": _cache_set(cache_key, liens, ttl=ANILIST_CATALOGUE_TTL)}
-    )
 
 
 @app.route("/api/genres")

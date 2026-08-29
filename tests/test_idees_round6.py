@@ -5,8 +5,10 @@ Ce que ces tests verrouillent :
   TMDB (films) et AniList (animes), et jamais aux séries ni aux mangas ;
 - la recherche globale groupe les résultats par type sans les mélanger, et
   chaque carte reste dans le site ;
-- l'accueil propose une rangée « Dans le même univers » issue du dernier
-  titre consulté, et les fiches TMDB ont désormais des relations ;
+- les fiches TMDB ont des relations, mais la rangée « Dans le même univers »
+  de l'accueil a été retirée (les cartes « À voir aussi » ne s'affichent plus) ;
+- la barre de filtre de pastilles cite les genres du bon onglet (plus de
+  « Shōnen, Isekai… » sur l'onglet Films) ;
 - « Partager » et « Reprendre au chapitre N » existaient déjà : on les
   protège contre une régression silencieuse.
 """
@@ -256,7 +258,9 @@ def test_recherche_musique_avec_cle_donne_des_boutons_lecture(client, monkeypatc
 
 
 # ---------------------------------------------------------------------------
-# 3. « Dans le même univers » : la fiche TMDB et la rangée d'accueil
+# 3. « Dans le même univers » : la fiche TMDB garde ses liens ; la rangée
+#    d'accueil a été retirée à la demande du visiteur (les cartes
+#    « À voir aussi » ne devaient plus s'afficher sur l'accueil).
 # ---------------------------------------------------------------------------
 
 
@@ -277,57 +281,43 @@ def test_la_fiche_tmdb_a_desormais_des_relations(client, monkeypatch):
     assert "/details/movie/12" not in html, "sans affiche, pas de carte"
 
 
-def test_api_univers_rend_les_liens_tmdb(client, monkeypatch):
-    stub_tmdb(
-        monkeypatch,
-        recommandations=[
-            {"id": 11, "title": "Suite attendue", "poster_path": "/s.jpg"}
-        ],
-    )
-
-    corps = client.get("/api/univers?media_type=movie&id=5").get_json()
-
-    assert [lien["id"] for lien in corps["liens"]] == [11]
-    assert corps["liens"][0]["href"].startswith("/details/movie/11")
-
-
-def test_api_univers_refuse_les_identifiants_bizarres(client, monkeypatch):
-    for url in (
-        "/api/univers?media_type=movie&id=-4",
-        "/api/univers?media_type=movie&id=abc",
-        "/api/univers?media_type=inconnu&id=5",
-    ):
-        assert client.get(url).get_json() == {"liens": []}
-
-
-def test_api_univers_anime_relit_la_fiche(client, monkeypatch):
-    monkeypatch.setattr(
-        app_module,
-        "anilist_detail",
-        lambda identifiant, kind: {
-            "relations": [
-                {"id": 2, "media_type": "anime", "title": "Préquelle",
-                 "relation": "Préquelle", "href": "/details/anime/2?tab=animes"}
-            ]
-        },
-    )
-
-    corps = client.get("/api/univers?media_type=anime&id=77").get_json()
-
-    assert [lien["title"] for lien in corps["liens"]] == ["Préquelle"]
-
-
-def test_l_accueil_a_sa_rangee_univers():
+def test_l_accueil_n_a_plus_sa_rangee_univers():
+    """La rangée « Dans le même univers » (cartes « À voir aussi ») a été
+    retirée de l'accueil : plus de balise, plus de script, plus d'API, plus
+    de mémoire du dernier titre consulté."""
     gabarit = (RACINE / "templates" / "index.html").read_text(encoding="utf-8")
     js = (RACINE / "static" / "js" / "home.js").read_text(encoding="utf-8")
-
-    assert 'id="univers-row"' in gabarit
-    assert 'id="univers-list"' in gabarit
-    assert "chargerUnivers()" in js
-    assert "/api/univers?" in js
-    # La fiche mémorise le dernier titre consulté pour cette rangée.
     detail_js = (RACINE / "static" / "js" / "detail.js").read_text(encoding="utf-8")
-    assert "omni-dernier-titre" in detail_js
+    style = (RACINE / "static" / "css" / "style.css").read_text(encoding="utf-8")
+
+    assert 'id="univers-row"' not in gabarit
+    assert 'id="univers-list"' not in gabarit
+    assert "chargerUnivers" not in js
+    assert "/api/univers" not in js
+    assert "omni-dernier-titre" not in detail_js
+    assert ".univers-row" not in style
+
+
+def test_l_api_univers_n_existe_plus(client):
+    assert client.get("/api/univers?media_type=movie&id=5").status_code == 404
+
+
+def test_la_barre_de_filtre_cite_les_genres_du_bon_onglet(client):
+    """L'exemple du champ de filtre doit ressembler aux pastilles de
+    l'onglet : l'onglet Films n'affichait plus « Shōnen, Isekai… », qui ne
+    vivent que dans l'onglet Animés & Mangas — et l'inverse."""
+    films = client.get("/", query_string={"tab": "films"}).get_data(as_text=True)
+    animes = client.get("/", query_string={"tab": "animes"}).get_data(as_text=True)
+
+    assert "Filtrer : Action, Comédie, Drame, Horreur…" in films
+    assert "Shōnen, Isekai" not in films
+    assert "Filtrer : Shōnen, Isekai, Réincarnation, Cuisine…" in animes
+    assert "Action, Comédie, Drame, Horreur" not in animes
+    # Chaque exemple cité existe VRAIMENT parmi les pastilles de l'onglet :
+    # un « Gourmet » fantôme aurait continué de promettre un bouton absent.
+    labels = {pill["label"] for pill in app_module.ANILIST_THEMES_ANIME}
+    for exemple in ("Shōnen", "Isekai", "Réincarnation", "Cuisine"):
+        assert exemple in labels, f"le placeholder cite « {exemple} » sans pastille"
 
 
 # ---------------------------------------------------------------------------

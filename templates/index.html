@@ -184,14 +184,6 @@
       <div class="hero-dots" id="hero-dots"></div>
     </section>
 
-    {# « Dans le même univers » : les suites et titres proches du dernier
-       titre consulté. Rempli par script, caché tant qu'il n'y a rien à
-       proposer — et jamais une rangée vide. #}
-    <section class="univers-row" id="univers-row" hidden aria-label="Dans le même univers">
-      <h2 class="univers-row-title">Dans le même univers</h2>
-      <div class="univers-row-list" id="univers-list"></div>
-    </section>
-
     {# « Reprendre » ne vit plus ici : l'historique se consulte dans
        « Mon espace », pas en haut de chaque catalogue. #}
 
@@ -256,16 +248,17 @@
       <button type="button" class="fraicheur-btn" data-duree="long">+ 2 h</button>
     </div>
 
-    {# Les animes et mangas comptent une centaine de sous-genres chacun : une
-       simple bande horizontale à faire défiler les rendait introuvables.
-       D'où la recherche et le dépliage en grille. #}
+    {# La barre de filtre vit sur chaque onglet (dès que les pastilles
+       dépassent la douzaine), mais l'exemple qu'elle cite doit ressembler à
+       ce que l'onglet propose réellement : Shōnen et Isekai n'ont rien à
+       faire dans la barre de l'onglet Films, et inversement. #}
     <div class="pills-toolbar" id="pills-toolbar" hidden>
       <input
         type="search"
         id="pill-search"
         class="pill-search"
-        placeholder="Filtrer : Shōnen, Isekai, Réincarnation, Gourmet…"
-        aria-label="Filtrer les sous-genres"
+        placeholder="{{ 'Filtrer : Shōnen, Isekai, Réincarnation, Cuisine…' if tab == 'animes' else 'Filtrer : Action, Comédie, Drame, Horreur…' }}"
+        aria-label="Filtrer les genres"
         autocomplete="off"
       >
       <button type="button" id="pill-expand" class="pill-expand" aria-expanded="false">
