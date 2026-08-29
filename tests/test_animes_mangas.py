@@ -903,7 +903,13 @@ def test_un_type_de_media_inconnu_est_refuse(client, monkeypatch):
 
 
 def test_les_sous_genres_dependent_du_type(client, monkeypatch):
-    """Shōnen n'a rien à faire parmi les animes, et inversement."""
+    """L'onglet se filtre par TYPES d'animé, pas par genres de film.
+
+    Demande utilisateur : en appuyant sur « Animés & Mangas », les pastilles
+    Action / Aventure / Tranche de vie disparaissent, remplacées par Isekai,
+    Réincarnation, Shōnen… Shōnen figure maintenant des deux côtés (c'est un
+    type d'anime autant que de manga).
+    """
     bouchonner_catalogue(monkeypatch)
 
     animes = client.get(
@@ -915,9 +921,14 @@ def test_les_sous_genres_dependent_du_type(client, monkeypatch):
 
     ids_animes = {pill["id"] for pill in animes["pills"]}
     ids_mangas = {pill["id"] for pill in mangas["pills"]}
-    assert {"zombie", "isekai", "romance", "comedie"} <= ids_animes
-    assert {"shonen", "shojo", "seinen", "josei"} <= ids_mangas
-    assert "shonen" not in ids_animes, "les publics cibles sont propres aux mangas"
+    assert {"isekai", "reincarnation", "shonen", "seinen", "zombie"} <= ids_animes
+    assert {"shonen", "shojo", "seinen", "josei", "isekai"} <= ids_mangas
+    # Les pastilles de genres de film (Action, Aventure, Comédie, Romance,
+    # Tranche de vie…) ne servent plus sur l'onglet : ce qui le filtre, ce
+    # sont les types d'animé et de manga. (« Action » subsiste chez les
+    # mangas : c'est une vraie étiquette MangaDex/AniList pour ce support. )
+    for genre_film in ("action", "aventure", "comedie", "romance", "tranche-de-vie"):
+        assert genre_film not in ids_animes, "les genres de film ne bouchent plus l'onglet"
     assert animes["media"] == "anime" and mangas["media"] == "manga"
     assert animes["source"] == "anilist"
 
@@ -1156,7 +1167,7 @@ def test_les_etiquettes_sont_gardees_si_anilist_ne_repond_pas(client, monkeypatc
         "/api/genres", query_string={"tab": "animes", "media": "anime"}
     ).get_json()["pills"]
 
-    assert {pill["id"] for pill in pills} >= {"zombie", "harem", "romance"}
+    assert {pill["id"] for pill in pills} >= {"zombie", "harem", "isekai"}
 
 
 def test_la_page_d_onglet_n_affiche_plus_deux_fois_les_resultats(client, monkeypatch):
@@ -1178,6 +1189,85 @@ def test_la_bascule_et_les_tris_sont_dans_le_gabarit():
     assert 'data-media="anime"' in gabarit
     assert 'data-media="manga"' in gabarit
     assert 'id="sort-pills"' in gabarit
+
+
+def test_les_types_occupent_la_tete_des_pastilles(client, monkeypatch):
+    """La demande utilisateur, à la lettre : Isekai, Réincarnation, Shōnen…
+    en tête de liste, pas Action ou Tranche de vie."""
+    bouchonner_catalogue(monkeypatch)
+
+    pills = client.get(
+        "/api/genres", query_string={"tab": "animes", "media": "anime"}
+    ).get_json()["pills"]
+
+    tete = [pill["id"] for pill in pills[:6]]
+    assert tete[:1] == ["all"]
+    assert {"isekai", "reincarnation", "shonen"} <= set(tete)
+
+
+# ---------------------------------------------------------------------------
+# 6bis. Panne AniList : plus de grille vide muette
+# ---------------------------------------------------------------------------
+
+
+def test_une_erreur_graphql_ne_passe_plus_inapercue(monkeypatch):
+    """HTTP 200 avec ``errors`` mais sans ``data`` : avant, la grille
+    affichait silencieusement « Aucun titre disponible ». Désormais la
+    demande est déclarée en échec et l'interface montre la cause."""
+
+    def faux_post(url, json=None, **kwargs):
+        return Reponse({"errors": [{"message": "Source en maintenance"}]})
+
+    monkeypatch.setattr(app_module.requests, "post", faux_post)
+
+    with pytest.raises(app_module.UpstreamServiceError):
+        app_module._anilist_post("query { Page { pageInfo { total } } }", {})
+
+
+def test_un_429_est_relance_une_seule_fois(monkeypatch):
+    def faux_post(url, json=None, **kwargs):
+        faux_post.appels += 1
+        if faux_post.appels == 1:
+            return Reponse({"errors": []}, status_code=429)
+        return Reponse(reponse_page([]), status_code=200)
+
+    faux_post.appels = 0
+    monkeypatch.setattr(app_module.requests, "post", faux_post)
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_args: None)
+
+    donnees = app_module._anilist_post("query { Page { pageInfo { total } } }", {})
+
+    assert faux_post.appels == 2, "une seule relance, pas un martèlement"
+    assert "Page" in donnees
+
+
+def test_une_panne_anilist_est_memorisee(client, monkeypatch):
+    """Sans ce garde-fou, chaque clic de pilule, de tri ou de défilement
+    repayait la panne (et l'attente). L'erreur est mémorisée une minute :
+    la seconde demande est servie de mémoire, sans recontacter AniList."""
+
+    journal = []
+
+    def faux_post(url, json=None, **kwargs):
+        journal.append(1)
+        raise requests.ConnectionError("source en panne")
+
+    monkeypatch.setattr(app_module.requests, "post", faux_post)
+    monkeypatch.setattr(app_module.time, "sleep", lambda *_args: None)
+
+    premiere = client.get(
+        "/api/list", query_string={"tab": "animes", "media": "anime"}
+    )
+    seconde = client.get(
+        "/api/list", query_string={"tab": "animes", "media": "anime"}
+    )
+
+    assert premiere.status_code == 502
+    assert seconde.status_code == 502
+    assert premiere.get_json()["error"], "le message est affiché, pas une grille vide"
+    # Une seule page source a été demandée (deux tentatives de POST), et la
+    # seconde requête HTTP n'a rien ajouté au journal.
+    assert len(journal) == 2
 
 
 # ---------------------------------------------------------------------------

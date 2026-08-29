@@ -2344,6 +2344,27 @@ main:has(.landing-hero-ua),
   max-width: 400px;
 }
 
+/* Bouton « Réessayer » du catalogue : une source en panne doit proposer une
+   action, pas un panneau mort. Même famille que les pastilles, en pleine
+   largeur lisible du pouce. */
+.empty-retry {
+  margin-top: 6px;
+  padding: 11px 26px;
+  border-radius: 9999px;
+  border: 1px solid var(--accent, #ff7a2e);
+  background: transparent;
+  color: var(--accent, #ff7a2e);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.empty-retry:hover {
+  background: var(--accent, #ff7a2e);
+  color: #141824;
+}
+
 /* Recherche « MP3 libre » sans résultat : un encart qui explique le rayon et
    propose la même recherche côté YouTube, plutôt qu'une page vide. */
 .mp3-fallback {

@@ -31,10 +31,22 @@
  *    secours autonome est fabriquée par le worker : la fenêtre n'est plus
  *    jamais blanche, elle explique la situation et propose de réessayer ;
  *  - la coquille est revérifiée à l'activation (et sur demande de la page) :
- *    une installation faite hors réseau ne reste pas incomplète.
+ *    une installation faite hors réseau ne reste pas incomplète ;
+ *  - le plan gratuit de Render s'endort après quelques minutes : ouvrir
+ *    l'application avec le site fermé voulait dire attendre 30 à 90 secondes
+ *    de réveil du serveur AVANT qu'un seul pixel s'affiche. Les navigations
+ *    et les appels /api/ partent désormais de la COPIE EN CACHE (service
+ *    immédiat, 0 Mo) et se rafraîchissent en arrière-plan : l'application
+ *    s'ouvre instantanément, même « quand le site n'est pas ouvert » ;
+ *  - l'installation du worker n'attend plus le pré-enregistrement de la
+ *    coquille : avec un serveur endormi, l'attente gérait l'événement
+ *    d'installation pendant des minutes et l'application demeurait
+ *    inopérante. skipWaiting passe en premier, le cache se remplit ensuite
+ *    (chaque asset étant borné à 20 s : un fichier qui pend ne bloque plus
+ *    le reste).
  */
 
-const VERSION = "omnistream-v5";
+const VERSION = "omnistream-v6";
 const SHELL_CACHE = `${VERSION}-shell`;
 const STATIC_CACHE = `${VERSION}-static`;
 const IMAGE_CACHE = `${VERSION}-images`;
@@ -78,11 +90,17 @@ const SHELL_ASSETS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      // La coquille (page de lancement + CSS + JS) est pré-enregistrée ici :
-      // c'est elle qui permet à l'application installée de s'ouvrir, même sans
-      // réseau. Un asset manquant ne doit jamais faire échouer l'installation.
-      await precacheShell();
-      await self.skipWaiting();
+      // skipWaiting d'ABORD : l'activation ne doit pas attendre que la
+      // coquille soit entièrement téléchargée. Sur un serveur endormi
+      // (Render gratuit), cette attente durait des minutes et l'application
+      // installée restait muette dans l'intervalle.
+      self.skipWaiting();
+      // La coquille (page de lancement + CSS + JS) se pré-enregistre ensuite
+      // : c'est elle qui permet à l'application de s'ouvrir même sans réseau.
+      // L'attendre ici maintient le worker en vie pendant le téléchargement
+      // (un worker inactif serait tué au milieu du pré-enregistrement) —
+      // sans pour autant retarder l'activation déjà acquise.
+      await precacheShell().catch(() => undefined);
     })(),
   );
 });
@@ -409,39 +427,83 @@ async function lastKnownCopy(cache, key, originalUrl) {
   }
 }
 
-// Réseau d'abord, cache en secours : le HTML doit rester frais, mais il
-// doit aussi s'afficher sans réseau — c'est la porte d'entrée de
-// l'application installée.
-async function networkFirst(request, cacheName) {
+// Cache d'abord, réseau en arrière-plan : la page (ou la réponse d'API) la
+// plus récente disponible est servie IMMÉDIATEMENT, et une requête de
+// revalidation part derrière pour rattraper le frais. C'est ce qui change la
+// sensation d'ouverture de l'application installée : avec le plan gratuit de
+// Render, un « réseau d'abord » obligeait à attendre le réveil du serveur
+// (30 à 90 s, écran vide) à chaque fois que le site n'était pas déjà ouvert.
+// Ici l'interface apparaît dans la seconde — hors réseau compris — et le
+// contenu se met à jour tout seul dès que la connexion revient.
+const REVALIDATE_MIN_INTERVAL = 60 * 1000;
+const revalidationLast = new Map();
+
+function revalidationDue(url) {
+  const now = Date.now();
+  const last = revalidationLast.get(url) || 0;
+  if (now - last < REVALIDATE_MIN_INTERVAL) return false;
+  revalidationLast.set(url, now);
+  if (revalidationLast.size > 200) {
+    // Le worker est mortel mais la carte mémoire n'est pas bornée d'elle-
+    // même : on taille sans cérémonie.
+    const first = revalidationLast.keys().next().value;
+    revalidationLast.delete(first);
+  }
+  return true;
+}
+
+async function staleFirst(request, cacheName, limit, isNavigation) {
   const cache = await caches.open(cacheName);
   const key = normalizeKey(request);
-  const isNavigation = request.mode === "navigate";
   let url = null;
   try {
     url = new URL(request.url);
   } catch (_error) {
     url = null;
   }
+
+  const cached = await cache.match(key).catch(() => undefined);
+  if (cached) {
+    reportSaved(await responseBytes(cached));
+    // Revalidation en arrière-plan, bornée : elle rafraîchit le cache sans
+    // jamais retarder la réponse ni marteler le serveur.
+    if (revalidationDue(request.url)) {
+      fetch(request)
+        .then((response) => {
+          // Une 5xx (instance en sommeil, déploiement) ne doit pas écraser la
+          // copie saine déjà servie.
+          if (response && response.ok) {
+            return putSafely(cache, key, response.clone()).then(() =>
+              trimCache(cacheName, limit),
+            );
+          }
+          return undefined;
+        })
+        .catch(() => undefined);
+    }
+    return cached;
+  }
+
+  // Rien en cache : on passe par le réseau, avec les filets habituels.
   try {
     const response = await fetch(request);
     if (response && response.ok) {
-      await putSafely(cache, key, response);
-      await trimCache(cacheName, PAGE_CACHE_LIMIT);
+      await putSafely(cache, key, response.clone());
+      await trimCache(cacheName, limit);
       return response;
     }
-    // Une réponse 5xx veut dire « serveur momentanément KO » (instance free en
-    // sommeil, redéploiement en cours) : dans la fenêtre de l'application, elle
-    // donnait une page d'erreur grise que l'on prenait pour un plantage.
-    if (isNavigation && response && response.status >= 500 && url) {
-      const lastKnown = await lastKnownCopy(cache, key, url);
+    if (isNavigation && response && response.status >= 500) {
+      const lastKnown = url ? await lastKnownCopy(cache, key, url) : null;
       if (lastKnown) return lastKnown;
       return await navigationRescue();
     }
     return response;
   } catch (error) {
+    // Hors ligne, première visite : la coquille pré-enregistrée tient la
+    // porte, sinon la page de secours fabriquée par le worker.
     if (url) {
-      const cached = await lastKnownCopy(cache, key, url);
-      if (cached) return cached;
+      const cachedCopy = await lastKnownCopy(cache, key, url);
+      if (cachedCopy) return cachedCopy;
     }
     if (isNavigation) return await navigationRescue();
     throw error;
@@ -493,12 +555,15 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.startsWith("/api/")) {
-    event.respondWith(networkFirst(request, PAGE_CACHE));
+    // Réponses d'API : même règle que les pages — copie cache instantanée,
+    // fraîcheur rattrapée en arrière-plan. Le défilement infini de la grille
+    // anime n'attend donc plus le réveil du serveur.
+    event.respondWith(staleFirst(request, PAGE_CACHE, PAGE_CACHE_LIMIT, false));
     return;
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(networkFirst(request, PAGE_CACHE));
+    event.respondWith(staleFirst(request, PAGE_CACHE, PAGE_CACHE_LIMIT, true));
     return;
   }
 });
@@ -529,14 +594,25 @@ async function cacheUrls(requests, cacheName) {
   return count;
 }
 
+// Délai par asset du pré-enregistrement : un serveur endormi (ou un réseau
+// qui vacille) ne doit pas tenir toute la coquille en suspens. Un asset trop
+// lent est écarté — il sera rattrapé à l'activation ou à la première visite.
+const PRECACHE_ASSET_TIMEOUT = 20 * 1000;
+
 async function precacheShell() {
   const cache = await caches.open(SHELL_CACHE);
   await Promise.all(
     SHELL_ASSETS.map(async (url) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PRECACHE_ASSET_TIMEOUT);
       try {
-        await cache.add(new Request(url, { cache: "reload" }));
+        await cache.add(
+          new Request(url, { cache: "reload", signal: controller.signal }),
+        );
       } catch (_error) {
-        /* asset optionnel */
+        /* asset optionnel (ou trop lent) */
+      } finally {
+        clearTimeout(timer);
       }
     }),
   );
