@@ -87,12 +87,14 @@ jamais un manga au milieu des films ni un film au milieu des animes. Les
 cartes AniList restent dans le site (fiche OmniStream, couvertures par notre
 proxy) et les pistes musicales se lancent dans le lecteur global.
 
-#### « Dans le même univers » sur l'accueil
+#### « Dans le même univers » (fiches)
 
-La fiche mémorise le dernier titre consulté (`omni-dernier-titre`) ; l'accueil
-va chercher ses œuvres liées via `/api/univers` et les pose en rangée
-horizontale. Les fiches TMDB gagnent aussi des relations (recommandations),
-affichées comme pour les animes et mangas — chaque carte ouvre notre fiche.
+La rangée d'accueil « Dans le même univers » (cartes « À voir aussi » issues
+du dernier titre consulté) a été **retirée de l'accueil** à la demande du
+visiteur : plus de balise `univers-row`, plus de `/api/univers`, plus de
+mémoire `omni-dernier-titre`. Les fiches, elles, gardent leur bloc
+« Dans le même univers » (recommandations TMDB, relations AniList) — chaque
+carte ouvre notre fiche, jamais la source.
 
 #### Ce qui existait déjà, protégé
 
@@ -107,18 +109,21 @@ une partie des animes, les mélanger faisait apparaître des films d'animation l
 où le visiteur attendait un anime.
 
 - une bascule **Animes / Mangas** : chaque moitié a ses propres sous-genres ;
-- des sous-genres AniList : genres (Action, Romance, Comédie, Horreur…) et
-  thèmes (Zombie, Isekai / Réincarnation, Harem, Shōnen, Shōjo, Seinen, Josei…) ;
+- des pastilles de **types d'animé/manga** uniquement (Isekai, Réincarnation,
+  Shōnen, Seinen, Shōjo, Harem, Zombie…) : les genres de film (Action,
+  Romance, Comédie…) ne polluent plus cet onglet ;
 - cinq tris, un seul actif à la fois : Tendances, Les plus vus, **Dernière
   génération** (les plus récents, bornés aux trois dernières années), **Ajouts
   récents**, **Note ≥ 8,5** ;
 - la liste des étiquettes est relue chez AniList une fois par jour : un bouton
   dont l'étiquette n'existerait plus disparaît au lieu de renvoyer « vide » ;
-- **122 sous-genres côté animes, 144 côté mangas** (Shōnen, Shōjo, Seinen,
-  Josei, Réincarnation, Isekai, Villainesse, Gourmet, Wuxia, Iyashikei,
+- **106 types côté animes, 125 côté mangas** (Shōnen, Shōjo, Seinen,
+  Josei, Réincarnation, Isekai, Villainesse, Cuisine, Wuxia, Iyashikei,
   E-sport, Miko…). Comme ils ne tiennent pas dans une bande horizontale,
-  un champ **« Filtrer »** et un bouton **« Tout afficher »** (dépliage en
-  grille) sont proposés dès qu'il y en a plus de douze ;
+  un champ **« Filtrer »** (dont l'exemple cite les genres du bon onglet :
+  Shōnen/Isekai/Cuisine sur l'onglet animés, Action/Comédie/Drame/Horreur
+  ailleurs) et un bouton **« Tout afficher »** (dépliage en grille) sont
+  proposés dès qu'il y en a plus de douze ;
 - **le défilement infini parcourt tout le catalogue** : le plafond de pages de
   cet onglet est passé de 25 à **250 pages × 20 cartes** (5 000 fiches). Deux
   freins ont sauté — `_page_arg()` écrêtait la page à 25 avant même que le

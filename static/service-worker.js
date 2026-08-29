@@ -46,7 +46,11 @@
  *    le reste).
  */
 
-const VERSION = "omnistream-v6";
+/* v7 : après le déploiement de l'onglet AniList corrigé, les téléphones qui
+   avaient la version précédente en cache (coquille, scripts, réponses d'API
+   servies « d'abord le cache ») devaient repasser par le réseau : l'activation
+   du nouveau worker purge tous les caches omnistream-v6. */
+const VERSION = "omnistream-v7";
 const SHELL_CACHE = `${VERSION}-shell`;
 const STATIC_CACHE = `${VERSION}-static`;
 const IMAGE_CACHE = `${VERSION}-images`;

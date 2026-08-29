@@ -24,8 +24,6 @@
   const calendrierRail = document.getElementById("calendrier-rail");
   const fraicheurEl = document.getElementById("fraicheur");
   const dureeEl = document.getElementById("duree");
-  const universRow = document.getElementById("univers-row");
-  const universList = document.getElementById("univers-list");
   const notifBtn = document.getElementById("anime-notif");
 
   // L'onglet « Animés & Mangas » a deux moitiés qui ne se mélangent jamais :
@@ -877,54 +875,6 @@
     });
   }
 
-  /* « Dans le même univers » : la fiche mémore le dernier titre consulté,
-     l'accueil va chercher ses œuvres liées (suites, préquelles, proches). */
-  const DERNIER_TITRE_CLE = "omni-dernier-titre";
-
-  async function chargerUnivers() {
-    if (!universRow || !universList) return;
-    let memoire = null;
-    try {
-      memoire = JSON.parse(
-        window.localStorage.getItem(DERNIER_TITRE_CLE) || "null",
-      );
-    } catch (erreur) {
-      return;
-    }
-    if (!memoire || !memoire.media_type || !memoire.id) return;
-    try {
-      const reponse = await fetch(
-        "/api/univers?media_type=" +
-          encodeURIComponent(memoire.media_type) +
-          "&id=" +
-          encodeURIComponent(memoire.id),
-        { headers: { Accept: "application/json" } },
-      );
-      if (!reponse.ok) return;
-      const data = await reponse.json();
-      const liens = Array.isArray(data.liens) ? data.liens : [];
-      if (!liens.length) return;
-      universList.replaceChildren(
-        ...liens.map((lien) => {
-          const a = document.createElement("a");
-          a.className = "univers-carte";
-          a.href = lien.href || "#";
-          const kind = document.createElement("span");
-          kind.className = "univers-carte-kind";
-          kind.textContent = lien.relation || "";
-          const name = document.createElement("span");
-          name.className = "univers-carte-name";
-          name.textContent = lien.title || "";
-          a.append(kind, name);
-          return a;
-        }),
-      );
-      universRow.hidden = false;
-    } catch (erreur) {
-      /* source muette : la rangée reste cachée, sans erreur visible */
-    }
-  }
-
   function installerFraicheur() {
     if (!fraicheurEl || fraicheurEl.dataset.wired) return;
     fraicheurEl.dataset.wired = "1";
@@ -1077,7 +1027,6 @@
       installerNotifications();
       if (animeExtra) animeExtra.hidden = !isAnimeTab;
       majVisibiliteDuree();
-      chargerUnivers();
       chargerCalendrier();
     } catch (error) {
       console.error("Erreur de chargement des genres :", error);
@@ -1249,7 +1198,6 @@
   installerFraicheur();
   installerDuree();
   majVisibiliteDuree();
-  chargerUnivers();
   loadPills();
   loadMore();
 

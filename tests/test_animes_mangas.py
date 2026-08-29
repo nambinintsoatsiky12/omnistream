@@ -1270,6 +1270,48 @@ def test_une_panne_anilist_est_memorisee(client, monkeypatch):
     assert len(journal) == 2
 
 
+def test_le_catalogue_vide_sans_erreur_est_annonce_dans_le_journal(monkeypatch):
+    """HTTP 200 et nœuds reçus, mais TOUTES les cartes jetées en chemin
+    (ici : couvertures d'un hôte que le proxy ne connaît pas). L'interface
+    ne peut rien afficher de plus qu'une grille vide, donc c'est le JOURNAL
+    du serveur qui doit dire pourquoi — c'est exactement le diagnostic qui
+    manquait quand l'onglet anime restait muet en production.
+    """
+    bouchonner_catalogue(
+        monkeypatch,
+        [
+            media_anilist(
+                1,
+                "Anime sans couverture autorisée",
+                coverImage={
+                    "medium": "https://cdn-inconnu.example/m.jpg",
+                    "large": "https://cdn-inconnu.example/l.jpg",
+                },
+            )
+        ],
+        has_next=False,
+        total=1,
+    )
+    journal = []
+
+    def fausse_warning(message, *args):
+        journal.append(message % args if args else message)
+
+    monkeypatch.setattr(app_module.app.logger, "warning", fausse_warning)
+    # Sans le fixture `client`, c'est nous qui vidons la cache : sinon la
+    # panne mémorisée par le test précédent serait relue à la place d'AniList.
+    app_module._cache.clear()
+
+    resultat = app_module.anilist_catalogue("anime", "all", "tendances", 1)
+
+    assert resultat["items"] == [], "la grille reste vide, le proxy refuse l'hôte"
+    assert any(
+        "Catalogue AniList vide" in message
+        and "cdn-inconnu.example" in message
+        for message in journal
+    ), f"le journal doit citer la couverture perdue : {journal}"
+
+
 # ---------------------------------------------------------------------------
 # 7. Aucun mélange : nouveautés et légendes restent films et séries
 # ---------------------------------------------------------------------------
