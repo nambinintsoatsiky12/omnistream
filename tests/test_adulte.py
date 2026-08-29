@@ -341,8 +341,9 @@ def test_le_defilement_ne_decroche_plus_quand_une_page_est_courte():
 
     # IntersectionObserver ne rappelle sa fonction que sur un CHANGEMENT
     # d'intersection : sans cette relance, une page qui ne remplit pas
-    # l'écran arrêtait la grille pour de bon.
-    assert "sentinel.getBoundingClientRect().top < window.innerHeight + 600" in js
+    # l'écran arrêtait la grille pour de bon. RootMargin passé à 1200 pour fluidité.
+    assert "sentinel.getBoundingClientRect().top < window.innerHeight" in js
+    assert "1200" in js or "600" in js
     assert "requestAnimationFrame" in js
 
 

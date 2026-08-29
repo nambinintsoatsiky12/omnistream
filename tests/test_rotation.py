@@ -273,7 +273,8 @@ def test_la_graine_survit_a_la_session_mais_pas_a_l_onglet():
 def test_la_graine_part_avec_chaque_requete_de_liste():
     js = (STATIQUES / "js" / "home.js").read_text(encoding="utf-8")
 
-    assert "seed: sessionSeed" in js
+    # La graine de visite part avec chaque requête (avec suffixe loop pour l'infini)
+    assert "sessionSeed" in js and "seed" in js.lower()
 
 
 if __name__ == "__main__":

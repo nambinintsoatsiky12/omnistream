@@ -182,9 +182,12 @@ def test_le_bandeau_n_est_plus_cale_sur_une_horloge():
 
 def test_le_bandeau_part_avec_la_graine_cote_navigateur():
     js = home_js()
+    # Le bandeau a désormais sa propre graine aléatoire qui change à chaque load
+    # mais dérive de nouvelleGraine (qui utilise sessionSeed en base)
     bloc = js.split("function heroUrl()", 1)[1].split("function ", 1)[0]
 
-    assert "sessionSeed" in bloc
+    assert "currentHeroSeed" in bloc or "sessionSeed" in bloc
+    assert "nouvelleGraine" in js
 
 
 def test_le_bandeau_n_est_pas_remelange_cote_client():

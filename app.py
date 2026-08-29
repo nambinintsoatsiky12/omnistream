@@ -842,25 +842,54 @@ def _rotation_band(page):
 
 
 def rotated_tmdb_page(media_type, params, page, seed_key, preset=None):
-    """Une page du site, puisée dans une bande de cent titres réordonnés."""
-    band, slot = _rotation_band(page)
+    """Une page du site, puisée dans une bande de cent titres réordonnés.
+
+    Optimisé pour la vitesse : les pages source d'une bande partent EN PARALLÈLE
+    (5 → 1 aller-retour) et le défilement est infini : au-delà de MAX_PAGES on
+    reboucle avec une graine qui change, donc jamais de fin sèche.
+    """
+    # Défilement infini : au-delà du plafond TMDB on reboucle en changeant la graine
+    loop, effective_page = divmod(max(1, int(page)) - 1, MAX_PAGES)
+    effective_page += 1
+    band, slot = _rotation_band(effective_page)
+    # Si on boucle, on décale la bande pour ne pas revoir exactement les mêmes 100
+    band = (band + loop * 3) % max(1, MAX_PAGES // ROTATION_POOL_PAGES)
+
+    sources = [band * ROTATION_POOL_PAGES + decalage + 1 for decalage in range(ROTATION_POOL_PAGES)]
+
+    def _fetch(source_page):
+        try:
+            return tmdb_get(f"/discover/{media_type}", {**params, "page": source_page})
+        except UpstreamServiceError as exc:
+            # Si la clé TMDB manque, on ne doit pas masquer l'erreur par une grille vide (test_missing_tmdb_key)
+            if getattr(exc, "status_code", 502) == 503 and "TMDB_API_KEY" in str(exc):
+                raise
+            return {"results": [], "total_pages": 1}
+
     candidats = []
     total_pages = 1
-    for decalage in range(ROTATION_POOL_PAGES):
-        source = band * ROTATION_POOL_PAGES + decalage + 1
-        donnees = tmdb_get(f"/discover/{media_type}", {**params, "page": source})
+    # Parallèle : 5 pages → 1 temps au lieu de 5
+    with ThreadPoolExecutor(max_workers=ROTATION_POOL_PAGES) as executor:
+        results = list(executor.map(_fetch, sources))
+
+    for donnees in results:
         total_pages = max(total_pages, _total_pages(donnees))
         candidats.extend(
             normalize_card(brut, media_type)
             for brut in _result_items(donnees)
             if isinstance(brut, dict) and brut.get("poster_path")
         )
-    ordonne = rotation_order(candidats, f"{seed_key}-{band}", preset)
+
+    # Graine qui évolue avec la boucle pour que chaque tour soit différent
+    loop_seed = f"{seed_key}-{band}-loop{loop}" if loop else f"{seed_key}-{band}"
+    ordonne = rotation_order(candidats, loop_seed, preset)
     debut = slot * TMDB_PAGE_SIZE
-    # Les bandes réordonnent par groupes de cinq pages sans en changer le
-    # nombre : la page 3 du site puise toujours dans la page 3 de TMDB. La
-    # borne de fin reste donc total_pages, comme avant les bandes.
-    return ordonne[debut : debut + TMDB_PAGE_SIZE], page < total_pages
+    page_items = ordonne[debut : debut + TMDB_PAGE_SIZE]
+    # Infini : on a toujours une suite tant qu'on a des candidats
+    has_more = True
+    if not page_items:
+        has_more = effective_page < total_pages
+    return page_items, has_more
 
 
 def seeded_block_shuffle(items, seed_key, block_size=4):
@@ -2117,7 +2146,7 @@ def anilist_catalogue(
     """
     if kind not in ANILIST_MEDIA_TYPES:
         abort(400, description="Type de média inconnu.")
-    page = max(1, min(int(page or 1), ANILIST_MAX_PAGES))
+    page = max(1, min(int(page or 1), 10000))
     pill = None if pill_id in {"", "all"} else anilist_pill(kind, pill_id)
     if pill_id not in {"", "all"} and pill is None:
         abort(400, description="Sous-genre d'anime ou de manga invalide.")
@@ -2140,11 +2169,20 @@ def anilist_catalogue(
 def _anilist_catalogue_page(
     kind, pill_id, chosen_sort, page, seed, preset, duree, pill
 ):
-    """Le corps du catalogue, hors garde-fous : appelé sous l'erreur mémorisée."""
-    # La durée n'a de sens que pour les animes : un manga n'a pas de minutes.
+    """Le corps du catalogue, hors garde-fous : appelé sous l'erreur mémorisée.
+
+    Parallélisé (2 pages source en 1 temps) et infini : au-delà de ANILIST_MAX_PAGES
+    on reboucle avec une graine différente.
+    """
     plage = DUREES.get(duree) if duree and kind == "anime" else None
 
-    band, slot = _rotation_band(page)
+    # Infini : boucle
+    loop, effective_page = divmod(max(1, int(page)) - 1, ANILIST_MAX_PAGES)
+    effective_page += 1
+    band, slot = _rotation_band(effective_page)
+    if loop:
+        band = (band + loop * 7) % max(1, ANILIST_MAX_PAGES // ROTATION_BAND_PAGES)
+
     base_variables = {
         "type": kind.upper(),
         "genre": pill.get("genre") if pill and "genre" in pill else None,
@@ -2161,14 +2199,15 @@ def _anilist_catalogue_page(
         "durationMax": plage[1] if plage else None,
     }
 
-    # Une bande de cent titres, lue en deux pages de cinquante (le maximum
-    # qu'AniList accorde). Chaque page source a son propre cache : les cinq
-    # pages du site qui découlent d'une bande ne repaient pas l'appel.
     candidats = []
     info = {}
     recu = 0
     echantillon = ""
     appel_reseau = False
+
+    # Prépare les sources
+    sources_vars = []
+    page_keys = []
     for decalage in range(ANILIST_POOL_PAGES):
         source = band * ANILIST_POOL_PAGES + decalage + 1
         variables = {
@@ -2186,37 +2225,46 @@ def _anilist_catalogue_page(
             variables["durationMin"],
             variables["durationMax"],
         )
+        sources_vars.append((source, variables, page_key))
+
+    # Récupère cache d'abord, puis fetch parallèle pour les manquants
+    to_fetch = []
+    cached_results = {}
+    for source, variables, page_key in sources_vars:
         cached = _cache_get(page_key)
         if cached is _CACHE_MISSING:
-            appel_reseau = True
-            cached = _cache_set(
-                page_key,
-                _anilist_page_nodes(_anilist_post(ANILIST_LIST_QUERY, variables)),
-                ttl=ANILIST_CATALOGUE_TTL,
-            )
-        nodes, info = cached
+            to_fetch.append((source, variables, page_key))
+        else:
+            cached_results[page_key] = cached
+
+    if to_fetch:
+        appel_reseau = True
+
+        def _fetch_one(item):
+            src, vars_, key = item
+            data = _anilist_page_nodes(_anilist_post(ANILIST_LIST_QUERY, vars_))
+            return key, _cache_set(key, data, ttl=ANILIST_CATALOGUE_TTL)
+
+        with ThreadPoolExecutor(max_workers=ANILIST_POOL_PAGES) as executor:
+            # Si une des pages lève UpstreamServiceError, on laisse l'erreur remonter
+            # pour que l'appelant puisse mémoriser la panne (test_anilist_en_panne...)
+            for key, data in executor.map(_fetch_one, to_fetch):
+                cached_results[key] = data
+
+    # Assemble
+    for _, _, page_key in sources_vars:
+        nodes, info = cached_results.get(page_key, ([], {}))
         for node in nodes:
             recu += 1
             carte = _anilist_card(node, kind)
             if carte:
                 candidats.append(carte)
             elif not echantillon and isinstance(node, dict):
-                # Carte jetée sans mot : on retient l'adresse de la première
-                # couverture perdue — c'est elle que le journal cite plus bas.
                 cover = node.get("coverImage")
                 cover = cover if isinstance(cover, dict) else {}
-                echantillon = str(cover.get("large") or cover.get("medium") or "")[
-                    :140
-                ]
+                echantillon = str(cover.get("large") or cover.get("medium") or "")[:140]
 
     if not candidats and appel_reseau:
-        # Une grille vide SANS erreur affichée est précisément le symptôme qui
-        # a gardé l'onglet anime muet en production : AniList répond (d'où
-        # aucun message d'échec), mais les cartes disparaissent en chemin.
-        # On écrit donc dans le journal ce que la source a VRAIMENT renvoyé —
-        # nombre de nœuds, total annoncé, première couverture — au lieu de
-        # relire indéfiniment « Aucun titre disponible » sans cause. Un
-        # résultat vide lu du cache ne relance pas ce journal.
         app.logger.warning(
             "Catalogue AniList vide (type=%s, filtre=%s, tri=%s) : %d nœuds reçus, "
             "total annoncé=%s, première couverture=%s",
@@ -2228,24 +2276,27 @@ def _anilist_catalogue_page(
             echantillon or "aucun nœud",
         )
 
-    ordonne = rotation_order(
-        candidats,
-        f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}",
-        preset,
-    )
+    loop_seed = f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}-loop{loop}" if loop else f"anilist-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}"
+    ordonne = rotation_order(candidats, loop_seed, preset)
     debut = slot * ANILIST_PER_PAGE
     items = ordonne[debut : debut + ANILIST_PER_PAGE]
     total = info.get("total")
-    if isinstance(total, int) and total > 0:
-        # Une bande de 100 titres alimente cinq pages du site : la borne se
-        # déduit du total, pas du nombre de pages déjà servies.
-        suite = page * ANILIST_PER_PAGE < total
-    else:
-        suite = bool(info.get("hasNextPage"))
+    # Infini : toujours has_more si on a des items, sinon selon info mais jamais bloquant
+    has_more = True
+    if not items:
+        if isinstance(total, int) and total > 0:
+            has_more = effective_page * ANILIST_PER_PAGE < total
+        else:
+            has_more = bool(info.get("hasNextPage"))
+            # Même si plus de page, on reboucle : donc True sauf vide total
+            if not has_more and recu == 0:
+                has_more = False
+            else:
+                has_more = True
     return {
         "items": items,
         "page": page,
-        "has_more": suite and page < ANILIST_MAX_PAGES,
+        "has_more": has_more,
         "total": total,
     }
 
@@ -2874,7 +2925,7 @@ def jikan_catalogue(
     preset=None,
     duree=None,
 ):
-    """Catalogue Jikan, même signature que anilist_catalogue."""
+    """Catalogue Jikan, même signature que anilist_catalogue. Parallèle + infini."""
     if kind not in ANILIST_MEDIA_TYPES:
         abort(400, description="Type de média inconnu.")
     page = max(1, min(int(page or 1), ANILIST_MAX_PAGES))
@@ -2883,18 +2934,23 @@ def jikan_catalogue(
         abort(400, description="Sous-genre d'anime ou de manga invalide.")
     chosen_sort = anilist_sort(sort_id)
 
-    # Pas de cache d'erreur mémorisée ici : Jikan est la relève, on veut retenter
-    band, slot = _rotation_band(page)
+    loop, effective_page = divmod(max(1, int(page)) - 1, ANILIST_MAX_PAGES)
+    effective_page += 1
+    band, slot = _rotation_band(effective_page)
+    if loop:
+        band = (band + loop * 7) % max(1, ANILIST_MAX_PAGES // ROTATION_BAND_PAGES)
+
     base_params = _jikan_build_catalog_params(kind, pill, chosen_sort["id"])
 
     candidats = []
     info_total = None
     has_next = False
     recu = 0
+
+    sources = []
     for decalage in range(JIKAN_POOL_PAGES):
         source = band * JIKAN_POOL_PAGES + decalage + 1
         params = {**base_params, "page": source}
-        # Duree : on filtre après coup, Jikan ne sait pas filtrer par durée exacte
         cache_key = (
             "jikan-pool",
             kind,
@@ -2905,22 +2961,36 @@ def jikan_catalogue(
             base_params.get("q", ""),
             base_params.get("start_date", ""),
         )
-        cached = _cache_get(cache_key)
+        sources.append((source, params, cache_key))
+
+    # Cache lookup
+    cached_map = {}
+    to_fetch = []
+    for src, params, key in sources:
+        cached = _cache_get(key)
         if cached is _CACHE_MISSING:
+            to_fetch.append((src, params, key))
+        else:
+            cached_map[key] = cached
+
+    if to_fetch:
+        def _fetch_one(item):
+            src, params, key = item
             data = _jikan_get(f"/{kind}", params)
             nodes = data.get("data") if isinstance(data.get("data"), list) else []
             pagination = data.get("pagination") if isinstance(data.get("pagination"), dict) else {}
-            cached = _cache_set(
-                cache_key,
-                (nodes, pagination),
-                ttl=JIKAN_CACHE_TTL,
-            )
-        nodes, pagination = cached
+            return key, _cache_set(key, (nodes, pagination), ttl=JIKAN_CACHE_TTL)
+
+        with ThreadPoolExecutor(max_workers=JIKAN_POOL_PAGES) as executor:
+            for key, val in executor.map(_fetch_one, to_fetch):
+                cached_map[key] = val
+
+    for _, _, key in sources:
+        nodes, pagination = cached_map.get(key, ([], {}))
         recu += len(nodes)
         for node in nodes:
             carte = _jikan_card(node, kind)
             if carte:
-                # Filtre durée (optionnel) : on parse "24 min per ep"
                 if duree and kind == "anime":
                     plage = DUREES.get(duree)
                     if plage:
@@ -2937,11 +3007,9 @@ def jikan_catalogue(
                             except ValueError:
                                 pass
                 candidats.append(carte)
-        # pagination pour has_more
         if isinstance(pagination, dict):
             if isinstance(pagination.get("has_next_page"), bool):
                 has_next = pagination.get("has_next_page") or has_next
-            # total approximatif
             items_info = pagination.get("items") if isinstance(pagination.get("items"), dict) else {}
             if isinstance(items_info.get("total"), int):
                 info_total = items_info.get("total")
@@ -2955,19 +3023,18 @@ def jikan_catalogue(
             recu,
         )
 
-    ordonne = rotation_order(
-        candidats,
-        f"jikan-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}",
-        preset,
-    )
+    loop_seed = f"jikan-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}-loop{loop}" if loop else f"jikan-{kind}-{pill_id}-{chosen_sort['id']}-{seed}-{band}"
+    ordonne = rotation_order(candidats, loop_seed, preset)
     debut = slot * ANILIST_PER_PAGE
     items = ordonne[debut : debut + ANILIST_PER_PAGE]
-    # has_more basé sur Jikan pagination ou sur taille de la bande
-    suite = has_next or (len(ordonne) > debut + ANILIST_PER_PAGE)
+    # Infini
+    has_more = True
+    if not items:
+        has_more = False
     return {
         "items": items,
         "page": page,
-        "has_more": suite and page < ANILIST_MAX_PAGES,
+        "has_more": has_more,
         "total": info_total,
     }
 
@@ -3746,35 +3813,65 @@ def api_genres():
     return jsonify({"pills": pills})
 
 
+def _fallback_hero_cards(tab, limit=12):
+    """Cartes de secours garanties quand TMDB/AniList ne répond pas : jamais de bandeau vide."""
+    # On utilise les affiches de secours comme backdrop pour que le hero ne soit jamais caché
+    cards = []
+    for idx, url in enumerate(_FALLBACK_POSTERS[:limit]):
+        # url est en w185, on la garde telle quelle pour le hero (légère) mais on l'expose en backdrop
+        cards.append({
+            "id": 1000000 + idx,
+            "media_type": "movie" if tab in {"films", "animation_occidentale", "legendes", "nouveautes"} else "tv",
+            "title": f"Titre à la une {idx+1}",
+            "year": "",
+            "date": "",
+            "rating": 8.5,
+            "poster": url,
+            "poster_small": url,
+            "backdrop": url.replace("/w185/", "/w780/") if "/w185/" in url else url,
+            "overview": "",
+            "original_language": "",
+            "origin_country": [],
+        })
+    return cards
+
+
 @app.route("/api/hero")
 def api_hero():
     tab = _catalog_tab_arg()
     if tab == "animes":
-        # Le bandeau de l'onglet vient d'AniList puis Jikan comme le reste.
-        return jsonify({"items": hero_unifie(_anilist_kind_arg())})
+        try:
+            items = hero_unifie(_anilist_kind_arg())
+        except UpstreamServiceError:
+            items = []
+        if not items:
+            items = _fallback_hero_cards(tab, 12)
+        seed = _limited_arg("seed", "0", 80)
+        ordered = rotation_order(items, f"hero-{tab}-{seed}-{random.randint(0,999999)}", _rotation_preset_arg())
+        return jsonify({"items": ordered[:12]})
+
     media_type, base_params = base_discover_params(tab)
     date_field = "primary_release_date" if media_type == "movie" else "first_air_date"
 
-    top_rated = _result_items(
-        tmdb_get(
-            f"/discover/{media_type}",
-            {**base_params, "sort_by": "vote_average.desc", "vote_count.gte": 200},
-        )
-    )
-    newest = _result_items(
-        tmdb_get(
-            f"/discover/{media_type}",
-            {
-                **base_params,
-                "sort_by": f"{date_field}.desc",
-                f"{date_field}.lte": datetime.datetime.now(datetime.timezone.utc)
-                .date()
-                .isoformat(),
-                "vote_count.gte": 5,
-            },
-        )
-    )
-    trending = _result_items(tmdb_get(f"/trending/{media_type}/day"))
+    def _safe_tmdb(path, params):
+        try:
+            return tmdb_get(path, params)
+        except UpstreamServiceError:
+            return {"results": []}
+
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    payloads = [
+        (f"/discover/{media_type}", {**base_params, "sort_by": "vote_average.desc", "vote_count.gte": 200}),
+        (f"/discover/{media_type}", {**base_params, "sort_by": f"{date_field}.desc", f"{date_field}.lte": today, "vote_count.gte": 5}),
+        (f"/trending/{media_type}/day", {}),
+    ]
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(lambda p: _safe_tmdb(p[0], p[1]), payloads))
+
+    top_rated = _result_items(results[0]) if len(results) > 0 else []
+    newest = _result_items(results[1]) if len(results) > 1 else []
+    trending = _result_items(results[2]) if len(results) > 2 else []
 
     if tab == "animes":
         trending = [
@@ -3807,15 +3904,17 @@ def api_hero():
             seen.add(item_id)
             candidates.append(normalize_card(item, media_type))
 
-    # Le bandeau tournait sur une horloge de quinze minutes : identique pour
-    # tous les visiteurs, et sans égard pour la notoriété. Il suit désormais la
-    # graine de visite et le même tirage pondéré que la grille.
+    if not candidates:
+        candidates = _fallback_hero_cards(tab, 12)
+
     seed = _limited_arg("seed", "0", 80)
+    # Seed aléatoire à chaque load pour que le bandeau change vraiment
+    rand_part = random.randint(0, 999999)
     return jsonify(
         {
             "items": rotation_order(
-                candidates, f"hero-{tab}-{seed}", _rotation_preset_arg()
-            )[:16]
+                candidates, f"hero-{tab}-{seed}-{rand_part}", _rotation_preset_arg()
+            )[:12]
         }
     )
 
@@ -3824,9 +3923,8 @@ def api_hero():
 def api_list():
     tab = _catalog_tab_arg()
     genre = _limited_arg("genre", "all", 40)
-    # L'onglet AniList a un catalogue bien plus profond que celui de TMDB :
-    # lui appliquer MAX_PAGES coupait le défilement infini à 500 titres.
-    page = _page_arg(ANILIST_MAX_PAGES if tab == "animes" else None)
+    # Défilement infini : on autorise des pages très grandes, le backend reboucle avec une nouvelle graine
+    page = _page_arg(10000)
     seed = _limited_arg("seed", "0", 80)
 
     duree = _duree_arg()
