@@ -171,8 +171,10 @@
   }
 
   // La cause la plus fréquente d'une coupure à l'extinction de l'écran est
-  // l'optimisation de la batterie du téléphone, pas le code. On l'explique
-  // une seule fois (par appareil), sans être intrusif.
+  // l'optimisation de la batterie du téléphone, pas le code. Le conseil
+  // n'est posé que le jour où la coupure se produit réellement (et une seule
+  // fois par appareil) : avant, il apparaissait à la première lecture, au
+  // moment exact où l'utilisateur n'avait encore rien constaté.
   function maybeShowBackgroundAudioTip() {
     try {
       if (window.localStorage.getItem("omni:bg-audio-tip")) return;
@@ -180,14 +182,13 @@
     } catch (_error) {
       return;
     }
-    window.setTimeout(() => {
-      toast(
-        "Musique coupée écran éteint ? Réglages > Applications > OmniStream > " +
-          "Batterie > « Illimitée » — et préférez les titres « MP3 libre » de " +
-          "l'espace Musique : eux lisent un vrai fichier.",
-        "info",
-      );
-    }, 1600);
+    toast(
+      "Le téléphone coupe le son écran éteint (économie de batterie). " +
+        "Réglages > Applications > Chrome ou OmniStream > Batterie > " +
+        "« Illimitée ». L'option « Écran allumé » du lecteur évite aussi " +
+        "l'extinction, et les titres « MP3 libre » sont les plus fiables.",
+      "info",
+    );
   }
 
   /* ================================================================== *
@@ -469,9 +470,12 @@
       // Pause NON volontaire alors que l'écran est éteint : l'OS (perte de
       // focus audio, gestion de la batterie) vient de couper le son. On tente
       // une reprise automatique bornée — jamais après une pause utilisateur
-      // ou la minuterie de sommeil (system.suppressAutoResume).
+      // ou la minuterie de sommeil (system.suppressAutoResume). C'est
+      // exactement le moment où le conseil « Batterie > Illimitée » devient
+      // utile, donc c'est ici (et non à la première lecture) qu'il s'affiche.
       if (document.hidden && !system.suppressAutoResume && state.status === "paused") {
         scheduleBackgroundResume();
+        maybeShowBackgroundAudioTip();
       }
     });
     el.addEventListener("ended", () => {
@@ -842,7 +846,6 @@
     }
     state.waitingNetwork = false;
     startStream();
-    maybeShowBackgroundAudioTip();
   }
 
   // Démarre (ou redémarre) le flux du morceau courant.

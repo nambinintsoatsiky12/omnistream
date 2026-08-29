@@ -328,8 +328,17 @@ def test_le_worker_ne_laisse_jamais_la_fenetre_vide(service_worker):
 def test_la_coquille_est_complementee_a_l_activation(service_worker):
     install = service_worker.index('self.addEventListener("install"')
     activate = service_worker.index('self.addEventListener("activate"')
-    assert "precacheShell();" in service_worker[install:activate]
-    assert "precacheShell();" in service_worker[activate : activate + 1400]
+    bloc_install = service_worker[install:activate]
+    # L'activation ne doit plus attendre le téléchargement de la coquille :
+    # avec un serveur endormi, c'était elle qui retenait l'application
+    # installée muette. skipWaiting d'abord, pré-enregistrement ensuite.
+    assert "self.skipWaiting();" in bloc_install
+    assert "precacheShell()" in bloc_install
+    assert (
+        bloc_install.index("self.skipWaiting();")
+        < bloc_install.index("precacheShell()")
+    )
+    assert "precacheShell()" in service_worker[activate : activate + 1400]
 
 
 def test_tous_les_liens_du_menu_menent_une_section():

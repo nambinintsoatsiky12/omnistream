@@ -61,8 +61,7 @@ def test_landing_starts_without_turso_or_tmdb(client, monkeypatch):
     assert response.status_code == 200
     assert b"body-landing" in response.data
     assert b"Le streaming," in response.data
-    assert b'id="sponsor-gift"' in response.data
-    assert app_module.SPONSOR_SMARTLINK_URL.encode() in response.data
+    assert b'id="sponsor-gift"' not in response.data
     assert auth_db.get_total_visits() == 1
     assert client.head("/").status_code == 200
     # HEAD request should not increment the counter
@@ -89,13 +88,15 @@ def test_non_landing_pages_do_not_receive_landing_header(client):
     assert b"topbar-landing" not in response.data
 
 
-def test_sponsor_gift_appears_on_catalog_pages(client):
-    response = client.get("/?tab=films")
-
-    assert response.status_code == 200
-    assert b'id="sponsor-gift"' in response.data
-    assert b'target="_blank"' in response.data
-    assert b'rel="noopener noreferrer sponsored"' in response.data
+def test_sponsor_gift_n_est_plus_affiche(client):
+    """Le « Cadeau Spécial / Partenaire sponsorisé » flottait par-dessus le
+    contenu (la demande utilisateur : enlever ce qui dérange). Il ne doit
+    plus apparaître sur aucune page."""
+    for chemin in ("/?tab=films", "/", "/musiques"):
+        response = client.get(chemin)
+        assert response.status_code == 200
+        assert b'id="sponsor-gift"' not in response.data
+        assert "Cadeau Spécial".encode("utf-8") not in response.data
 
 
 def test_notification_worker_only_cleans_up_old_push_ads(client):

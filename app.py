@@ -150,9 +150,6 @@ JAMENDO_SIZE_TTL = 7 * 86400
 # qu'un aller-retour, assez peu pour ne pas marteler le CDN de l'artiste.
 JAMENDO_SIZE_WORKERS = 8
 JAMENDO_CLIENT_ID = os.environ.get("JAMENDO_CLIENT_ID", "").strip()
-SPONSOR_SMARTLINK_URL = os.environ.get(
-    "SPONSOR_SMARTLINK_URL", "https://omg10.com/4/11645531"
-).strip()
 TRUSTED_HOSTS = [
     host.strip()
     for host in os.environ.get("TRUSTED_HOSTS", "").split(",")
@@ -347,15 +344,6 @@ def _cache_set(key, value, ttl=900):
         while len(_cache) > _CACHE_MAX_ITEMS:
             _cache.popitem(last=False)
     return value
-
-
-@app.context_processor
-def template_promotional_context():
-    return {
-        "show_sponsor_gift": bool(SPONSOR_SMARTLINK_URL)
-        and request.endpoint in {"index", "details", "musiques"},
-        "sponsor_smartlink_url": SPONSOR_SMARTLINK_URL,
-    }
 
 
 @app.context_processor
@@ -1679,11 +1667,17 @@ ANILIST_GENRES = [
 # vide. Les listes sont volontairement longues — l'onglet doit couvrir les
 # mêmes rayons que l'onglet Films, pas seulement une poignée de classiques.
 ANILIST_THEMES_ANIME = [
-    {"id": "zombie", "label": "Zombie", "tag": "Zombie"},
+    # En tête, les « types » par lesquels on choisit un anime : c'est par eux
+    # que la grille doit être filtrée d'abord, pas par Action ou Comédie —
+    # des genres de film qu'on retrouve ici pour rien.
     {"id": "isekai", "label": "Isekai", "tag": "Isekai"},
     {"id": "reincarnation", "label": "Réincarnation", "tag": "Reincarnation"},
+    {"id": "shonen", "label": "Shōnen", "tag": "Shounen"},
+    {"id": "seinen", "label": "Seinen", "tag": "Seinen"},
+    {"id": "shojo", "label": "Shōjo", "tag": "Shoujo"},
     {"id": "transmigration", "label": "Transmigration", "tag": "Transmigration"},
     {"id": "harem", "label": "Harem", "tag": "Harem"},
+    {"id": "zombie", "label": "Zombie", "tag": "Zombie"},
     {"id": "arts-martiaux", "label": "Arts martiaux", "tag": "Martial Arts"},
     {"id": "ecole", "label": "École", "tag": "School"},
     {"id": "club-scolaire", "label": "Club scolaire", "tag": "School Club"},
@@ -1958,29 +1952,60 @@ def anilist_sort(sort_id):
     return ANILIST_SORTS[0]
 
 
+# Une seule relance : sur le plan gratuit de Render, les premières secondes
+# après un réveil sont capricieuses, et AniList lui-même tousse parfois un 429
+# isolé. Plus de relances ferait de nous un voisin que le CDN mépriserait.
+ANILIST_RETRIES = 1
+ANILIST_RETRY_WAIT = 1.2
+
+
 def _anilist_post(query, variables, timeout=ANILIST_TIMEOUT):
-    """Un appel GraphQL AniList. Renvoie ``data`` ou lève UpstreamServiceError."""
-    try:
-        response = requests.post(
-            ANILIST_URL,
-            json={"query": query, "variables": variables},
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "OmniStream/1.0 (catalogue animes et mangas)",
-            },
-            timeout=timeout,
-        )
-        payload = response.json()
-    except requests.Timeout as exc:
-        raise UpstreamServiceError(
-            "AniList met trop de temps à répondre.", 504
-        ) from exc
-    except (requests.RequestException, ValueError) as exc:
-        app.logger.warning("Catalogue AniList impossible", exc_info=True)
-        raise UpstreamServiceError(
-            "AniList est temporairement indisponible.", 502
-        ) from exc
+    """Un appel GraphQL AniList. Renvoie ``data`` ou lève UpstreamServiceError.
+
+    Deux défaillances qu'il ne faut JAMAIS laisser filer silencieusement :
+
+    * une erreur HTTP ou réseau — qui ne se cache pas derrière un vide ;
+    * une réponse 200 portant des ``errors`` GraphQL (requête mal acceptée,
+      source en maintenance…) : AniList répond alors sans ``data``, et l'appel
+      muet ferait afficher « Aucun titre disponible » à la place du catalogue.
+      C'est ce symptôme exact que la relance et ce contrôle évitent.
+    """
+    response = None
+    payload = None
+    for tentative in range(ANILIST_RETRIES + 1):
+        try:
+            response = requests.post(
+                ANILIST_URL,
+                json={"query": query, "variables": variables},
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "User-Agent": "OmniStream/1.0 (catalogue animes et mangas)",
+                },
+                timeout=timeout,
+            )
+            payload = response.json()
+        except requests.Timeout:
+            if tentative < ANILIST_RETRIES:
+                time.sleep(ANILIST_RETRY_WAIT * (tentative + 1))
+                continue
+            raise UpstreamServiceError(
+                "AniList met trop de temps à répondre.", 504
+            )
+        except (requests.RequestException, ValueError):
+            if tentative < ANILIST_RETRIES:
+                time.sleep(ANILIST_RETRY_WAIT * (tentative + 1))
+                continue
+            app.logger.warning("Catalogue AniList impossible", exc_info=True)
+            raise UpstreamServiceError(
+                "AniList est temporairement indisponible.", 502
+            )
+
+        instable = response.status_code in {429, 500, 502, 503, 504}
+        if instable and tentative < ANILIST_RETRIES:
+            time.sleep(ANILIST_RETRY_WAIT * (tentative + 1))
+            continue
+        break
 
     if response.status_code == 429:
         raise UpstreamServiceError(
@@ -1988,6 +2013,16 @@ def _anilist_post(query, variables, timeout=ANILIST_TIMEOUT):
         )
     if response.status_code >= 400 or not isinstance(payload, dict):
         raise UpstreamServiceError("AniList a refusé la demande.", 502)
+
+    # HTTP 200 mais GraphQL en défaut : sans ce contrôle, la grille restait
+    # vide sans explication (le « rien ne s'affiche » de l'onglet AniList).
+    errors = payload.get("errors")
+    if isinstance(errors, list) and errors:
+        app.logger.warning("AniList a renvoyé une erreur GraphQL : %s", str(errors)[:300])
+        raise UpstreamServiceError(
+            "AniList a refusé la requête du catalogue. Réessayez dans un instant.",
+            502,
+        )
     data = payload.get("data")
     return data if isinstance(data, dict) else {}
 
@@ -2069,7 +2104,14 @@ def anilist_catalogue(
     preset=None,
     duree=None,
 ):
-    """Une page du catalogue AniList : cartes, page courante, suite ou pas."""
+    """Une page du catalogue AniList : cartes, page courante, suite ou pas.
+
+    Une panne AniList est mémorisée une minute (``ANILIST_ERROR_TTL``) : sans
+    cela, chaque clic de pilule, de tri ou de défilement repayerait l'échec —
+    douze secondes d'attente par geste, pendant que la source est en panne.
+    L'erreur est rélevée telle quelle : l'interface l'affiche au lieu de
+    laisser une grille vide se faire passer pour un catalogue vide.
+    """
     if kind not in ANILIST_MEDIA_TYPES:
         abort(400, description="Type de média inconnu.")
     page = max(1, min(int(page or 1), ANILIST_MAX_PAGES))
@@ -2078,6 +2120,24 @@ def anilist_catalogue(
         abort(400, description="Sous-genre d'anime ou de manga invalide.")
     chosen_sort = anilist_sort(sort_id)
 
+    error_key = ("anilist-erreur", kind, pill_id, chosen_sort["id"])
+    memorised = _cache_get(error_key)
+    if memorised is not _CACHE_MISSING:
+        raise memorised
+
+    try:
+        return _anilist_catalogue_page(
+            kind, pill_id, chosen_sort, page, seed, preset, duree, pill
+        )
+    except UpstreamServiceError as error:
+        _cache_set(error_key, error, ttl=ANILIST_ERROR_TTL)
+        raise
+
+
+def _anilist_catalogue_page(
+    kind, pill_id, chosen_sort, page, seed, preset, duree, pill
+):
+    """Le corps du catalogue, hors garde-fous : appelé sous l'erreur mémorisée."""
     # La durée n'a de sens que pour les animes : un manga n'a pas de minutes.
     plage = DUREES.get(duree) if duree and kind == "anime" else None
 
@@ -2707,11 +2767,13 @@ def api_genres():
     pills = [{"id": "all", "label": "Tout"}]
 
     if tab == "animes":
-        # Onglet 100 % AniList : les sous-genres sont ceux d'AniList, et ils
-        # changent selon que l'on regarde les animes ou les mangas.
+        # Onglet 100 % AniList. Les pastilles ne sont PAS les genres de film
+        # (Action, Aventure, Tranche de vie…) : ici ce qui distingue un titre
+        # de l'autre, ce sont les TYPES d'animé — Isekai, Réincarnation,
+        # Shōnen, Seinen… — chacun vérifié contre la liste officielle d'AniList
+        # pour n'offrir que des boutons qui renvoient vraiment des titres.
         kind = _anilist_kind_arg()
         known_tags = anilist_known_tags()
-        pills.extend({"id": p["id"], "label": p["label"]} for p in ANILIST_GENRES)
         pills.extend(
             {"id": p["id"], "label": p["label"]}
             for p in anilist_themes(kind)

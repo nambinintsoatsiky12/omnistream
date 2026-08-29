@@ -1114,6 +1114,42 @@
     if (emptyMsg) emptyMsg.hidden = true;
   }
 
+  /* « Aucun titre » et « impossible de charger » ne sont pas la même chose.
+     Avant, les deux affichaient la même phrase : une panne d'AniList se
+     lisait comme un catalogue vide, et l'onglet restait muet sans aucun
+     indice sur la cause ni sur quoi faire. Désormais le message du serveur
+     s'affiche, avec un bouton qui relance la demande. */
+  function afficherVide(message, avecRetente) {
+    if (!emptyMsg) return;
+    const titre = emptyMsg.querySelector("h3");
+    const texte = emptyMsg.querySelector("p");
+    const ancien = emptyMsg.querySelector("[data-recharger]");
+    if (ancien) ancien.remove();
+    if (titre) {
+      titre.textContent = avecRetente
+        ? "Impossible de charger le catalogue"
+        : "Aucun titre disponible";
+    }
+    if (texte) {
+      texte.textContent = message ||
+        "Aucun titre n'a été trouvé dans cette catégorie pour le moment.";
+    }
+    if (avecRetente) {
+      const bouton = document.createElement("button");
+      bouton.type = "button";
+      bouton.className = "empty-retry";
+      bouton.dataset.recharger = "1";
+      bouton.textContent = "Réessayer";
+      bouton.addEventListener("click", () => {
+        hasMore = true;
+        resetGrid();
+        loadMore();
+      });
+      emptyMsg.appendChild(bouton);
+    }
+    emptyMsg.hidden = false;
+  }
+
   async function loadMore() {
     if (loading || !hasMore) return;
     loading = true;
@@ -1131,12 +1167,20 @@
       gridEl.append(...cards);
       hasMore = Boolean(data.has_more);
       page = requestedPage + 1;
-      if (requestedPage === 1 && cards.length === 0 && emptyMsg) emptyMsg.hidden = false;
+      if (requestedPage === 1 && cards.length === 0) {
+        // Grille VRAIMENT vide (un filtre sans résultat) : message neutre,
+        // pas de faux « panne » qui ferait relancer une source saine.
+        afficherVide("");
+      }
     } catch (error) {
       if (error.name !== "AbortError" && currentGeneration === generation) {
         console.error("Erreur de chargement du catalogue :", error);
-        if (requestedPage === 1 && emptyMsg) {
-          emptyMsg.hidden = false;
+        if (requestedPage === 1) {
+          // Le serveur a expliqué pourquoi (AniList muet, requête refusée…) :
+          // on l'écrit, et on arrête le défilement automatique — retenter en
+          // boucle une source en panne ne ferait que la marteler.
+          hasMore = false;
+          afficherVide(error.message || "Le serveur n'a pas répondu.", true);
         }
       }
     } finally {
