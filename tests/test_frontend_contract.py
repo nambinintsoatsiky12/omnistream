@@ -666,3 +666,144 @@ def test_un_lien_signe_qui_a_vecu_ne_tue_pas_la_lecture():
     assert "if (retryThroughRelay()) return;" in player
     assert 'relay.startsWith("/mp3/")' in player
     assert "__omniRelayed" in player
+
+
+# ---------------------------------------------------------------------------
+# Fluidité : rien d'animé ne tourne pour personne
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def app_shell_js() -> str:
+    return read(STATIC / "js" / "app-shell.js")
+
+
+@pytest.fixture(scope="module")
+def home_js() -> str:
+    return read(STATIC / "js" / "home.js")
+
+
+@pytest.fixture(scope="module")
+def landing_html() -> str:
+    return read(TEMPLATES / "landing.html")
+
+
+def test_les_animations_hors_ecran_sont_mises_en_pause(app_shell_js, style_css):
+    """La fresque d'affiches tournait pour toujours, y compris une fois le
+    visiteur descendu plus bas : c'est le premier gisement de fluidité."""
+    assert "window.OmniIdle" in app_shell_js
+    assert "omni:page-loaded" in app_shell_js
+    assert "[data-anim-idle].is-offscreen" in style_css
+
+
+def test_la_fresque_de_l_accueil_est_marquee_pour_la_pause(landing_html):
+    assert 'class="poster-wall"' in landing_html
+    assert "data-anim-idle" in landing_html.split('class="poster-wall"', 1)[1][:80]
+
+
+def test_la_fresque_ne_porte_plus_de_filtre_global(style_css):
+    """Un `filter` sur le conteneur d'une boucle infinie est réappliqué sur
+    toute la surface à chaque frame."""
+    bloc = style_css[style_css.index(".poster-wall {") :]
+    bloc = bloc[: bloc.index("}")]
+    assert "filter:" not in bloc
+
+
+def test_le_bandeau_a_la_une_ne_defile_que_sous_les_yeux(home_js):
+    assert "IntersectionObserver" in home_js
+    assert "heroObserver.observe(heroSection)" in home_js
+    assert "stopRotation" in home_js
+
+
+# ---------------------------------------------------------------------------
+# Accueil : le décor doit se voir derrière le texte
+# ---------------------------------------------------------------------------
+
+
+def test_le_bloc_de_bienvenue_est_transparent(style_css):
+    """Ni fond blanc, ni bordure, ni flou : les affiches passent au travers."""
+    bloc = style_css[style_css.index(".hero-ua-content {") :]
+    bloc = bloc[: bloc.index("}")]
+    assert "background: transparent" in bloc
+    assert "backdrop-filter" not in bloc
+    assert "border: 0" in bloc
+
+
+def test_le_voile_du_heros_laisse_passer_le_decor(style_css):
+    """Un voile à 0,9 cacherait l'image que la page est censée montrer."""
+    bloc = style_css[style_css.index(".hero-ua-overlay {") :]
+    bloc = bloc[: bloc.index("}")]
+    motif = r"rgba\(\s*13,\s*17,\s*27,\s*([0-9.]+)\)"
+    opacites = [float(v) for v in re.findall(motif, bloc)]
+    assert opacites, "le voile doit rester un dégradé sombre transparent"
+    assert min(opacites) <= 0.35, "le centre du héros doit rester largement visible"
+
+
+def test_le_texte_du_heros_est_lisible_sur_le_decor(style_css):
+    titre = style_css[style_css.index(".hero-ua-title {") :]
+    titre = titre[: titre.index("}")]
+    assert "color: #ffffff" in titre
+    assert "text-shadow:" in titre
+
+
+# ---------------------------------------------------------------------------
+# Thème : plus de noir pur
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "variable,pire",
+    [("--bg:", 0x14), ("--bg-deep:", 0x0F), ("--surface:", 0x1C)],
+)
+def test_le_fond_n_est_plus_noir(style_css, variable, pire):
+    """« Trop noir » : le fond remonte au-dessus du seuil demandé."""
+    ligne = next(
+        line for line in style_css.splitlines() if line.strip().startswith(variable)
+    )
+    valeur = re.search(r"#([0-9a-f]{6})", ligne).group(1)
+    rouge = int(valeur[0:2], 16)
+    assert rouge >= pire, f"{variable} encore trop sombre ({ligne.strip()})"
+
+
+def test_aucun_gabarit_ne_reste_sur_l_ancien_noir():
+    for template in TEMPLATES.glob("*.html"):
+        assert "#090b10" not in read(template), template.name
+
+
+# ---------------------------------------------------------------------------
+# Onglet « Animés & Mangas » : la bascule et les tris sont câblés des deux côtés
+# ---------------------------------------------------------------------------
+
+
+def test_la_bascule_animes_mangas_existe_des_deux_cotes(style_css, home_js):
+    gabarit = read(TEMPLATES / "index.html")
+    assert 'id="media-switch"' in gabarit
+    assert ".media-switch-btn" in style_css
+    assert "mediaSwitch" in home_js
+
+
+def test_la_rangee_de_tris_existe_des_deux_cotes(style_css, home_js):
+    gabarit = read(TEMPLATES / "index.html")
+    assert 'id="sort-pills"' in gabarit
+    assert ".pills-sort" in style_css
+    assert "renderSortPills" in home_js
+
+
+def test_l_onglet_animes_envoie_son_type_et_son_tri(home_js):
+    assert 'params.set("media", activeMedia)' in home_js
+    assert 'params.set("sort", activeSort)' in home_js
+    # Le bandeau suit le type affiché, lui aussi.
+    assert "media=${activeMedia}" in home_js
+
+
+def test_reprendre_ne_s_affiche_plus_dans_les_catalogues(home_js):
+    """L'historique se consulte dans « Mon espace », pas en haut de Films."""
+    gabarit = read(TEMPLATES / "index.html")
+    assert 'id="resume-row"' not in gabarit
+    assert "renderResumeRow" not in home_js
+
+
+def test_reprendre_reste_dans_l_espace_personnel():
+    gabarit = read(TEMPLATES / "bibliotheque.html")
+    assert "Reprendre" in gabarit
+    assert 'id="continue-grid"' in gabarit

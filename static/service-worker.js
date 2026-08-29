@@ -364,7 +364,7 @@ const RESCUE_HTML = [
   '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">',
   '<meta name="viewport" content="width=device-width,initial-scale=1">',
   "<title>OmniStream — connexion impossible</title><style>",
-  "html{background:#090b10;color:#e2e5ed;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}",
+  "html{background:#141824;color:#e9ecf4;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}",
   "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center}",
   "h1{font-size:1.3rem;margin:0 0 10px}p{margin:0 0 22px;color:#949db2;font-size:.9rem;line-height:1.6;max-width:34ch}",
   "b{display:block;font-size:.72rem;letter-spacing:1.4px;color:#ff7a2e;margin-bottom:14px}",

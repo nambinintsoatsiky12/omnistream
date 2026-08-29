@@ -29,7 +29,8 @@
   function detailHref(item) {
     if (item.type === "music") return "/musiques";
     const mediaType = item.media_type;
-    if ((mediaType === "movie" || mediaType === "tv") && item.id) {
+    // Les fiches anime/manga (source AniList) s'ouvrent aussi chez nous.
+    if (["movie", "tv", "anime", "manga"].includes(mediaType) && item.id) {
       return `/details/${mediaType}/${item.id}?tab=${encodeURIComponent(item.tab || "films")}`;
     }
     return null;

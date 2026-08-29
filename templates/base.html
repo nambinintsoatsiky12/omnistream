@@ -9,8 +9,8 @@
    (« application/manifest+json »). Un manifeste servi en « octet-stream » est
    refusé par Chrome, et l'application installée ne se lance alors plus. #}
 <link rel="manifest" href="{{ url_for('manifest') }}">
-<meta name="theme-color" content="#090b10">
-<meta name="theme-color" media="(display-mode: standalone)" content="#090b10">
+<meta name="theme-color" content="#141824">
+<meta name="theme-color" media="(display-mode: standalone)" content="#141824">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="OmniStream">
@@ -45,7 +45,7 @@
 <script src="{{ url_for('static', filename='js/notification-cleanup.js') }}?v={{ asset_version }}" defer></script>
 <meta name="google-site-verification" content="_2AZ02eYdKym_uGxJKyCLYGmmG_E_JmaQ-2WHqswEyY">
 </head>
-<body class="{{ 'body-landing' if landing_page|default(false) else '' }}" style="background-color:#090b10">
+<body class="{{ 'body-landing' if landing_page|default(false) else '' }}" style="background-color:#141824">
 
 <!-- TOP HEADER BAR -->
 <header class="topbar {{ 'topbar-landing' if landing_page|default(false) else '' }}" id="topbar">
@@ -125,7 +125,7 @@
     </a>
     <a href="{{ url_for('index', tab='animes') }}" class="{{ 'active' if tab=='animes' else '' }}">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-      Animes
+      Animés &amp; Mangas
     </a>
     <a href="{{ url_for('index', tab='animation_occidentale') }}" class="{{ 'active' if tab=='animation_occidentale' else '' }}">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
@@ -200,7 +200,7 @@
         <span class="drawer-item-icon">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
         </span>
-        <span class="drawer-item-label">Animés Japonais</span>
+        <span class="drawer-item-label">Animés &amp; Mangas</span>
       </a>
 
       <a href="{{ url_for('index', tab='animation_occidentale') }}" class="drawer-item {{ 'active' if tab=='animation_occidentale' else '' }}">
@@ -236,6 +236,17 @@
         </span>
         <span class="drawer-item-label">Films ≥ 8.5 · Légendes</span>
         <span class="drawer-badge gold">Top</span>
+      </a>
+
+      {# Le rayon adulte ne figure pas dans la barre d'onglets : il reste
+         derrière le menu, et sa page impose un « J'ai 18 ans » avant toute
+         donnée. #}
+      <a href="{{ url_for('adulte') }}" class="drawer-item {{ 'active' if request.endpoint == 'adulte' else '' }}">
+        <span class="drawer-item-icon red-icon">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+        </span>
+        <span class="drawer-item-label">Rayon adulte (18+)</span>
+        <span class="drawer-badge red">18+</span>
       </a>
 
       <a href="{{ url_for('musiques') }}" class="drawer-item">
@@ -534,7 +545,7 @@
         <li><a href="{{ url_for('index') }}">Accueil Vitrine</a></li>
         <li><a href="{{ url_for('index', tab='films') }}">Films Box-Office</a></li>
         <li><a href="{{ url_for('index', tab='series') }}">Séries Télévisées</a></li>
-        <li><a href="{{ url_for('index', tab='animes') }}">Animés Japonais</a></li>
+        <li><a href="{{ url_for('index', tab='animes') }}">Animés &amp; Mangas</a></li>
         <li><a href="{{ url_for('index', tab='animation_occidentale') }}">Animation Occidentale</a></li>
       </ul>
     </div>

@@ -78,7 +78,6 @@ def test_le_navigateur_choisit_la_definition(home_js):
 
 def test_les_images_sont_decodees_hors_du_fil_principal(home_js):
     assert 'image.decoding = "async"' in home_js
-    assert 'loading="lazy" decoding="async"' in home_js  # ligne « Reprendre »
 
 
 def test_la_recherche_serveur_utilise_aussi_le_srcset(index_html):

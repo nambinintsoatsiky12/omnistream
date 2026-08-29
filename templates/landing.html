@@ -14,7 +14,7 @@
          `decoding="async"` : le décodage ne bloque pas le fil principal.
          `fetchpriority="low"` : ces images passent après tout ce que la page
          doit vraiment montrer en premier (texte, boutons, recherche). -->
-    <div class="poster-wall" aria-hidden="true">
+    <div class="poster-wall" aria-hidden="true" data-anim-idle="1">
       {% for column in range(wall_columns) %}
       <div class="poster-col {{ 'poster-col-up' if column is even else 'poster-col-down' }}">
         {% for double in range(2) %}{% for p in posters[column * wall_per_column:(column + 1) * wall_per_column] %}<img src="{{ p }}" loading="lazy" decoding="async" fetchpriority="low" alt="">{% endfor %}{% endfor %}

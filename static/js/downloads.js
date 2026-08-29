@@ -41,7 +41,8 @@
   function detailHref(item) {
     if (item.type === "music") return "/musiques";
     const mediaType = item.media_type;
-    if ((mediaType === "movie" || mediaType === "tv") && item.id) {
+    // Les fiches anime/manga (source AniList) s'ouvrent aussi chez nous.
+    if (["movie", "tv", "anime", "manga"].includes(mediaType) && item.id) {
       return `/details/${mediaType}/${item.id}?tab=${encodeURIComponent(item.tab || "films")}`;
     }
     return null;
@@ -213,8 +214,12 @@
         const used = estimate.usage || 0;
         const quota = estimate.quota || 0;
         const pct = quota ? Math.max(1, Math.round((used / quota) * 100)) : 0;
+        // Ce plafond n'est pas fixé par OmniStream : c'est la part d'espace
+        // que CE navigateur accorde au site sur CET appareil (en général une
+        // fraction du disque libre). L'écrire autrement serait mentir sur la
+        // place réellement disponible.
         note.textContent = quota
-          ? `${formatBytes(used)} utilisés sur ${formatBytes(quota)} (${pct} % de l'espace accordé à OmniStream).`
+          ? `${formatBytes(used)} utilisés sur ${formatBytes(quota)} accordés par votre navigateur sur cet appareil (${pct} %).`
           : "";
         const bar = document.getElementById("storage-bar");
         if (bar) bar.style.width = `${Math.min(100, pct)}%`;
