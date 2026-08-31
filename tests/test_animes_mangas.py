@@ -1263,6 +1263,7 @@ def test_une_panne_anilist_est_memorisee(client, monkeypatch):
     premiere = client.get(
         "/api/list", query_string={"tab": "animes", "media": "anime"}
     )
+    appels_premiere_tour = len(journal)
     seconde = client.get(
         "/api/list", query_string={"tab": "animes", "media": "anime"}
     )
@@ -1270,9 +1271,11 @@ def test_une_panne_anilist_est_memorisee(client, monkeypatch):
     assert premiere.status_code == 502
     assert seconde.status_code == 502
     assert premiere.get_json()["error"], "le message est affiché, pas une grille vide"
-    # Deux pages source en parallèle (2 × 2 tentatives avec retry) au premier appel,
-    # puis cache d'erreur : la seconde requête ne repart pas.
-    assert len(journal) == 4
+    # Le premier appel repart vers AniList (au moins une page source, relance
+    # comprise — les deux pages partent en parallèle, donc on ne compte pas
+    # exactement), puis cache d'erreur : la seconde demande ne repart pas.
+    assert appels_premiere_tour >= 2
+    assert len(journal) == appels_premiere_tour, "la seconde demande ne repart pas"
 
 
 def test_le_catalogue_vide_sans_erreur_est_annonce_dans_le_journal(monkeypatch):
@@ -1525,6 +1528,125 @@ def test_les_variantes_arrivent_propres_au_lecteur(client):
 
     assert 'data-alt="OP|ワンピース"' in html
 
+
+# ---------------------------------------------------------------------------
+# 16. TMDB banni de l'onglet Animés ; Cloudflare contourné
+# ---------------------------------------------------------------------------
+
+
+def test_l_onglet_animes_n_appelle_jamais_tmdb_meme_en_panne_totale(
+    client, monkeypatch
+):
+    """Le « petit animé TMDB » ne doit plus jamais remplacer la grille.
+
+    Si AniList ET Jikan refusent, l'erreur est affichée telle quelle :
+    TMDB (dessins animés occidentaux) ne parle plus du tout sur cet onglet.
+    """
+
+    def tmdb_interdit(chemin, params=None):
+        raise AssertionError(f"TMDB ne doit plus être appelé : {chemin}")
+
+    monkeypatch.setattr(app_module, "tmdb_get", tmdb_interdit)
+
+    def faux_post(url, json=None, **kwargs):
+        return Reponse({"errors": [{"message": "bloqué"}]}, status_code=403)
+
+    monkeypatch.setattr(app_module.requests, "post", faux_post)
+
+    def faux_get(url, params=None, **kwargs):
+        return Reponse({"error": "bloqué"}, status_code=403)
+
+    monkeypatch.setattr(app_module.requests, "get", faux_get)
+
+    reponse = client.get("/api/list", query_string={"tab": "animes", "media": "anime"})
+
+    assert reponse.status_code == 502
+    assert "refusé" in reponse.get_json()["error"]
+
+
+def test_le_bandeau_animes_ne_montrera_plus_de_fausses_affiches(
+    client, monkeypatch
+):
+    """Bandeau : AniList/Jikan ou rien — jamais les « Titre à la une » TMDB."""
+
+    monkeypatch.setattr(app_module, "tmdb_get", lambda *a, **k: {"results": []})
+
+    def faux_post(url, json=None, **kwargs):
+        return Reponse({}, status_code=403)
+
+    monkeypatch.setattr(app_module.requests, "post", faux_post)
+
+    def faux_get(url, params=None, **kwargs):
+        return Reponse({}, status_code=403)
+
+    monkeypatch.setattr(app_module.requests, "get", faux_get)
+
+    donnees = client.get(
+        "/api/hero", query_string={"tab": "animes", "media": "anime"}
+    ).get_json()
+
+    assert donnees["items"] == []
+
+
+def test_un_403_cloudflare_est_relance_avec_empreinte_navigateur(monkeypatch):
+    """Cloudflare gifle python-requests depuis un serveur (Render) : la même
+    requête rejouée avec l'empreinte Chrome de curl_cffi doit sauver l'appel.
+    C'est le correctif du « AniList a refusé la demande » des logs."""
+
+    appels = {"plain": 0, "navigateur": 0}
+
+    def faux_post(url, json=None, **kwargs):
+        appels["plain"] += 1
+        return Reponse("<!doctype html><html>Blocked</html>", status_code=403)
+
+    monkeypatch.setattr(app_module.requests, "post", faux_post)
+
+    class FauxNavigateur:
+        @staticmethod
+        def post(url, json=None, **kwargs):
+            appels["navigateur"] += 1
+            return Reponse(
+                reponse_page([media_anilist(7, "Grille sauvée")]),
+                status_code=200,
+            )
+
+    monkeypatch.setattr(app_module, "navigateur_requests", FauxNavigateur)
+    monkeypatch.setattr(app_module, "NAVIGATEUR_DISPONIBLE", True)
+    monkeypatch.setattr(app_module, "IMPERSONATION_ACTIVE", True)
+
+    donnees = app_module._anilist_post("query { Page { pageInfo { total } } }", {})
+
+    assert appels == {"plain": 1, "navigateur": 1}, "une seule relance, pas plus"
+    assert "Page" in donnees
+
+
+def test_une_reponse_normale_ne_passe_pas_par_le_navigateur(monkeypatch):
+    """Si `requests` reçoit du JSON en 200, pas de relance curl_cffi : un seul
+    aller-retour, comme avant."""
+
+    appels = {"plain": 0, "navigateur": 0}
+
+    def faux_post(url, json=None, **kwargs):
+        appels["plain"] += 1
+        reponse = Reponse(reponse_page([]), status_code=200)
+        reponse.headers = {"Content-Type": "application/json"}
+        return reponse
+
+    monkeypatch.setattr(app_module.requests, "post", faux_post)
+
+    class FauxNavigateur:
+        @staticmethod
+        def post(url, json=None, **kwargs):
+            appels["navigateur"] += 1
+            raise AssertionError("le navigateur ne doit pas être sollicité")
+
+    monkeypatch.setattr(app_module, "navigateur_requests", FauxNavigateur)
+    monkeypatch.setattr(app_module, "NAVIGATEUR_DISPONIBLE", True)
+    monkeypatch.setattr(app_module, "IMPERSONATION_ACTIVE", True)
+
+    app_module._anilist_post("query { Page { pageInfo { total } } }", {})
+
+    assert appels == {"plain": 1, "navigateur": 0}
 
 
 if __name__ == "__main__":
