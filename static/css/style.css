@@ -1944,11 +1944,12 @@ main:has(.landing-hero-ua),
 .rank-badge.rank-3 { background: linear-gradient(135deg, #cd8a4e, #9c6430); }
 .rank-badge.rank-default { background: rgba(27, 32, 45, 0.88); border: 1px solid var(--border); }
 
-/* Rating Badge */
+/* Rating Badge — en BAS à gauche : le coin haut-droit appartient aux trois
+   boutons d'action (cœur, hors ligne, écarter) qui recouvraient la note. */
 .rating-badge {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  bottom: 8px;
+  left: 8px;
   background: rgba(27, 32, 45, 0.88);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -1961,6 +1962,7 @@ main:has(.landing-hero-ua),
   align-items: center;
   gap: 4px;
   border: 1px solid rgba(217, 168, 78, 0.3);
+  z-index: 2;
 }
 
 .rating-badge svg {

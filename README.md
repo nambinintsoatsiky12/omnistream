@@ -104,9 +104,18 @@ la Bibliothèque) étaient déjà là ; des tests les verrouillent.
 
 ### L'onglet « Animés & Mangas »
 
-Cet onglet ne puise **que** dans AniList — TMDB ignore les mangas et classe mal
-une partie des animes, les mélanger faisait apparaître des films d'animation là
-où le visiteur attendait un anime.
+Cet onglet puise dans AniList, avec MyAnimeList (Jikan) en relève — et
+**jamais** dans TMDB : le genre « Animation » de TMDB mélange dessins animés
+occidentaux et animes, et c'est ce « petit animé » qui remplissait la grille
+quand AniList refusait de répondre. Si les deux sources anime tombent en même
+temps, l'erreur est affichée telle quelle plutôt que de servir un catalogue de
+remplacement trompeur.
+
+AniList comme Jikan sont derrière Cloudflare, qui répond 403 aux IP de
+datacenter (Render inclus) : chaque appel est donc rejoué avec l'empreinte
+TLS + HTTP/2 d'un vrai navigateur (curl_cffi) quand la première tentative est
+giflée. C'est ce qui fait disparaître le « AniList a refusé la demande » des
+logs Render.
 
 - une bascule **Animes / Mangas** : chaque moitié a ses propres sous-genres ;
 - des pastilles de **types d'animé/manga** uniquement (Isekai, Réincarnation,

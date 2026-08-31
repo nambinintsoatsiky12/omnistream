@@ -508,7 +508,8 @@
       const data = await requestJson(url, heroController.signal);
       if (currentGeneration !== generation) return;
       let rawItems = Array.isArray(data.items) ? data.items : [];
-      if (!rawItems.length) rawItems = fallbackHeroItems();
+      // Onglet animes : pas de fausses affiches TMDB — AniList/Jikan ou rien.
+      if (!rawItems.length && !isAnimeTab) rawItems = fallbackHeroItems();
       const seenIds = new Set();
       const uniqueItems = [];
       for (const item of rawItems) {
@@ -520,7 +521,14 @@
         uniqueItems.push(item);
       }
       let items = uniqueItems.slice(0, 12);
-      if (items.length === 0) items = fallbackHeroItems();
+      if (items.length === 0) {
+        if (isAnimeTab) {
+          // Rien chez AniList/Jikan : on masque le bandeau, point.
+          heroSection.hidden = true;
+          return;
+        }
+        items = fallbackHeroItems();
+      }
       heroCache.set(`${tab}|${activeMedia}|${activeGenre}`, items);
       if (heroCache.size > 20) {
         const first = heroCache.keys().next().value;
@@ -531,6 +539,16 @@
       if (error.name === "AbortError") return;
       console.error("Erreur de chargement du bandeau :", error);
       if (currentGeneration !== generation) return;
+      if (isAnimeTab) {
+        if (cachedHero && cachedHero.length) {
+          try {
+            renderHero(cachedHero, currentGeneration);
+          } catch(e) {}
+        } else if (heroSection) {
+          heroSection.hidden = true;
+        }
+        return;
+      }
       const items = cachedHero && cachedHero.length ? cachedHero : fallbackHeroItems();
       try {
         renderHero(items, currentGeneration);
@@ -542,7 +560,13 @@
 
   function renderHero(items, currentGeneration) {
       if (currentGeneration !== generation) return;
-      if (!items || !items.length) items = fallbackHeroItems();
+      if (!items || !items.length) {
+        if (isAnimeTab) {
+          if (heroSection) heroSection.hidden = true;
+          return;
+        }
+        items = fallbackHeroItems();
+      }
       keepHeroVisible();
       if (heroTimer) window.clearInterval(heroTimer);
       const slides = [];

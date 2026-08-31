@@ -816,3 +816,30 @@ def test_reprendre_reste_dans_l_espace_personnel():
     gabarit = read(TEMPLATES / "bibliotheque.html")
     assert "Reprendre" in gabarit
     assert 'id="continue-grid"' in gabarit
+
+
+def _bloc_css(style_css: str, selecteur: str) -> str:
+    """Le corps d'une règle CSS de premier niveau, accolades comprises.
+
+    Tolère les sélecteurs multiples (``.a,\\n.b {``) et les listes à virgules.
+    """
+    debut = style_css.index(selecteur)
+    ouverture = style_css.index("{", debut)
+    fin = style_css.index("}", ouverture)
+    return style_css[debut:fin]
+
+
+def test_la_note_de_la_carte_n_est_pas_cachee_par_les_boutons(style_css):
+    """Le cœur, le hors-ligne et « écarter » vivent en haut à droite de
+    l'affiche : la note doit donc vivre ailleurs, sinon les trois boutons
+    la recouvrent et l'utilisateur ne voit plus aucune note."""
+
+    badge = _bloc_css(style_css, ".rating-badge")
+    assert "bottom:" in badge, "la note doit être ancrée en bas de l'affiche"
+    assert "top:" not in badge, "la note ne doit plus remonter dans le coin des boutons"
+    assert "left:" in badge, "la note doit rester à gauche, loin de la rangée de boutons"
+
+    for bouton in (".card-fav-btn,", ".card-pin-btn,", ".card-skip-btn {"):
+        bloc = _bloc_css(style_css, bouton.rstrip(" {,"))
+        assert "top:" in bloc, f"{bouton} doit rester en haut de l'affiche"
+        assert "right:" in bloc, f"{bouton} doit rester dans le coin droit"

@@ -8,6 +8,7 @@ import os
 import random
 import re
 import secrets
+import sys
 import threading
 import time
 import unicodedata
@@ -1033,6 +1034,73 @@ def _recherche_musique(query):
 # pour les deux types.
 ANILIST_URL = "https://graphql.anilist.co"
 ANILIST_TIMEOUT = 12
+
+# ---------------------------------------------------------------------------
+# Appels « à visage humain » — AniList comme Jikan sont derrière Cloudflare,
+# qui note l'empreinte TLS du client : depuis un serveur (Render…),
+# python-requests se fait répondre 403 même avec un User-Agent de navigateur.
+# C'est exactement le « AniList a refusé la demande » des logs qui basculait
+# tout l'onglet Animés sur TMDB. curl_cffi rejoue l'empreinte TLS + HTTP/2
+# d'un vrai Chrome : la même requête passe alors comme depuis un téléphone.
+# ---------------------------------------------------------------------------
+try:
+    from curl_cffi import requests as navigateur_requests
+except Exception:  # pragma: no cover - dépend de l'installation
+    navigateur_requests = None
+
+NAVIGATEUR_DISPONIBLE = navigateur_requests is not None
+# Sous les tests, on reste sur `requests` : les bouchons des tests interceptent
+# exactement cet appel, la relance navigateur n'a pas à parler au réseau.
+IMPERSONATION_ACTIVE = "pytest" not in sys.modules
+STATUTS_CLOUDFLARE = frozenset({403, 503})
+USER_AGENT_NAVIGATEUR = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+def _est_reponse_json(response):
+    """Vrai si la réponse annonce du JSON (une page de défi Cloudflare non)."""
+    entetes = getattr(response, "headers", None) or {}
+    return "json" in str(entetes.get("Content-Type") or "").lower()
+
+
+def _relance_navigateur(methode, url, **kwargs):
+    """La même requête rejouée avec l'empreinte d'un vrai Chrome, ou None."""
+    if not (IMPERSONATION_ACTIVE and NAVIGATEUR_DISPONIBLE):
+        return None
+    try:
+        envoi = getattr(navigateur_requests, methode)
+        return envoi(url, impersonate="chrome", **kwargs)
+    except Exception:
+        app.logger.warning("Relance navigateur (curl_cffi) impossible", exc_info=True)
+        return None
+
+
+def _post_json_visage_humain(url, payload_json, timeout, entetes):
+    """POST JSON, rejoué « comme un navigateur » si Cloudflare gifle (403/503)."""
+    reponse = requests.post(url, json=payload_json, headers=entetes, timeout=timeout)
+    bloque = reponse.status_code in STATUTS_CLOUDFLARE or not _est_reponse_json(reponse)
+    if bloque:
+        alternative = _relance_navigateur(
+            "post", url, json=payload_json, timeout=timeout
+        )
+        if alternative is not None:
+            return alternative
+    return reponse
+
+
+def _get_json_visage_humain(url, params, timeout, entetes):
+    """GET JSON, rejoué « comme un navigateur » si Cloudflare gifle (403/503)."""
+    reponse = requests.get(url, params=params, headers=entetes, timeout=timeout)
+    bloque = reponse.status_code in STATUTS_CLOUDFLARE or not _est_reponse_json(reponse)
+    if bloque:
+        alternative = _relance_navigateur("get", url, params=params, timeout=timeout)
+        if alternative is not None:
+            return alternative
+    return reponse
+
+
 ANILIST_PER_TYPE = 8
 ANILIST_CACHE_TTL = 900
 # Une panne ne doit pas être repayée à chaque frappe : l'erreur est gardée une
@@ -1166,18 +1234,18 @@ def anilist_band(query):
 
     payload = {"items": [], "error": ""}
     try:
-        response = requests.post(
+        response = _post_json_visage_humain(
             ANILIST_URL,
-            json={
+            {
                 "query": ANILIST_QUERY,
                 "variables": {"search": search[:120], "perPage": ANILIST_PER_TYPE},
             },
-            headers={
+            timeout=ANILIST_TIMEOUT,
+            entetes={
                 "Accept": "application/json",
                 "Content-Type": "application/json",
-                "User-Agent": "OmniStream/1.0 (recherche animes et mangas)",
+                "User-Agent": USER_AGENT_NAVIGATEUR,
             },
-            timeout=ANILIST_TIMEOUT,
         )
         data = response.json()
     except requests.Timeout:
@@ -2006,15 +2074,15 @@ def _anilist_post(query, variables, timeout=ANILIST_TIMEOUT):
     payload = None
     for tentative in range(ANILIST_RETRIES + 1):
         try:
-            response = requests.post(
+            response = _post_json_visage_humain(
                 ANILIST_URL,
-                json={"query": query, "variables": variables},
-                headers={
+                {"query": query, "variables": variables},
+                timeout=timeout,
+                entetes={
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "User-Agent": "OmniStream/1.0 (catalogue animes et mangas)",
+                    "User-Agent": USER_AGENT_NAVIGATEUR,
                 },
-                timeout=timeout,
             )
             payload = response.json()
         except requests.Timeout:
@@ -2559,14 +2627,14 @@ def _jikan_get(path, params=None, timeout=JIKAN_TIMEOUT):
     payload = None
     for tentative in range(JIKAN_RETRIES + 1):
         try:
-            response = requests.get(
+            response = _get_json_visage_humain(
                 f"{JIKAN_BASE}{path}",
-                params=query_params,
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "OmniStream/1.0 (catalogue Jikan)",
-                },
+                query_params,
                 timeout=timeout,
+                entetes={
+                    "Accept": "application/json",
+                    "User-Agent": USER_AGENT_NAVIGATEUR,
+                },
             )
             payload = response.json()
         except requests.Timeout:
@@ -3154,14 +3222,20 @@ def jikan_calendrier(kind, page=1):
 
 
 # ---------------------------------------------------------------------------
-# Fournisseur unifié — essaie AniList, puis Jikan, puis TMDB
+# Fournisseur unifié — AniList, puis Jikan (MyAnimeList). JAMAIS TMDB.
 # ---------------------------------------------------------------------------
 def _log_fallback(source, target, err):
     app.logger.warning("Fallback %s -> %s : %s", source, target, err)
 
 
 def catalogue_unifie(kind, pill_id, sort_id, page, seed, preset, duree):
-    """Catalogue qui ne reste JAMAIS vide à cause d'AniList seul."""
+    """Catalogue AniList, relevé par Jikan (MyAnimeList) si AniList tombe.
+
+    TMDB n'entre jamais dans cet onglet : son genre « Animation » mélange
+    dessins animés occidentaux et animes, et c'est ce « petit animé TMDB »
+    qui ne doit plus jamais remplacer la grille. Si les deux sources anime
+    refusent, l'erreur est remontée telle quelle.
+    """
     first_error = None
     empty_result = None
     try:
@@ -3179,30 +3253,10 @@ def catalogue_unifie(kind, pill_id, sort_id, page, seed, preset, duree):
         if result["items"]:
             return result
         empty_result = empty_result or result
-        app.logger.warning("Jikan catalogue vide, on tente TMDB/MangaDex pour %s", kind)
+        app.logger.warning("Jikan catalogue vide pour %s/%s", kind, pill_id)
     except UpstreamServiceError as err:
         first_error = first_error or err
-        _log_fallback("Jikan", "TMDB", err)
-
-    if kind == "anime" and TMDB_API_KEY:
-        try:
-            media_type, base_params = base_discover_params("animes")
-            params = {**base_params, "include_adult": "true"}
-            if sort_id == "note85":
-                params["vote_average.gte"] = 8.5
-                params["vote_count.gte"] = 50
-            items, has_more = rotated_tmdb_page(
-                media_type,
-                params,
-                page,
-                f"unifie-{kind}-{pill_id}-{sort_id}-{seed}-{(page-1)//ROTATION_BAND_PAGES}",
-                preset,
-            )
-            if items:
-                return {"items": items, "page": page, "has_more": has_more, "total": None}
-        except UpstreamServiceError as err:
-            first_error = first_error or err
-            _log_fallback("TMDB", "vide", err)
+        _log_fallback("Jikan", "erreur affichée", err)
 
     if empty_result is not None:
         return empty_result
@@ -3212,7 +3266,7 @@ def catalogue_unifie(kind, pill_id, sort_id, page, seed, preset, duree):
 
 
 def band_unifie(query):
-    """Bande de recherche : AniList puis Jikan puis TMDB."""
+    """Bande de recherche : AniList puis Jikan. TMDB n'y entre jamais."""
     first_error = None
     try:
         band = anilist_band(query)
@@ -3236,82 +3290,31 @@ def band_unifie(query):
         return result
     except UpstreamServiceError as err:
         first_error = first_error or err
-        _log_fallback("Jikan-band", "TMDB-band", err)
-
-    # Dernier recours : TMDB animation pour la bande anime
-    if TMDB_API_KEY:
-        try:
-            data = tmdb_get("/search/tv", {"query": query, "with_genres": "16"})
-            items = []
-            for brut in _result_items(data)[:ANILIST_PER_TYPE]:
-                if not brut.get("poster_path"):
-                    continue
-                title = brut.get("name") or brut.get("title") or ""
-                poster = _tmdb_image_url(CARD_IMG_BASE, brut.get("poster_path"))
-                # On le convertit en format bande via proxy déjà fait côté TMDB ?
-                # Pour la bande on a besoin du format anilist, mais on peut
-                # réutiliser _anilist_item-like via tmdb -> on crée un item bande
-                # minimal avec cover = poster (TMDB direct, pas proxy manga)
-                # Le gabarit bande attend cover déjà proxifié ? Pour TMDB on met
-                # l'url directe, le filtre du gabarit l'acceptera.
-                items.append(
-                    {
-                        "id": brut.get("id"),
-                        "kind": "anime",
-                        "title": str(title)[:160],
-                        "year": str(brut.get("first_air_date") or "")[:4],
-                        "format": "TV",
-                        "country": "JP",
-                        "cover": poster or "",
-                        "url": f"/details/tv/{brut.get('id')}?tab=animes",
-                        "reader": "",
-                    }
-                )
-            if items:
-                return {"items": items, "error": ""}
-        except UpstreamServiceError as err:
-            first_error = first_error or err
-            _log_fallback("TMDB-band", "vide", err)
+        _log_fallback("Jikan-band", "vide", err)
 
     return {"items": [], "error": str(first_error) if first_error else ""}
 
 
 def search_unifie(kind, query, limit=20):
-    first_error = None
+    """Recherche anime/manga : AniList puis Jikan. TMDB n'y entre jamais."""
     try:
         items = anilist_search(kind, query, limit)
         if items:
             return items
     except UpstreamServiceError as err:
-        first_error = first_error or err
         _log_fallback("AniList-search", "Jikan-search", err)
     try:
         items = jikan_search(kind, query, limit)
         if items:
             return items
     except UpstreamServiceError as err:
-        first_error = first_error or err
-        _log_fallback("Jikan-search", "TMDB-search", err)
-
-    if kind == "anime" and TMDB_API_KEY:
-        try:
-            data = tmdb_get("/search/tv", {"query": query, "with_genres": "16"})
-            results = [normalize_card(i, "tv") for i in _result_items(data) if i.get("poster_path")][:limit]
-            # On les convertit en cartes anime (même id mais media_type anime pour la grille animes)
-            converted = []
-            for r in results:
-                converted.append({**r, "media_type": "anime"})
-            if converted:
-                return converted
-        except UpstreamServiceError as err:
-            first_error = first_error or err
-            _log_fallback("TMDB-search", "vide", err)
+        _log_fallback("Jikan-search", "vide", err)
 
     return []
 
 
 def detail_unifie(media_id, kind):
-    """Fiche : AniList puis Jikan puis TMDB (pour anime)."""
+    """Fiche anime/manga : AniList puis Jikan. TMDB n'y entre jamais."""
     first_error = None
     first_404 = None
     try:
@@ -3333,7 +3336,7 @@ def detail_unifie(media_id, kind):
         return jikan_detail(media_id, kind)
     except UpstreamServiceError as err:
         first_error = first_error or err
-        _log_fallback(f"Jikan-detail {kind}/{media_id}", "TMDB-detail", err)
+        _log_fallback(f"Jikan-detail {kind}/{media_id}", "erreur affichée", err)
     except Exception as exc:
         from werkzeug.exceptions import HTTPException as _HTTPException
 
@@ -3341,48 +3344,6 @@ def detail_unifie(media_id, kind):
             first_404 = first_404 or exc
         else:
             raise
-
-    if kind == "anime" and TMDB_API_KEY:
-        try:
-            data = tmdb_get(
-                f"/tv/{media_id}", {"append_to_response": "credits,videos", "language": "fr-FR"}
-            )
-            title = data.get("name") or data.get("title") or "Sans titre"
-            date = data.get("first_air_date") or ""
-            credits = data.get("credits") if isinstance(data.get("credits"), dict) else {}
-            cast_items = credits.get("cast") if isinstance(credits.get("cast"), list) else []
-            cast = [str(p["name"]) for p in cast_items[:6] if isinstance(p, dict) and p.get("name")]
-            genres = [str(g["name"]) for g in (data.get("genres") or []) if isinstance(g, dict) and g.get("name")][:8]
-            overview = data.get("overview") or "Pas de synopsis disponible."
-            trailer_key = _extract_trailer_key(data.get("videos"))
-            return {
-                "id": media_id,
-                "media_type": kind,
-                "title": str(title),
-                "year": date[:4] if isinstance(date, str) else "",
-                "rating": _rating(data.get("vote_average")),
-                "overview": str(overview),
-                "poster": _tmdb_image_url(IMG_BASE, data.get("poster_path")) or "",
-                "backdrop": _tmdb_image_url(BACKDROP_BASE, data.get("backdrop_path")) or "",
-                "genres": genres,
-                "cast": cast,
-                "runtime": (data.get("episode_run_time") or [None])[0],
-                "original_language": data.get("original_language") or "",
-                "origin_country": data.get("origin_country") or [],
-                "trailer_key": trailer_key,
-                "extra_tags": ["Série TV"],
-                "synonyms": [],
-                "relations": _tmdb_relations("tv", media_id, "animes"),
-                "scan_href": f"/lecteur-scan?titre={quote(str(title))}",
-                "scan_label": "LIRE LE MANGA (VF)",
-                "source_name": "TMDB (secours)",
-                "source_url": "",
-            }
-        except UpstreamServiceError as err:
-            first_error = first_error or err
-            _log_fallback(f"TMDB-detail {kind}/{media_id}", "échec", err)
-        except Exception:
-            pass
 
     if first_404 is not None:
         raise first_404
@@ -3392,33 +3353,19 @@ def detail_unifie(media_id, kind):
 
 
 def hero_unifie(kind, limit=16):
-    first_error = None
+    """Bandeau « à la une » : AniList puis Jikan. TMDB n'y entre jamais."""
     try:
         result = anilist_hero(kind, limit)
         if result:
             return result
     except UpstreamServiceError as err:
-        first_error = first_error or err
         _log_fallback("AniList-hero", "Jikan-hero", err)
     try:
         result = jikan_hero(kind, limit)
         if result:
             return result
     except UpstreamServiceError as err:
-        first_error = first_error or err
-        _log_fallback("Jikan-hero", "TMDB-hero", err)
-    if TMDB_API_KEY:
-        try:
-            media_type, base_params = base_discover_params("animes")
-            data = tmdb_get(f"/discover/{media_type}", {**base_params, "sort_by": "popularity.desc", "page": 1})
-            items = [normalize_card(b, media_type) for b in _result_items(data) if b.get("backdrop_path")][:limit]
-            if items:
-                return items
-        except UpstreamServiceError as err:
-            first_error = first_error or err
-            _log_fallback("TMDB-hero", "vide", err)
-    if first_error and not first_error.args:
-        raise first_error
+        _log_fallback("Jikan-hero", "vide", err)
     return []
 
 
@@ -3438,16 +3385,6 @@ def hasard_unifie(kind, seed=None):
     except UpstreamServiceError as err:
         first_error = first_error or err
         _log_fallback("Jikan-hasard", "vide", err)
-
-    if kind == "anime" and TMDB_API_KEY:
-        try:
-            media_type, base_params = base_discover_params("animes")
-            data = tmdb_get(f"/discover/{media_type}", {**base_params, "sort_by": "popularity.desc", "page": 1})
-            items = [normalize_card(b, media_type) for b in _result_items(data) if b.get("poster_path")][:20]
-            if items:
-                return {"items": items, "page": 1, "has_more": False, "total": len(items), "random": True}
-        except UpstreamServiceError:
-            pass
 
     return {"items": [], "page": 1, "has_more": False, "total": 0, "random": True}
 
@@ -3845,7 +3782,9 @@ def api_hero():
         except UpstreamServiceError:
             items = []
         if not items:
-            items = _fallback_hero_cards(tab, 12)
+            # Aucune fausse affiche TMDB sur l'onglet Animés : un bandeau vide
+            # vaut mieux que des dessins animés qui ne viennent pas d'AniList.
+            return jsonify({"items": []})
         seed = _limited_arg("seed", "0", 80)
         ordered = rotation_order(items, f"hero-{tab}-{seed}-{random.randint(0,999999)}", _rotation_preset_arg())
         return jsonify({"items": ordered[:12]})
